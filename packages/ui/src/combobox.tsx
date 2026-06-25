@@ -6,7 +6,7 @@
  * 用于命令面板、搜索建议等场景。Base UI 内部把 Autocomplete 当 Combobox 的别名导出。
  */
 
-import { Autocomplete as Base } from "@base-ui-components/react/autocomplete";
+import { Autocomplete as Base } from "@base-ui/react/autocomplete";
 import { Search01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComponentProps, ReactNode } from "react";

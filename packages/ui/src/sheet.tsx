@@ -4,7 +4,7 @@
  * Sheet —— 从屏幕边缘划出的侧栏。底层复用 Base UI Dialog,语义差异在样式。
  */
 
-import { Dialog as Base } from "@base-ui-components/react/dialog";
+import { Dialog as Base } from "@base-ui/react/dialog";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";

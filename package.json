@@ -10,7 +10,9 @@
   },
   "scripts": {
     "dev": "pnpm -r --parallel --if-present run dev",
+    "dev:web": "pnpm --filter @vite-mastery/web dev",
     "build": "pnpm -r --if-present run build",
+    "build:web": "pnpm --filter @vite-mastery/web build",
     "lint": "oxlint .",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",

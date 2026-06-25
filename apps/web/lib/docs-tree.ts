@@ -8,20 +8,9 @@
  */
 
 import { PARTS } from "./site-config";
+import type { Doc } from "content-collections";
 
-export interface DocItem {
-  slug: string;
-  url: string;
-  title: string;
-  description: string;
-  chapter: string;
-  order: number;
-  part: string;
-  difficulty: number;
-  draft: boolean;
-  readingTime?: number;
-  headings?: { level: 2 | 3; text: string; id: string }[];
-}
+export type DocItem = Doc;
 
 export interface DocsTreeNode {
   part: (typeof PARTS)[number];

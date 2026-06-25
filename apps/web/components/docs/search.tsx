@@ -22,7 +22,30 @@ interface PagefindApi {
 declare global {
   interface Window {
     pagefind?: PagefindApi;
+    __pagefindLoading?: Promise<PagefindApi>;
   }
+}
+
+function loadPagefind(): Promise<PagefindApi> {
+  if (window.pagefind) return Promise.resolve(window.pagefind);
+  if (window.__pagefindLoading) return window.__pagefindLoading;
+
+  window.__pagefindLoading = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "/_pagefind/pagefind.js";
+    script.async = true;
+    script.onload = () => {
+      if (window.pagefind) {
+        resolve(window.pagefind);
+      } else {
+        reject(new Error("Pagefind loaded without exposing an API."));
+      }
+    };
+    script.onerror = () => reject(new Error("Pagefind index is not available."));
+    document.head.appendChild(script);
+  });
+
+  return window.__pagefindLoading;
 }
 
 /**
@@ -61,15 +84,7 @@ export function Search() {
 
     void (async () => {
       try {
-        if (!window.pagefind) {
-          // @ts-expect-error pagefind 是 build 后生成的,TS 不知道
-          window.pagefind = await import(/* @vite-ignore */ "/_pagefind/pagefind.js");
-        }
-        const api = window.pagefind;
-        if (!api) {
-          if (!cancelled) setStatus("no-index");
-          return;
-        }
+        const api = await loadPagefind();
         const { results: raw } = await api.search(query);
         const data = await Promise.all(raw.slice(0, 10).map((r) => r.data()));
         if (!cancelled) {

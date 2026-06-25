@@ -1,6 +1,6 @@
 "use client";
 
-import { Separator as Base } from "@base-ui-components/react/separator";
+import { Separator as Base } from "@base-ui/react/separator";
 import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "./lib/cn.ts";
 

@@ -1,5 +1,10 @@
 import { withContentCollections } from "@content-collections/next";
 import type { NextConfig } from "next";
+import { fileURLToPath } from "node:url";
+
+const contentCollectionsEntry = fileURLToPath(
+  new URL("./.content-collections/generated/index.js", import.meta.url),
+);
 
 const config: NextConfig = {
   reactStrictMode: true,
@@ -18,11 +23,22 @@ const config: NextConfig = {
     optimizePackageImports: [
       "@hugeicons/react",
       "@hugeicons/core-free-icons",
-      "@base-ui-components/react",
+      "@base-ui/react",
     ],
+  },
+  turbopack: {
+    resolveAlias: {
+      "content-collections": "./.content-collections/generated/index.js",
+    },
   },
   /** RSC 阶段把 shiki / twoslash 当 server-only,避免打进 client bundle */
   serverExternalPackages: ["shiki", "@shikijs/twoslash", "@shikijs/transformers"],
+  webpack: (webpackConfig) => {
+    webpackConfig.resolve ??= {};
+    webpackConfig.resolve.alias ??= {};
+    webpackConfig.resolve.alias["content-collections"] = contentCollectionsEntry;
+    return webpackConfig;
+  },
 };
 
 export default withContentCollections(config);

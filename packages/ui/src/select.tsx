@@ -1,6 +1,6 @@
 "use client";
 
-import { Select as Base } from "@base-ui-components/react/select";
+import { Select as Base } from "@base-ui/react/select";
 import { ArrowDown01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";

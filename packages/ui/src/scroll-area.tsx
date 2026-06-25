@@ -1,6 +1,6 @@
 "use client";
 
-import { ScrollArea as Base } from "@base-ui-components/react/scroll-area";
+import { ScrollArea as Base } from "@base-ui/react/scroll-area";
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import { cn } from "./lib/cn.ts";
 

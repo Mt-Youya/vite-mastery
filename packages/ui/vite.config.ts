@@ -20,7 +20,7 @@ export default defineConfig({
         "react",
         "react-dom",
         "react/jsx-runtime",
-        /^@base-ui-components\//,
+        /^@base-ui\//,
         /^lucide-react/,
         "clsx",
         "tailwind-merge",

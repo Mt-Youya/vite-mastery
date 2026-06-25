@@ -15,7 +15,7 @@
 
 import { defineCollection, defineConfig } from "@content-collections/core";
 import { compileMDX } from "@content-collections/mdx";
-import type { Pluggable } from "unified";
+import type { Options as MdxOptions } from "@content-collections/mdx";
 import { docFrontmatter, exampleFrontmatter } from "./schemas.ts";
 
 export * from "./schemas.ts";
@@ -29,10 +29,65 @@ interface DefineOptions {
   /** 同理 examples 目录路径。 */
   examplesDir?: string;
   /** remark 插件,会同时应用到 docs 和 examples。 */
-  remarkPlugins?: Pluggable[];
+  remarkPlugins?: MdxOptions["remarkPlugins"];
   /** rehype 插件,会同时应用到 docs 和 examples。 */
-  rehypePlugins?: Pluggable[];
+  rehypePlugins?: MdxOptions["rehypePlugins"];
 }
+
+type SerializableValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | SerializableValue[]
+  | { [key: string]: SerializableValue };
+
+type ContentMeta = {
+  [key: string]: SerializableValue;
+  filePath: string;
+  fileName: string;
+  directory: string;
+  extension: string;
+  path: string;
+};
+
+type DocDocument = {
+  [key: string]: SerializableValue;
+  title: string;
+  description: string;
+  order: number;
+  part: string;
+  chapter: string;
+  difficulty: number;
+  readingTime: number | undefined;
+  authors: string[];
+  updatedAt: string;
+  draft: boolean;
+  example: string | undefined;
+  content: string;
+  _meta: ContentMeta;
+  body: string;
+  slug: string;
+  url: string;
+  headings: Heading[];
+};
+
+type ExampleDocument = {
+  [key: string]: SerializableValue;
+  title: string;
+  description: string;
+  relatedChapter: string;
+  difficulty: number;
+  repoPath: string;
+  outcome: string;
+  tags: string[];
+  content: string;
+  _meta: ContentMeta;
+  body: string;
+  slug: string;
+  url: string;
+};
 
 export function defineContentConfig(options: DefineOptions = {}) {
   const contentDir = options.contentDir ?? "../../content";
@@ -47,12 +102,24 @@ export function defineContentConfig(options: DefineOptions = {}) {
     directory: contentDir,
     include: "**/*.mdx",
     schema: docFrontmatter,
-    transform: async (doc, ctx) => {
+    transform: async (doc, ctx): Promise<DocDocument> => {
       const body = await compileMDX(ctx, doc, mdxOptions);
       const slug = doc._meta.path.replace(/\\/g, "/");
       /** 章节 part key + 文件相对路径形成 URL 路径,例如 docs/00-getting-started/01-why-vite */
       return {
-        ...doc,
+        title: doc.title,
+        description: doc.description,
+        order: doc.order,
+        part: doc.part,
+        chapter: doc.chapter,
+        difficulty: doc.difficulty,
+        readingTime: doc.readingTime,
+        authors: doc.authors,
+        updatedAt: doc.updatedAt,
+        draft: doc.draft,
+        example: doc.example,
+        content: doc.content,
+        _meta: doc._meta,
         body,
         slug,
         url: `/docs/${slug}`,
@@ -67,11 +134,19 @@ export function defineContentConfig(options: DefineOptions = {}) {
     directory: examplesDir,
     include: "*/README.mdx",
     schema: exampleFrontmatter,
-    transform: async (doc, ctx) => {
+    transform: async (doc, ctx): Promise<ExampleDocument> => {
       const body = await compileMDX(ctx, doc, mdxOptions);
       const slug = doc._meta.path.replace(/\/README$/, "").replace(/\\/g, "/");
       return {
-        ...doc,
+        title: doc.title,
+        description: doc.description,
+        relatedChapter: doc.relatedChapter,
+        difficulty: doc.difficulty,
+        repoPath: doc.repoPath,
+        outcome: doc.outcome,
+        tags: doc.tags,
+        content: doc.content,
+        _meta: doc._meta,
         body,
         slug,
         url: `/examples/${slug}`,
@@ -80,7 +155,7 @@ export function defineContentConfig(options: DefineOptions = {}) {
   });
 
   return defineConfig({
-    collections: [docs, examples],
+    content: [docs, examples],
   });
 }
 
@@ -90,6 +165,7 @@ export function defineContentConfig(options: DefineOptions = {}) {
  *   - 自动生成 slug(与 rehype-slug 一致的简化版,用于客户端定位)
  */
 export interface Heading {
+  [key: string]: SerializableValue;
   level: 2 | 3;
   text: string;
   id: string;
@@ -108,8 +184,11 @@ function extractHeadings(content: string): Heading[] {
     if (inFence) continue;
     const m = /^(#{2,3})\s+(.+?)\s*$/.exec(line);
     if (!m) continue;
-    const level = m[1].length as 2 | 3;
-    const text = m[2].replace(/`([^`]+)`/g, "$1").trim();
+    const marker = m[1];
+    const rawText = m[2];
+    if (!marker || !rawText) continue;
+    const level = marker.length as 2 | 3;
+    const text = rawText.replace(/`([^`]+)`/g, "$1").trim();
     headings.push({ level, text, id: slugify(text) });
   }
   return headings;

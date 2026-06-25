@@ -1,6 +1,6 @@
 "use client";
 
-import { Toggle as Base } from "@base-ui-components/react/toggle";
+import { Toggle as Base } from "@base-ui/react/toggle";
 import type { ComponentPropsWithoutRef } from "react";
 import { cn } from "./lib/cn.ts";
 
