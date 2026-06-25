@@ -1,0 +1,17 @@
+{
+  "name": "@vite-mastery/tailwind-config",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Tailwind v4 CSS-first 共享主题(@theme tokens + base reset)",
+  "files": [
+    "theme.css",
+    "base.css"
+  ],
+  "exports": {
+    "./theme.css": "./theme.css",
+    "./base.css": "./base.css"
+  },
+  "peerDependencies": {
+    "tailwindcss": "^4.0.0"
+  }
+}

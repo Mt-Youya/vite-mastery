@@ -1,0 +1,52 @@
+---
+title: 为什么需要 Vite
+description: 从 Webpack dev server 的痛点出发,理解 Vite 在 dev 模式不打包的根本动机。
+order: 1
+part: 00-getting-started
+chapter: "0.1"
+difficulty: 1
+readingTime: 8
+updatedAt: "2026-06-25"
+---
+
+<Callout type="note" title="你将学到什么">
+- Webpack dev server 慢在哪里
+- 浏览器原生 ESM 解决了什么问题
+- 为什么 Vite 在 dev 用 esbuild、build 用 Rollup
+</Callout>
+
+## 历史问题:为什么 dev server 变得这么慢
+
+Webpack 把所有源码打成一个 bundle 才能让浏览器跑起来。项目从 100 个模块涨到 10000 个,冷启动时间从 2 秒变成 90 秒。HMR 也跟着拖累 —— 每次改一行代码,整条依赖链都要重新走一遍。
+
+更精确的描述是:**JavaScript 工具链的瓶颈在 JavaScript 自己**。Webpack 的核心循环是 JS 在跑,资源处理也是 JS,序列化反序列化也是 JS。一个中等规模的应用,dev 启动时这台编译机要执行几百万行 JS。
+
+## 浏览器原生 ESM 改变了什么
+
+2018 年起,主流浏览器都支持了 `<script type="module">`,可以直接发起 `import "./foo.js"` 这种请求。这意味着:**dev 模式下,根本不需要打包**。
+
+```html
+<!-- 浏览器拿到这个,就会自己去拉 main.ts 以及它所有的依赖 -->
+<script type="module" src="/src/main.ts"></script>
+```
+
+Vite 的 dev server 做的事很简单:**当浏览器请求一个模块时,Vite 把它即时编译(esbuild,Rust + Go)再丢回去**。整个过程没有打包。新增 1000 个文件,dev 启动时间几乎不变,因为没有任何一个文件被提前编译。
+
+## 双引擎架构:dev vs build
+
+| 阶段 | 工具 | 为什么 |
+|---|---|---|
+| **dev** | esbuild | 单文件 transform 性能极高,适合按需编译 |
+| **build** | Rollup | 代码分割、tree-shaking、插件生态成熟,产物质量高 |
+
+esbuild 也能做 build,但 tree-shaking 与代码分割不如 Rollup 精细,所以 Vite 选择了"开发用 esbuild、生产用 Rollup"的双引擎设计。
+
+## 自测题
+
+1. 为什么 dev 模式可以不打包,而 build 模式必须打包?
+2. 用 `<script type="module">` 引入 1000 个模块,浏览器会发起多少次请求?Vite 怎么优化这个问题?
+3. esbuild 比 webpack 快 10-100 倍的关键是什么?
+
+<Callout type="tip">
+答案在 [Part 1 · Core Concepts](/docs/01-core-concepts) 里展开。
+</Callout>

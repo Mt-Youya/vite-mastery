@@ -1,0 +1,160 @@
+"use client";
+
+import { Search01Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Dialog } from "@vite-mastery/ui";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+
+interface PagefindResult {
+  url: string;
+  meta: { title?: string };
+  excerpt: string;
+}
+
+interface PagefindApi {
+  search: (query: string) => Promise<{
+    results: { data: () => Promise<PagefindResult> }[];
+  }>;
+}
+
+declare global {
+  interface Window {
+    pagefind?: PagefindApi;
+  }
+}
+
+/**
+ * 全站搜索 —— 桌面 Cmd+K / Ctrl+K 唤起,移动端点放大镜按钮。
+ *
+ * 索引来源:`/_pagefind/pagefind.js`,在 `pnpm build` 后由 pagefind CLI 生成。
+ * Dev 模式下索引不存在,UI 显示提示文案。
+ */
+export function Search() {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<PagefindResult[] | null>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "no-index" | "no-results">(
+    "idle",
+  );
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  useEffect(() => {
+    if (!open || !query.trim()) {
+      setResults(null);
+      setStatus("idle");
+      return;
+    }
+    let cancelled = false;
+    setStatus("loading");
+
+    void (async () => {
+      try {
+        if (!window.pagefind) {
+          // @ts-expect-error pagefind 是 build 后生成的,TS 不知道
+          window.pagefind = await import(/* @vite-ignore */ "/_pagefind/pagefind.js");
+        }
+        const api = window.pagefind;
+        if (!api) {
+          if (!cancelled) setStatus("no-index");
+          return;
+        }
+        const { results: raw } = await api.search(query);
+        const data = await Promise.all(raw.slice(0, 10).map((r) => r.data()));
+        if (!cancelled) {
+          setResults(data);
+          setStatus(data.length === 0 ? "no-results" : "idle");
+        }
+      } catch {
+        if (!cancelled) setStatus("no-index");
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, query]);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label="搜索文档"
+        className={cn(
+          "flex h-9 w-full max-w-xs items-center gap-2 rounded-md border border-border bg-bg-elevated px-3",
+          "text-sm text-fg-subtle",
+          "transition-colors duration-base hover:border-border-strong hover:text-fg",
+          "focus-visible:outline-none focus-visible:[box-shadow:var(--shadow-focus)]",
+        )}
+      >
+        <HugeiconsIcon icon={Search01Icon} className="size-4" strokeWidth={1.5} aria-hidden />
+        <span className="flex-1 text-left">搜索</span>
+        <kbd className="font-mono text-[10px] text-fg-subtle">⌘K</kbd>
+      </button>
+
+      <Dialog.Root open={open} onOpenChange={setOpen}>
+        <Dialog.Content title="全站搜索" closable className="max-w-2xl">
+          <Dialog.Body>
+            <input
+              autoFocus
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="输入关键词,例如 'transform hook'…"
+              className={cn(
+                "h-11 w-full rounded-md border border-border bg-bg px-3 text-base",
+                "focus-visible:outline-none focus-visible:[box-shadow:var(--shadow-focus)]",
+              )}
+            />
+
+            <div className="mt-4 min-h-[10rem]">
+              {status === "no-index" ? (
+                <p className="rounded-md border border-dashed border-border p-4 text-sm text-fg-muted">
+                  搜索索引尚未生成。在 <code className="font-mono text-xs">pnpm build</code> 后 Pagefind 会自动生成。
+                </p>
+              ) : status === "loading" ? (
+                <p className="text-sm text-fg-muted">搜索中…</p>
+              ) : status === "no-results" ? (
+                <p className="text-sm text-fg-muted">没有匹配的结果。</p>
+              ) : results && results.length > 0 ? (
+                <ul className="divide-y divide-border">
+                  {results.map((r) => (
+                    <li key={r.url}>
+                      <Link
+                        href={r.url}
+                        onClick={() => setOpen(false)}
+                        className="block py-3 transition-colors hover:bg-bg-subtle"
+                      >
+                        <p className="font-medium text-fg">{r.meta.title ?? r.url}</p>
+                        <p
+                          className="mt-1 text-sm text-fg-muted text-pretty [&_mark]:bg-brand-200/60 [&_mark]:text-fg"
+                          dangerouslySetInnerHTML={{ __html: r.excerpt }}
+                        />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : !query ? (
+                <p className="text-sm text-fg-subtle">
+                  提示:支持英文术语(如 <code className="font-mono text-xs">resolveId</code>)与中文(如 <code className="font-mono text-xs">依赖预构建</code>)。
+                </p>
+              ) : null}
+            </div>
+          </Dialog.Body>
+        </Dialog.Content>
+      </Dialog.Root>
+    </>
+  );
+}

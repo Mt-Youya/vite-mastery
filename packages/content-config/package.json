@@ -1,0 +1,26 @@
+{
+  "name": "@vite-mastery/content-config",
+  "private": true,
+  "version": "0.0.0",
+  "description": "content-collections 共享配置:docs / examples 两套 collection",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schemas": "./src/schemas.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@content-collections/core": "^0.15.0",
+    "@content-collections/mdx": "^0.2.0",
+    "unified": "^11.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@vite-mastery/tsconfig": "workspace:*",
+    "typescript": "^6.0.0"
+  }
+}

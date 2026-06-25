@@ -1,0 +1,150 @@
+/**
+ * vite-mastery 设计 tokens · Tailwind v4 CSS-first
+ *
+ * 设计倾向:
+ *   - 主色暖橙(向 Vite 黄致敬,但更克制)
+ *   - 强调色冷紫(给 hover / link / KBD)
+ *   - 中性色 slate,正文 contrast 优先
+ *   - 暗色模式与亮色模式共用同名 token,差异通过 @variant 切换
+ *
+ * 命名遵循 Tailwind v4 namespace 约定:
+ *   --color-* / --font-* / --text-* / --radius-* / --shadow-* / --ease-* / --duration-*
+ */
+
+@theme {
+  /* —— 基础色板(Slate 中性) —— */
+  --color-slate-50: oklch(0.984 0.003 247.86);
+  --color-slate-100: oklch(0.968 0.007 247.9);
+  --color-slate-200: oklch(0.929 0.013 255.51);
+  --color-slate-300: oklch(0.869 0.022 252.89);
+  --color-slate-400: oklch(0.708 0.034 256.79);
+  --color-slate-500: oklch(0.554 0.046 257.42);
+  --color-slate-600: oklch(0.446 0.043 257.27);
+  --color-slate-700: oklch(0.372 0.044 257.28);
+  --color-slate-800: oklch(0.279 0.041 260.03);
+  --color-slate-900: oklch(0.208 0.042 265.75);
+  --color-slate-950: oklch(0.129 0.042 264.7);
+
+  /* —— 品牌主色:Vite Flame(琥珀偏暖) —— */
+  --color-brand-50: oklch(0.985 0.025 80);
+  --color-brand-100: oklch(0.96 0.06 80);
+  --color-brand-200: oklch(0.92 0.11 78);
+  --color-brand-300: oklch(0.875 0.155 75);
+  --color-brand-400: oklch(0.82 0.18 70);
+  --color-brand-500: oklch(0.76 0.19 65);
+  --color-brand-600: oklch(0.685 0.18 55);
+  --color-brand-700: oklch(0.58 0.165 48);
+  --color-brand-800: oklch(0.48 0.135 45);
+  --color-brand-900: oklch(0.39 0.105 45);
+  --color-brand-950: oklch(0.27 0.078 45);
+
+  /* —— 强调色:Iris(冷紫,链接 / 引文 / 焦点) —— */
+  --color-accent-50: oklch(0.97 0.015 285);
+  --color-accent-100: oklch(0.94 0.03 285);
+  --color-accent-200: oklch(0.88 0.06 285);
+  --color-accent-300: oklch(0.81 0.105 285);
+  --color-accent-400: oklch(0.73 0.155 285);
+  --color-accent-500: oklch(0.645 0.185 285);
+  --color-accent-600: oklch(0.555 0.19 285);
+  --color-accent-700: oklch(0.465 0.165 285);
+  --color-accent-800: oklch(0.38 0.135 285);
+  --color-accent-900: oklch(0.31 0.105 285);
+  --color-accent-950: oklch(0.21 0.078 285);
+
+  /* —— 语义色:成功 / 警告 / 危险 —— */
+  --color-success-500: oklch(0.72 0.18 152);
+  --color-success-600: oklch(0.62 0.165 152);
+  --color-warning-500: oklch(0.82 0.165 78);
+  --color-warning-600: oklch(0.72 0.155 70);
+  --color-danger-500: oklch(0.65 0.21 27);
+  --color-danger-600: oklch(0.56 0.19 27);
+
+  /* —— 语义化别名(亮色默认) ——
+   * 注意:elevated 不用纯白 oklch(1 0 0),按 impeccable shared design laws
+   * 给中性色注入一点 brand hue(chroma 0.005),避免冷白屏幕感。
+   */
+  --color-bg: var(--color-slate-50);
+  --color-bg-elevated: oklch(0.992 0.005 80);
+  --color-bg-subtle: var(--color-slate-100);
+  --color-bg-muted: var(--color-slate-200);
+  --color-fg: var(--color-slate-900);
+  --color-fg-muted: var(--color-slate-600);
+  --color-fg-subtle: var(--color-slate-500);
+  --color-border: var(--color-slate-200);
+  --color-border-strong: var(--color-slate-300);
+  --color-ring: var(--color-accent-500);
+  --color-primary: var(--color-brand-600);
+  --color-primary-fg: oklch(1 0 0);
+  --color-accent: var(--color-accent-600);
+  --color-accent-fg: oklch(1 0 0);
+
+  /* —— 字体栈 —— */
+  --font-sans:
+    "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono:
+    "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular,
+    "Menlo", "Consolas", monospace;
+  --font-zh-quote: "Source Han Serif SC", "Songti SC", serif;
+
+  /* —— 字号节奏(modular scale ≈ 1.125 minor third) —— */
+  --text-2xs: 0.6875rem; /* 11 */
+  --text-xs: 0.75rem;    /* 12 */
+  --text-sm: 0.875rem;   /* 14 */
+  --text-base: 1rem;     /* 16 */
+  --text-lg: 1.125rem;   /* 18 */
+  --text-xl: 1.25rem;    /* 20 */
+  --text-2xl: 1.5rem;    /* 24 */
+  --text-3xl: 1.875rem;  /* 30 */
+  --text-4xl: 2.25rem;   /* 36 */
+  --text-5xl: 3rem;      /* 48 */
+  --text-6xl: 3.75rem;   /* 60 */
+
+  /* —— 圆角 —— */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.5rem;
+  --radius-full: 9999px;
+
+  /* —— 阴影 —— */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.06);
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--color-ring) 35%, transparent);
+
+  /* —— 动效曲线 / 时长 ——
+   * 按 impeccable shared design laws:exponential ease-out,不要 spring / elastic / bounce。
+   */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-quart: cubic-bezier(0.76, 0, 0.24, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* —— 容器宽度 —— */
+  --container-prose: 72ch;
+  --container-doc: 88rem;
+}
+
+/* —— 暗色变体:覆盖语义别名 —— */
+@variant dark {
+  --color-bg: oklch(0.16 0.012 265);
+  --color-bg-elevated: oklch(0.208 0.014 265);
+  --color-bg-subtle: var(--color-slate-900);
+  --color-bg-muted: var(--color-slate-800);
+  --color-fg: var(--color-slate-100);
+  --color-fg-muted: var(--color-slate-300);
+  --color-fg-subtle: var(--color-slate-400);
+  --color-border: var(--color-slate-800);
+  --color-border-strong: var(--color-slate-700);
+  --color-primary: var(--color-brand-500);
+  --color-accent: var(--color-accent-400);
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--color-ring) 45%, transparent);
+}

@@ -1,0 +1,14 @@
+# pnpm workspace 配置
+# - apps/*       站点与 playground
+# - packages/*   共享配置与组件库(内部包)
+# - examples/*   实战项目(应能独立 clone 出去跑,不依赖内部包)
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "examples/*"
+allowBuilds:
+  esbuild: true
+  sharp: true
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

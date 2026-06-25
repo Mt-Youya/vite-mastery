@@ -1,0 +1,9 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["./react.json"],
+  "plugins": ["nextjs"],
+  "rules": {
+    "nextjs/no-img-element": "warn",
+    "nextjs/no-html-link-for-pages": "error"
+  }
+}

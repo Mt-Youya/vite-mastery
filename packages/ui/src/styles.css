@@ -1,0 +1,6 @@
+/**
+ * @vite-mastery/ui 内置样式入口(可选 import)。
+ *
+ * 当前为空 —— 所有视觉来自 Tailwind 类名 + tailwind-config 的语义 token。
+ * 留这个文件方便未来要塞 keyframes 或全局补丁时不破坏 import path。
+ */

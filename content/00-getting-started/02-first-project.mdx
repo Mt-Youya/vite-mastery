@@ -1,0 +1,73 @@
+---
+title: 五分钟跑通第一个 Vite 项目
+description: 用 create-vite 起一个 React + TS 项目,看清楚目录里每个文件的意义。
+order: 2
+part: 00-getting-started
+chapter: "0.2"
+difficulty: 1
+readingTime: 5
+updatedAt: "2026-06-25"
+---
+
+<Callout type="note" title="前置知识">
+- 装好 Node 22+ 与 pnpm 10+
+- 命令行基本操作
+</Callout>
+
+## 起一个项目
+
+```bash
+pnpm create vite@latest hello-vite --template react-ts
+cd hello-vite
+pnpm install
+pnpm dev
+```
+
+打开 `http://localhost:5173`,你应该看到 Vite 的默认欢迎页。**这里有几件事值得注意**:
+
+- 第一次冷启动用了不到 1 秒,即便我们没碰任何 Vite 的优化项
+- 改一下 `src/App.tsx` 里的文案,浏览器无刷新地更新(HMR)
+- 整个项目根目录没有 `webpack.config.js` 之类的庞然大物
+
+## 目录解剖
+
+```
+hello-vite/
+├── index.html         ← Vite 的入口,不是 src 里的某个 JS
+├── vite.config.ts     ← 配置入口
+├── package.json
+├── tsconfig.json
+├── src/
+│   ├── main.tsx       ← React 挂载点
+│   ├── App.tsx
+│   └── vite-env.d.ts  ← Vite 注入的全局类型
+└── public/            ← 不参与构建的静态资源
+```
+
+最反直觉的一点:**`index.html` 在项目根目录,而不是在 `public/` 里**。这是因为 Vite 把 `index.html` 当成模块图谱的入口节点。`<script type="module" src="/src/main.tsx">` 这一行就是 Vite 找到所有源码的起点。
+
+## 一行配置就有的能力
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+});
+```
+
+`@vitejs/plugin-react` 装上以后,你免费拿到了:
+
+- React Fast Refresh(HMR 期间保留组件状态)
+- JSX 编译
+- 自动 import `React`(Vite 17+)
+
+后面我们会拆解这个插件做了什么。
+
+## 自测题
+
+1. 为什么 `index.html` 在项目根目录而不是 `public/`?
+2. `pnpm dev` 之后,Network 面板会看到很多 `?t=xxxxx` query。它是干什么的?
+3. 不装任何插件,Vite 默认能编译 `.tsx` 文件吗?为什么?
