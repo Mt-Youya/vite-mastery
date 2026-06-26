@@ -1,5 +1,6 @@
 import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
+import { allDocs } from "content-collections"
 import Link from "next/link"
 import { EXAMPLES } from "@/lib/site-config"
 import { cn } from "@/lib/utils"
@@ -12,6 +13,14 @@ import { cn } from "@/lib/utils"
  * 4 行 × 4 列 = 16 格,1 lg(4) + 3 md(6) + 6 sm(6)。
  */
 const SIZES = ["lg", "md", "sm", "sm", "md", "md", "sm", "sm", "sm", "sm"] as const
+
+function resolveDocHref(chapter: string): string {
+  const doc = allDocs.find((d) => d.chapter === chapter)
+  if (doc) return `/docs/${doc.slug}`
+  const partNo = (chapter.split(".")[0] ?? "").padStart(2, "0")
+  const partSlug = allDocs.find((d) => d.part?.startsWith(`${partNo}-`))?.part
+  return partSlug ? `/docs/${partSlug}` : "/docs"
+}
 
 export function ExamplesBento() {
   return (
@@ -44,7 +53,7 @@ export function ExamplesBento() {
             return (
               <Link
                 key={ex.id}
-                href={`/examples/${ex.id}`}
+                href={resolveDocHref(ex.chapter)}
                 className={cn(
                   "group relative flex flex-col justify-between overflow-hidden rounded-xl border border-border bg-bg-elevated p-5",
                   "transition-colors duration-base hover:border-border-strong hover:bg-bg-muted/40",
