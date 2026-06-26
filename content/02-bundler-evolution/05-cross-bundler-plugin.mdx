@@ -1,0 +1,260 @@
+---
+title: 实战:编写跨 bundler 兼容插件
+description: 用实战项目 5 的代码,实现一个能同时在 Rollup 和 Rolldown 上运行的插件——兼容策略、运行时检测、测试方法全解。
+order: 5
+part: 02-bundler-evolution
+chapter: "2.5"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 跨 bundler 插件的设计原则 - 运行时检测当前 bundler 环境的技巧 - 如何让同一份代码在 Rollup 和 Rolldown 上都能正确运行
+  - 配套实战项目:`examples/plugin-rollup-rolldown-compat`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「插件 API 兼容层」(2.4 节) - 完成「虚拟模块插件」实战(3.4 节)
+</Callout>
+
+## 为什么要关心跨 bundler 兼容
+
+如果你只给自己的项目写插件,通常只需要关心当前 Vite 版本。但如果你要发布到 npm 让社区使用,就需要考虑:
+
+- 目标用户可能还在用 Vite 7(Rollup 引擎)
+- 或者他们直接用 Rollup,不通过 Vite
+
+跨 bundler 兼容插件的核心原则:**只使用两者共同支持的 API,对差异部分做运行时检测和分支处理**。
+
+## 三层兼容策略
+
+### 策略一:只用公共 API(最安全)
+
+如果你的插件只需要以下 hook,几乎不需要做任何兼容处理:
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite" // 或 import type { Plugin } from "rollup"
+
+export function safePlugin(): Plugin {
+  return {
+    name: "my-safe-plugin",
+    // 这些 hook 在 Rollup 和 Rolldown 中行为完全一致
+    resolveId(id) {
+      /* ... */
+    },
+    load(id) {
+      /* ... */
+    },
+    transform(code, id) {
+      /* ... */
+    },
+    buildStart() {
+      /* ... */
+    },
+    generateBundle(_, bundle) {
+      /* ... */
+    },
+  }
+}
+```
+
+如果插件功能只需要这几个 hook,直接按 Rollup API 写即可在两边运行。
+
+### 策略二:运行时检测(有条件使用新特性)
+
+当你想利用 Rolldown 特有功能(如 `chunk.environmentName`)但同时保持 Rollup 兼容时:
+
+```ts filename="plugin.ts"
+import type { Plugin, RenderedChunk } from "rollup"
+
+/** 检测 chunk 是否包含 Rolldown 扩展字段 */
+function isRolldownChunk(chunk: RenderedChunk): boolean {
+  return "environmentName" in chunk
+}
+
+export function bundlerAwarePlugin(): Plugin {
+  return {
+    name: "vite-plugin-bundler-aware",
+    renderChunk(code, chunk) {
+      if (isRolldownChunk(chunk)) {
+        // Rolldown 路径:可以使用扩展字段
+        const env = (chunk as RenderedChunk & { environmentName?: string }).environmentName
+        console.log(`[Rolldown] chunk ${chunk.fileName} 属于环境: ${env}`)
+      } else {
+        // Rollup 路径:只用标准字段
+        console.log(`[Rollup] chunk ${chunk.fileName}`)
+      }
+      return null
+    },
+  }
+}
+```
+
+### 策略三:插件工厂 + 版本适配(最灵活)
+
+对于行为差异较大的场景,用工厂函数封装,让调用方指定模式:
+
+```ts filename="plugin.ts"
+interface CompatPluginOptions {
+  /** 明确指定 bundler 类型,跳过运行时检测 */
+  bundler?: "rollup" | "rolldown" | "auto"
+}
+
+export function compatPlugin(options: CompatPluginOptions = {}): Plugin {
+  const { bundler = "auto" } = options
+  let resolvedBundler: "rollup" | "rolldown" | null = null
+
+  return {
+    name: "vite-plugin-compat",
+    buildStart() {
+      if (bundler !== "auto") {
+        resolvedBundler = bundler
+        return
+      }
+      // 自动检测:Rolldown 提供了特定的 meta 字段
+      // 注意:这里只是示意,具体检测方式取决于 Rolldown 版本
+      resolvedBundler = "rolldown" // 在 Vite 8 里默认是 Rolldown
+    },
+    transform(code, id) {
+      if (resolvedBundler === "rolldown") {
+        return transformForRolldown(code, id)
+      }
+      return transformForRollup(code, id)
+    },
+  }
+}
+
+function transformForRolldown(code: string, id: string) {
+  // Rolldown 特有的优化路径
+  return null
+}
+
+function transformForRollup(code: string, id: string) {
+  // Rollup 兼容路径
+  return null
+}
+```
+
+## 实战项目:Bundle Analyzer 插件
+
+`examples/plugin-rollup-rolldown-compat` 里实现了一个 bundle 分析插件,展示这三种策略的综合运用。
+
+```bash
+cd examples/plugin-rollup-rolldown-compat
+pnpm install
+pnpm build    # Vite 8(Rolldown)
+```
+
+核心实现(简化版):
+
+```ts filename="examples/plugin-rollup-rolldown-compat/src/plugin.ts"
+import type { Plugin, OutputBundle } from "vite"
+
+interface AnalyzerOptions {
+  sizeThreshold?: number
+}
+
+export function bundleAnalyzer(options: AnalyzerOptions = {}): Plugin {
+  const { sizeThreshold = 100 * 1024 } = options
+
+  return {
+    name: "vite-plugin-bundle-analyzer",
+    apply: "build",
+
+    // 只用 generateBundle——这个 hook 在 Rollup 和 Rolldown 中行为完全一致
+    generateBundle(_outputOptions, bundle: OutputBundle) {
+      const chunks = Object.entries(bundle).filter(([, c]) => c.type === "chunk")
+
+      console.log("\n📦 Bundle 分析报告")
+      for (const [fileName, chunk] of chunks) {
+        if (chunk.type !== "chunk") continue
+        const size = Buffer.byteLength(chunk.code, "utf-8")
+        const warn = size > sizeThreshold ? " ⚠️" : ""
+        console.log(`  ${fileName}: ${(size / 1024).toFixed(1)} KB${warn}`)
+      }
+    },
+  }
+}
+```
+
+这个插件之所以"天然兼容",是因为它**只用了公共 API 中最稳定的部分**:`generateBundle` + `bundle` 对象的基础属性。
+
+## 测试跨 bundler 兼容性
+
+### 本地测试
+
+在 `examples/plugin-rollup-rolldown-compat` 里,通过修改 `vite.config.ts` 的 vite 版本可以在不同环境测试:
+
+```bash
+# 测试 Vite 8(Rolldown)
+pnpm build
+
+# 测试结果:查看 dist/ 里的产物,对比 console 输出
+```
+
+参考 `compatibility-matrix.md` 了解已知的行为差异。
+
+### 关键测试场景
+
+1. **resolve 行为**:plugin 里的 `resolveId` 是否在两边都能正确命中
+2. **transform 顺序**:多个插件的 `transform` 执行顺序是否符合预期
+3. **generateBundle 产物**:两边生成的 bundle 结构是否一致
+4. **错误处理**:plugin 调用 `this.error()` 时两边的行为是否一致
+
+## 发布跨 bundler 插件的建议
+
+如果你要把插件发布到 npm:
+
+```json filename="package.json"
+{
+  "name": "my-plugin",
+  "peerDependencies": {
+    "rollup": ">=3.0.0",
+    "vite": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "rollup": { "optional": true },
+    "vite": { "optional": true }
+  }
+}
+```
+
+README 里明确说明支持的版本范围:
+
+```markdown
+## 兼容性
+
+| 工具                 | 支持版本                    |
+| -------------------- | --------------------------- |
+| Vite                 | 4.x / 5.x / 6.x / 7.x / 8.x |
+| Rollup               | 3.x / 4.x                   |
+| Rolldown(via Vite 8) | 8.x                         |
+```
+
+## 自测题
+
+1. "只用公共 API"策略的主要局限是什么?什么情况下必须用"运行时检测"?
+2. 为什么 `resolveId` / `load` / `transform` 是跨 bundler 插件的首选 hook?
+3. 如果一个插件需要访问 `chunk.environmentName`(Rolldown 特有),同时不在 Rollup 上崩溃,正确的处理方式是什么?
+4. 为什么建议把 rollup 和 vite 都声明为 `peerDependencies` 而不是 `devDependencies`?
+
+```ts filename="练习"
+// 实现一个跨 bundler 插件 vite-plugin-banner
+// 功能:在每个输出 chunk 的顶部添加注释 banner
+// 要求:在 Rollup 和 Rolldown 上都能工作
+
+import type { Plugin } from "rollup"
+
+interface BannerOptions {
+  banner: string // 例如 "/* Built with love */"
+}
+
+export function bannerPlugin(options: BannerOptions): Plugin {
+  // TODO: 实现
+  // 提示:renderChunk hook 在 Rollup 和 Rolldown 中都支持
+  // 且返回 { code, map } 格式在两者中完全一致
+}
+```

@@ -1,0 +1,129 @@
+---
+title: pnpm workspace 基础
+description: pnpm workspace 是 Vite monorepo 的基础——workspace 协议、依赖提升策略、Hoisting vs Isolation 的权衡。
+order: 1
+part: 11-monorepo
+chapter: "11.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `pnpm-workspace.yaml` 的配置方式 - `workspace:*` 协议:本地包引用 - pnpm 的依赖提升策略(Hoisting) - `.npmrc`
+  关键配置项
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 npm 包依赖的基本概念 - 知道什么是 monorepo(多包仓库)
+</Callout>
+
+## pnpm-workspace.yaml
+
+声明 monorepo 中哪些目录是 workspace packages:
+
+```yaml filename="pnpm-workspace.yaml"
+packages:
+  - "apps/*" # apps/ 下所有目录
+  - "packages/*" # packages/ 下所有目录
+  - "examples/*" # examples/ 下所有目录
+  - "!**/node_modules/**" # 排除 node_modules
+```
+
+Glob 语法:
+
+- `apps/*`:apps/ 下一层的所有目录
+- `packages/**`:packages/ 下所有层级
+- `!pattern`:排除匹配的目录
+
+## `workspace:*` 协议
+
+本地包之间的相互引用使用 `workspace:*` 协议:
+
+```json filename="apps/web/package.json"
+{
+  "dependencies": {
+    "@vite-mastery/ui": "workspace:*",
+    "@vite-mastery/mdx-components": "workspace:*"
+  }
+}
+```
+
+`workspace:*` 的含义:
+
+- **开发时**:链接到本地的 `packages/ui/` 目录(软链接)
+- **发布时**:替换为实际的版本号(如果要发布到 npm)
+- **不用发布时**:保持 `workspace:*` 即可
+
+## 常用 pnpm workspace 命令
+
+```bash
+# 在根目录操作所有 workspace
+pnpm -r run build       # 递归运行所有包的 build
+pnpm -r run typecheck   # 递归运行 typecheck
+
+# 只操作特定包
+pnpm --filter @vite-mastery/web dev
+pnpm --filter ./packages/ui build
+
+# 在某个包里安装依赖
+pnpm add react --filter @vite-mastery/web
+pnpm add -D typescript --filter @vite-mastery/ui
+
+# 安装所有包的依赖
+pnpm install
+```
+
+## .npmrc 关键配置
+
+```ini filename=".npmrc"
+# 不提升 node_modules 到根目录(更严格的隔离)
+shamefully-hoist=false
+
+# 自动安装 peer dependencies
+auto-install-peers=true
+
+# 严格模式:package.json 里没声明的依赖不能使用
+# (防止 phantom dependencies)
+strict-peer-dependencies=false
+```
+
+## 依赖提升(Hoisting)的权衡
+
+pnpm 默认**不提升**依赖到根 `node_modules`:
+
+```text
+# Hoisting 关闭(pnpm 默认):
+apps/web/node_modules/react     ← web 独立的 react
+packages/ui/node_modules/react  ← ui 独立的 react
+# 每个包有自己的 node_modules,更隔离
+
+# Hoisting 开启(shamefully-hoist=true):
+node_modules/react              ← 所有包共用一个 react
+# 节省空间,但有幽灵依赖风险
+```
+
+**推荐**:保持 `shamefully-hoist=false`(pnpm 默认),使用 `auto-install-peers=true` 处理 peer deps。
+
+## 自测题
+
+1. `workspace:*` 和 `workspace:^1.0.0` 有什么区别?
+2. `shamefully-hoist=false` 对项目有什么影响?为什么叫 "shamefully"?
+3. 用 `pnpm -r run build` 和用 Turborepo 的 `turbo build` 有什么区别?
+4. 如果 `packages/ui` 需要用 `packages/utils` 里的工具函数,应该怎么配置?
+
+```yaml filename="练习"
+# 配置一个 monorepo 的 pnpm-workspace.yaml:
+# 结构:
+# - apps/web (Next.js 主站)
+# - apps/docs (文档站)
+# - packages/design-tokens (设计 token)
+# - packages/ui (组件库)
+# - packages/hooks (React hooks)
+# - packages/utils (工具函数)
+# - examples/ 下有多个独立示例,不需要加入 workspace
+
+# 写出 pnpm-workspace.yaml 和 .npmrc 的内容
+```

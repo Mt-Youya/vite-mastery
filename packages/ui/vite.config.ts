@@ -1,6 +1,6 @@
-import { resolve } from "node:path";
-import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { resolve } from "node:path"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
 
 /**
  * 库模式构建。日常开发 apps/web 直接通过 `transpilePackages` 消费 src,
@@ -28,4 +28,4 @@ export default defineConfig({
       ],
     },
   },
-});
+})

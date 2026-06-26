@@ -1,0 +1,309 @@
+---
+title: 插件间通信
+description: 多个插件如何共享状态?`this.meta` 是什么?Vite 的 `createViteRuntime` 和闭包共享各有何优劣?
+order: 5
+part: 03-plugin-system
+chapter: "3.5"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 插件之间为什么需要通信 - 使用闭包共享状态的正确方式 - `this.meta` 和 `this.getModuleInfo()` 的用途 - Vite
+  虚拟模块作为插件通信桥梁
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「插件执行顺序」(3.3 节) - 阅读「虚拟模块插件」(3.4 节)
+</Callout>
+
+## 为什么插件之间需要通信
+
+单个插件处理单一职责是理想情况,但实际项目里有时需要多个插件协作:
+
+- **插件 A** 扫描所有路由文件,生成路由表
+- **插件 B** 把路由表注入到 HTML 的 `<head>` 里
+
+插件 B 需要拿到插件 A 生成的数据——这就是插件间通信。
+
+另一个常见场景:一个插件负责开发时的功能,另一个插件负责构建时的优化,两者需要共享配置或中间数据。
+
+## 方案一:闭包共享(最简单)
+
+最直接的方式是把两个插件包在同一个工厂函数里,共享一个闭包变量:
+
+```ts filename="plugins/route-system.ts"
+import type { Plugin } from "vite"
+
+export function routeSystemPlugins(): Plugin[] {
+  // 共享状态:在闭包里声明
+  const routes: { path: string; component: string }[] = []
+
+  return [
+    // 插件 A:扫描路由
+    {
+      name: "vite-plugin-route-scanner",
+      enforce: "pre",
+      buildStart() {
+        // 扫描并填充 routes
+        routes.push({ path: "/", component: "src/pages/index.tsx" })
+        routes.push({ path: "/about", component: "src/pages/about.tsx" })
+      },
+    },
+
+    // 插件 B:注入路由表
+    {
+      name: "vite-plugin-route-injector",
+      // 闭包里的 routes 对 B 可见
+      resolveId(id) {
+        if (id === "virtual:routes") return "\0virtual:routes"
+        return null
+      },
+      load(id) {
+        if (id !== "\0virtual:routes") return null
+        return `export default ${JSON.stringify(routes)}`
+      },
+    },
+  ]
+}
+```
+
+使用时一起配置:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { routeSystemPlugins } from "./plugins/route-system"
+
+export default defineConfig({
+  plugins: [...routeSystemPlugins()],
+})
+```
+
+**优点**:简单直接,零开销。
+**缺点**:两个插件必须一起发布,无法独立复用。
+
+## 方案二:通过虚拟模块传递数据
+
+如果两个插件来自不同的 npm 包,可以用**虚拟模块**作为数据桥梁:
+
+```ts filename="plugin-a.ts"
+import type { Plugin } from "vite"
+
+const BRIDGE_ID = "virtual:plugin-a-data"
+let sharedData: Record<string, unknown> = {}
+
+// 暴露一个函数让插件 B 调用
+export function setSharedData(data: Record<string, unknown>) {
+  sharedData = data
+}
+
+export function pluginA(): Plugin {
+  return {
+    name: "plugin-a",
+    buildStart() {
+      sharedData = { timestamp: Date.now(), items: ["a", "b", "c"] }
+    },
+    resolveId(id) {
+      if (id === BRIDGE_ID) return "\0" + BRIDGE_ID
+      return null
+    },
+    load(id) {
+      if (id !== "\0" + BRIDGE_ID) return null
+      return `export default ${JSON.stringify(sharedData)}`
+    },
+  }
+}
+```
+
+```ts filename="plugin-b.ts"
+import type { Plugin } from "vite"
+
+export function pluginB(): Plugin {
+  return {
+    name: "plugin-b",
+    // 插件 B 通过 import "virtual:plugin-a-data" 获取数据
+    transform(code, id) {
+      if (!code.includes("virtual:plugin-a-data")) return null
+      // 让 Vite 继续处理这个 import
+      return null
+    },
+  }
+}
+```
+
+## 方案三:`this.meta` — Rollup 插件元数据
+
+Rollup(和 Rolldown)提供了 `this.meta` 机制,让插件可以在模块级别写入和读取元数据:
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite"
+
+// 插件 A:在模块上标注元数据
+const pluginAMeta = {
+  name: "plugin-a",
+  buildStart() {
+    // 无法用 this.meta 跨插件通信
+    // this.meta 只是插件自己的元数据空间
+  },
+  transform(code, id) {
+    // 给这个模块附加元数据
+    // 注意:this.meta 是该插件对该模块的私有空间
+    this.meta.processedAt = Date.now()
+    return null
+  },
+}
+```
+
+<Callout type="warning">
+  `this.meta` 是插件对**模块**的私有元数据,不是跨插件通信的机制。另一个插件无法读取插件 A 在 `this.meta` 里写的数据。
+</Callout>
+
+## 方案四:`this.getModuleInfo()` — 读取其他模块信息
+
+在 `generateBundle` 等输出阶段 hook 里,可以通过 `this.getModuleInfo(id)` 读取任意模块的信息:
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite"
+
+export function analyzePlugin(): Plugin {
+  return {
+    name: "vite-plugin-analyze",
+    apply: "build",
+    generateBundle(_, bundle) {
+      for (const [, chunk] of Object.entries(bundle)) {
+        if (chunk.type !== "chunk") continue
+
+        // 获取 chunk 里每个模块的详细信息
+        for (const moduleId of Object.keys(chunk.modules)) {
+          const info = this.getModuleInfo(moduleId)
+          if (!info) continue
+
+          console.log({
+            id: info.id,
+            importers: info.importers,
+            isEntry: info.isEntry,
+            hasDefaultExport: info.hasDefaultExport,
+            // code 包含模块的原始代码(如果 treeshake 了则为 null)
+          })
+        }
+      }
+    },
+  }
+}
+```
+
+## 实用场景:配置共享插件
+
+当一个插件套件需要多个子插件共享配置时:
+
+```ts filename="plugin-suite.ts"
+import type { Plugin } from "vite"
+
+interface SuiteOptions {
+  prefix: string
+  debug: boolean
+}
+
+function createSharedContext(options: SuiteOptions) {
+  // 所有子插件共享这个 context 对象
+  return {
+    prefix: options.prefix,
+    debug: options.debug,
+    cache: new Map<string, string>(),
+  }
+}
+
+export function pluginSuite(options: SuiteOptions): Plugin[] {
+  const ctx = createSharedContext(options)
+
+  return [transformPlugin(ctx), injectPlugin(ctx), reportPlugin(ctx)]
+}
+
+function transformPlugin(ctx: ReturnType<typeof createSharedContext>): Plugin {
+  return {
+    name: "suite:transform",
+    transform(code, id) {
+      const result = doTransform(code, ctx.prefix)
+      ctx.cache.set(id, result) // 写入共享缓存
+      return { code: result, map: null }
+    },
+  }
+}
+
+function injectPlugin(ctx: ReturnType<typeof createSharedContext>): Plugin {
+  return {
+    name: "suite:inject",
+    transform(code, id) {
+      const cached = ctx.cache.get(id) // 读共享缓存
+      if (!cached) return null
+      return injectCode(cached)
+    },
+  }
+}
+
+function doTransform(code: string, prefix: string) {
+  return code
+}
+function injectCode(code: string) {
+  return null
+}
+
+function reportPlugin(ctx: ReturnType<typeof createSharedContext>): Plugin {
+  return {
+    name: "suite:report",
+    buildEnd() {
+      if (ctx.debug) {
+        console.log(`处理了 ${ctx.cache.size} 个模块`)
+      }
+    },
+  }
+}
+```
+
+## 自测题
+
+1. `this.meta` 能用来在不同插件之间共享数据吗?为什么?
+2. 闭包共享和虚拟模块桥梁两种方式各适合什么场景?
+3. 如果插件 A 在 `buildStart` 里收集数据,插件 B 在 `transform` 里使用这些数据,执行顺序有保证吗?
+4. `this.getModuleInfo(id)` 在哪些 hook 里可以使用?为什么在 `transform` 里不太适合用它?
+
+```ts filename="练习"
+// 实现两个协作插件:
+// 插件 1:扫描所有 .md 文件,生成文件列表
+// 插件 2:通过虚拟模块 "virtual:md-files" 暴露这个列表
+//
+// 要求:两个插件在同一个工厂函数里,通过闭包共享数据
+
+import type { Plugin } from "vite"
+import { glob } from "node:fs/promises"
+import { resolve } from "node:path"
+
+export function mdListPlugins(): Plugin[] {
+  // TODO:声明共享状态
+  const mdFiles: string[] = []
+
+  return [
+    // 插件 1:扫描 .md 文件
+    {
+      name: "md-scanner",
+      async buildStart() {
+        // TODO:用 glob 扫描 content/**/*.md
+      },
+    },
+
+    // 插件 2:暴露虚拟模块
+    {
+      name: "md-virtual",
+      resolveId(id) {
+        // TODO
+      },
+      load(id) {
+        // TODO:返回 export default [...mdFiles]
+      },
+    },
+  ]
+}
+```

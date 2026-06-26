@@ -1,0 +1,205 @@
+---
+title: Environment 相关 Hook
+description: Vite 7 新增的 `buildApp` hook 和 Environment API 带来的多环境感知能力——如何为不同环境的构建定制行为。
+order: 6
+part: 04-hooks-deep-dive
+chapter: "4.6"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `buildApp` hook 是什么(Vite 7+ 新增) - 如何在插件里感知当前所在的 Environment - Environment-aware
+  transform:根据环境定制行为 - `hotUpdate` hook:Environment API 版的 HMR hook
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「为什么需要 Environment API」(5.1 节) - 了解 client / ssr 两个默认环境的区别
+</Callout>
+
+## 插件如何感知当前 Environment
+
+在启用了 Environment API 的项目里,同一个插件的 `transform` hook 可能被不同环境调用多次。插件可以通过 `this.environment` 感知当前环境:
+
+```ts
+import type { Plugin } from "vite"
+
+export function envAwarePlugin(): Plugin {
+  return {
+    name: "vite-plugin-env-aware",
+    transform(code, id) {
+      // this.environment 在 Environment API 下可用
+      const envName = this.environment?.name ?? "unknown"
+
+      if (envName === "client") {
+        // 客户端代码:注入浏览器相关标识
+        return {
+          code: code.replace("__IS_CLIENT__", "true"),
+          map: null,
+        }
+      }
+
+      if (envName === "ssr") {
+        // 服务端代码:注入 Node.js 相关标识
+        return {
+          code: code.replace("__IS_CLIENT__", "false"),
+          map: null,
+        }
+      }
+
+      return null
+    },
+  }
+}
+```
+
+<Callout type="warning">
+  `this.environment` 是 Environment API 的一部分,在 Vite 8.1.x 中处于 RC 阶段。API 细节以官方文档为准。
+</Callout>
+
+## `buildApp` hook(Vite 7+ 新增)
+
+`buildApp` 是 Vite 7 引入的新 hook,用于协调多环境构建。在 Vite 8 中随着 Environment API 进一步完善。
+
+**触发时机**:build 阶段,所有环境的构建开始之前。
+
+**用途**:框架可以用 `buildApp` hook 来编排多个环境的构建顺序和配置。
+
+```ts
+import type { Plugin } from "vite"
+
+export function multiEnvPlugin(): Plugin {
+  return {
+    name: "vite-plugin-multi-env",
+    async buildApp(app) {
+      // app 对象包含所有已配置的 Environment
+      // 可以在这里控制构建顺序
+
+      // 先构建 ssr 环境(生成服务端代码)
+      await app.build("ssr")
+
+      // 再构建 client 环境(生成浏览器代码)
+      await app.build("client")
+    },
+  }
+}
+```
+
+<Callout type="warning">
+  `buildApp` hook 的 API 在 Vite 7 引入后仍在演进。具体参数和用法请以当前 Vite 8.1.x
+  官方文档为准。本节只介绍概念和用途。
+</Callout>
+
+## `hotUpdate` hook(Environment API 版的 HMR)
+
+与 `handleHotUpdate` 类似,但是 Environment API 版本:
+
+```ts
+import type { Plugin } from "vite"
+
+export function envHotPlugin(): Plugin {
+  return {
+    name: "vite-plugin-env-hot",
+    hotUpdate({ type, file, timestamp, modules, server }) {
+      // type: "create" | "update" | "delete"
+      // 可以区分文件创建、修改、删除三种事件
+
+      if (file.endsWith(".yaml")) {
+        // 对所有环境广播自定义事件
+        server.environments.client.hot.send({
+          type: "custom",
+          event: "yaml-update",
+          data: { file },
+        })
+
+        // 只在 ssr 环境里触发模块失效
+        const ssrModule = server.environments.ssr?.moduleGraph.getModuleById(file)
+        if (ssrModule) {
+          server.environments.ssr?.moduleGraph.invalidateModule(ssrModule)
+          return [ssrModule]
+        }
+
+        return []
+      }
+    },
+  }
+}
+```
+
+## 实际使用场景
+
+### 场景:SSR 只用 Node.js 版本的工具库
+
+```ts
+transform(code, id) {
+  if (!id.endsWith(".ts")) return null
+
+  const envName = this.environment?.name
+
+  // 在 SSR 环境里替换浏览器 API 为 Node.js 等价实现
+  if (envName === "ssr") {
+    return {
+      code: code
+        .replace("localStorage.getItem", "process.env.STORAGE_DATA")
+        .replace("window.location.href", "globalThis.__SSR_URL__"),
+      map: null,
+    }
+  }
+
+  return null
+},
+```
+
+### 场景:不同环境注入不同的全局常量
+
+```ts
+config() {
+  return {
+    environments: {
+      client: {
+        define: {
+          __RUNTIME__: JSON.stringify("browser"),
+          __HAS_DOM__: "true",
+        },
+      },
+      ssr: {
+        define: {
+          __RUNTIME__: JSON.stringify("node"),
+          __HAS_DOM__: "false",
+        },
+      },
+    },
+  }
+},
+```
+
+## 自测题
+
+1. 在 Environment API 的场景下,同一个插件的 `transform` hook 可能被调用几次?为什么?
+2. `buildApp` hook 主要被谁使用——框架开发者还是应用开发者?为什么?
+3. `hotUpdate` 和 `handleHotUpdate` 有什么区别?
+4. 如何让某个插件只在 `ssr` 环境运行?
+
+```ts filename="练习"
+// 实现一个插件:在 transform 阶段根据当前环境
+// 分别注入 "CLIENT_ONLY_CODE" 或 "SERVER_ONLY_CODE" 占位符对应的实现
+// - client 环境:把 CLIENT_ONLY_CODE 替换成实际的浏览器 API 调用
+// - ssr 环境:把 CLIENT_ONLY_CODE 替换成 undefined,防止在服务端报错
+
+import type { Plugin } from "vite"
+
+export function envInjectorPlugin(): Plugin {
+  return {
+    name: "vite-plugin-env-injector",
+    transform(code, id) {
+      // TODO:
+      // 1. 获取当前环境名称
+      // 2. 根据环境替换占位符
+      // 3. 返回修改后的代码
+    },
+  }
+}
+```

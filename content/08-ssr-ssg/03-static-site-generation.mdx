@@ -1,0 +1,206 @@
+---
+title: SSG 静态生成模式
+description: 用 Vite + Node.js 实现 SSG(静态站点生成)——在构建时预渲染所有页面为 HTML 文件,无需服务器运行时。
+order: 3
+part: 08-ssr-ssg
+chapter: "8.3"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - SSG 与 SSR 的区别:构建时 vs 运行时 - 用 Vite 构建钩子实现 SSG - 路由收集与批量预渲染 - 适合 SSG 的场景与局限
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Vite 8 时代的 SSR API」(8.1 节) - 了解静态网站和 CDN 的概念
+</Callout>
+
+## SSR vs SSG 的区别
+
+| 维度       | SSR                  | SSG                    |
+| ---------- | -------------------- | ---------------------- |
+| 渲染时机   | 每次请求时动态渲染   | 构建时一次性渲染       |
+| 部署需求   | 需要 Node.js 服务器  | 只需静态文件服务器/CDN |
+| 数据新鲜度 | 始终最新             | 构建时的快照           |
+| 适合内容   | 用户个性化、实时数据 | 文档、博客、营销页面   |
+
+## 实现 SSG 的核心思路
+
+```text
+vite build(SSR build)
+      │
+      ▼
+Node.js 脚本:
+  1. 收集所有路由
+  2. 对每个路由调用 render(url)
+  3. 把渲染结果写入对应的 HTML 文件
+  4. 复制 client build 的产物
+```
+
+## 完整 SSG 实现
+
+```ts filename="scripts/prerender.ts"
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
+import { resolve, join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url))
+
+// 1. 收集所有要预渲染的路由
+function collectRoutes(): string[] {
+  // 方案 A:静态列表
+  return ["/", "/about", "/docs/getting-started", "/docs/api"]
+
+  // 方案 B:从路由配置文件读取
+  // return loadRoutesFromConfig()
+
+  // 方案 C:扫描 content/ 目录生成路由
+  // return scanContentDir()
+}
+
+async function prerender() {
+  const routes = collectRoutes()
+  const distDir = resolve("dist")
+  const clientDir = join(distDir, "client")
+  const serverEntry = join(distDir, "server", "entry-server.js")
+
+  console.log(`\n🚀 预渲染 ${routes.length} 个页面...\n`)
+
+  // 读取模板 HTML(已包含正确的资源链接)
+  const template = readFileSync(join(clientDir, "index.html"), "utf-8")
+
+  // 动态 import 服务端入口
+  const { render } = await import(serverEntry)
+
+  // 2. 对每个路由预渲染
+  const results = await Promise.all(
+    routes.map(async (route) => {
+      try {
+        const { html: appHtml, data } = await render(route)
+
+        const html = template
+          .replace("<!--ssr-outlet-->", appHtml)
+          .replace("<!--ssr-data-->", JSON.stringify(data ?? null))
+
+        // 3. 计算输出文件路径
+        const outputPath = route === "/" ? join(clientDir, "index.html") : join(clientDir, route.slice(1), "index.html")
+
+        // 确保目录存在
+        mkdirSync(join(outputPath, ".."), { recursive: true })
+
+        // 4. 写入 HTML 文件
+        writeFileSync(outputPath, html)
+
+        console.log(`  ✓ ${route} → ${outputPath.replace(clientDir, "")}`)
+        return { route, success: true }
+      } catch (e) {
+        console.error(`  ✗ ${route}: ${e}`)
+        return { route, success: false, error: e }
+      }
+    })
+  )
+
+  const success = results.filter((r) => r.success).length
+  const failed = results.filter((r) => !r.success).length
+
+  console.log(`\n预渲染完成: ${success} 成功${failed ? `, ${failed} 失败` : ""}`)
+}
+
+prerender().catch(console.error)
+```
+
+## 构建脚本
+
+```json filename="package.json"
+{
+  "scripts": {
+    "build": "vite build && vite build --ssr && node scripts/prerender.ts",
+    "preview": "serve dist/client"
+  }
+}
+```
+
+## 增量 SSG:只重建变化的页面
+
+对于内容驱动的网站,全量重建太慢。增量构建策略:
+
+```ts
+async function incrementalPrerender() {
+  const allRoutes = collectRoutes()
+
+  // 读取上次构建的 hash 记录
+  const hashFile = resolve(".ssg-hash.json")
+  const hashes = existsSync(hashFile) ? JSON.parse(readFileSync(hashFile, "utf-8")) : {}
+
+  const toRender: string[] = []
+
+  for (const route of allRoutes) {
+    const contentHash = getContentHash(route) // 读取对应内容文件的 hash
+
+    if (hashes[route] !== contentHash) {
+      toRender.push(route)
+    }
+  }
+
+  if (toRender.length === 0) {
+    console.log("所有页面均无变化,跳过预渲染")
+    return
+  }
+
+  console.log(`增量渲染 ${toRender.length} 个变化的页面`)
+  await renderPages(toRender)
+
+  // 更新 hash 记录
+  for (const route of toRender) {
+    hashes[route] = getContentHash(route)
+  }
+  writeFileSync(hashFile, JSON.stringify(hashes, null, 2))
+}
+```
+
+## SSG 的局限
+
+- **不适合动态内容**:用户登录状态、购物车、个性化推荐
+- **数据过期问题**:外部 API 数据在构建时获取,之后不更新
+- **构建时间**:页面多时,构建时间显著增加(可用增量构建缓解)
+
+**混合策略**:把 SSG 和 client-side fetching 结合:
+
+- SSG 渲染静态骨架(不包含动态数据)
+- client 加载后再请求动态数据
+
+## 自测题
+
+1. SSG 和 SSR 的核心区别是什么?各适合哪类应用?
+2. SSG 预渲染后的产物能部署在 CDN 上吗?有什么优势?
+3. 为什么要用 `Promise.all` 并行预渲染所有页面?有什么潜在风险?
+4. 博客应用同时有「文章列表」和「文章详情」两种页面,哪些用 SSG,哪些可能不适合?
+
+```ts filename="练习"
+// 为本站(vite-mastery)实现 SSG:
+// 1. 收集所有 content/*.mdx 对应的路由
+// 2. 预渲染每个路由为 HTML 文件
+// 3. 添加 sitemap.xml 生成
+
+// 已知:
+// - 路由格式:/docs/<part-id>/<slug>
+// - content/ 目录结构:content/<part>/xx-slug.mdx
+// - 需要在 prerender 完成后生成 sitemap.xml
+
+import { readdirSync, readFileSync } from "node:fs"
+import { resolve, join } from "node:path"
+
+function collectDocRoutes(): string[] {
+  // TODO:扫描 content/ 目录,返回所有文档路由
+  return []
+}
+
+function generateSitemap(routes: string[], baseUrl: string): string {
+  // TODO:生成 sitemap.xml 内容
+  return ""
+}
+```

@@ -1,0 +1,210 @@
+---
+title: Vite 8 的统一架构
+description: Rolldown 如何统一了 dev 和 build 两个阶段?与 Vite 5/6/7 的双引擎时代相比,架构演进的脉络是什么?
+order: 2
+part: 01-core-concepts
+chapter: "1.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 各版本的架构演进脉络(双引擎 → 统一引擎) - Rolldown 在 Vite 8 里扮演的角色 - dev 和 build
+  统一后对开发者的实际影响 - 与 Vite 7 相比,Vite 8 的具体变化
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Native ESM 与浏览器原生模块」(1.1 节) - 基本了解 bundler 概念(不需要深入)
+</Callout>
+
+## 架构演进时间线
+
+理解 Vite 8 的架构,先从时间线入手:
+
+```text
+Vite 2~6(2021-2025)
+  Dev:  esbuild(Go)  → 单文件 transform,极速
+  Build: Rollup(JS)  → 完整 bundle,tree-shaking
+  问题:  两个阶段用不同引擎,行为不一致
+
+Vite 7(2025-06)
+  Dev:  esbuild(Go)        → 同上
+  Build: Rollup(JS)        → 同上
+  新增:  rolldown-vite 实验包 → 可提前尝鲜 Rolldown
+  问题:  双引擎仍存在
+
+Vite 8(2026-03,稳定版)
+  Dev:  Rolldown(Rust) → transform
+  Build: Rolldown(Rust) → 完整 bundle
+  结果:  统一单引擎!dev/build 行为一致
+```
+
+## 两个阶段为什么要统一
+
+在 Vite 7 及更早版本中,一个开发者经常碰到这样的现象:
+
+```bash
+pnpm dev   # ✅ 一切正常
+pnpm build # ❌ 某个 import 路径解析失败
+```
+
+或者反过来:
+
+```bash
+pnpm build # ✅ 产物正确
+pnpm dev   # ❌ 某个插件的 hook 没触发
+```
+
+这类 bug 的根因就是双引擎:
+
+- esbuild 的 resolve 逻辑 ≠ Rollup 的 `resolveId` hook
+- Rollup 的 `generateBundle` 在 dev 下不触发(dev 走 esbuild)
+- 两套 transform 各有自己的 source map 生成规则
+
+Vite 8 用 Rolldown 统一了两个阶段后,**同一套插件 + 同一套 transform 管道在 dev 和 build 下都运行**。这从根本上消除了这类不一致。
+
+<V7Note title="Vite 7:双引擎的痛点场景">
+  在 Vite 7 中,以下插件 hook 在 dev 阶段**不触发**:
+  - `generateBundle` — Rollup 产物生成 hook,esbuild 无此概念
+  - `renderChunk` — 同上
+  - `writeBundle` — 同上
+
+如果你的插件依赖这些 hook 做分析或注入,dev 阶段功能不完整,只有 build 时才生效。Vite 8 解决了这个问题。
+
+</V7Note>
+
+## Vite 8 的内部架构图
+
+```text
+                     Vite 8 Dev Server
+                    ┌─────────────────────────────────┐
+                    │                                 │
+浏览器请求           │   ┌───────────────────────┐     │
+GET /src/App.tsx  ──┼──▶│   Rolldown Transform  │     │
+                    │   │   Pipeline            │     │
+                    │   │  ① resolveId hooks    │     │
+                    │   │  ② load hooks         │     │
+                    │   │  ③ transform hooks    │     │
+                    │   │  ④ OXC TS/JSX 编译    │     │
+                    │   └────────────┬──────────┘     │
+                    │                │                │
+                    │          返回 ESM               │
+                    └─────────────────────────────────┘
+                                     │
+                                     ▼
+                              浏览器渲染
+
+                     Vite 8 Build(pnpm build)
+                    ┌─────────────────────────────────┐
+                    │                                 │
+                    │   ┌───────────────────────┐     │
+所有源文件 ──────────┼──▶│   Rolldown Bundle     │     │
+                    │   │   Pipeline            │     │
+                    │   │  ① 模块图分析         │     │
+                    │   │  ② tree-shaking       │     │
+                    │   │  ③ code splitting     │     │
+                    │   │  ④ OXC minify         │     │
+                    │   └────────────┬──────────┘     │
+                    │                │                │
+                    │           dist/ 产物            │
+                    └─────────────────────────────────┘
+```
+
+两个阶段共用**同一套 Plugin Hook 系统**。插件写一次,dev 和 build 都能工作。
+
+## Vite 8 的新默认配置
+
+与 Vite 7 相比,Vite 8 改变了几个默认值:
+
+| 配置                   | Vite 7 默认                 | Vite 8 默认                       |
+| ---------------------- | --------------------------- | --------------------------------- |
+| Bundler                | esbuild + Rollup            | Rolldown                          |
+| CSS Minifier           | esbuild                     | **lightningcss**                  |
+| 默认 target            | `baseline-widely-available` | `baseline-widely-available`(不变) |
+| `@vitejs/plugin-react` | v5(Babel)                   | **v6(OXC Refresh)**               |
+| Devtools               | 无                          | **内置 `devtools` 选项**          |
+
+### lightningcss 替代 esbuild CSS 压缩
+
+Vite 8 的 CSS 处理流程:
+
+```text
+.css 文件
+  ↓
+PostCSS(如果配置了)
+  ↓
+lightningcss(压缩 + 前缀)  ← Vite 8 新增为普通依赖
+  ↓
+产物 CSS
+```
+
+`lightningcss` 用 Rust 实现,比 esbuild 的 CSS 压缩功能更完整(支持更多现代 CSS 语法)。
+
+### `@vitejs/plugin-react` v6
+
+React 项目的 vite.config.ts 实质上没变:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()], // 写法一样
+})
+```
+
+但 v6 内部:
+
+- React Fast Refresh 由 **OXC 实现**(v5 用 Babel)
+- 不再需要 Babel 作为依赖,冷启动更快
+- React Compiler 需要单独配置(不自动集成)
+
+## 开发者视角:Vite 8 有什么变化
+
+### 感受不到变化的部分(透明升级)
+
+- `vite.config.ts` 写法完全一样
+- 插件 API 向后兼容 Rollup
+- `pnpm dev` / `pnpm build` 命令没变
+- `import.meta.env` / `import.meta.hot` 没变
+
+### 能感受到的变化
+
+- **冷启动更快**:Rolldown 的依赖预构建比 esbuild 更快
+- **dev/build 更一致**:不再有"dev 能跑但 build 出问题"的玄学 bug
+- **CSS 体积更小**:lightningcss 压缩率更高
+- **插件 hook 更完整**:原来只在 build 触发的 hook 现在 dev 也触发
+
+## 自测题
+
+1. Vite 7 的"双引擎"具体指哪两个引擎?各自负责哪个阶段?
+2. 为什么 Vite 7 里某些插件 hook 在 dev 阶段不触发?Vite 8 是怎么解决这个问题的?
+3. 升级到 Vite 8 后,`vite.config.ts` 里的写法需要修改吗?
+4. `@vitejs/plugin-react` v6 和 v5 的核心区别是什么?
+
+```ts filename="练习"
+// 这个插件在 Vite 7 dev 阶段有什么问题?
+// 升级到 Vite 8 后这个问题还存在吗?
+function analyzeBundlePlugin(): Plugin {
+  const stats: { name: string; size: number }[] = []
+
+  return {
+    name: "vite-plugin-analyze",
+    generateBundle(_, bundle) {
+      for (const [name, chunk] of Object.entries(bundle)) {
+        if (chunk.type === "chunk") {
+          stats.push({ name, size: chunk.code.length })
+        }
+      }
+      console.table(stats)
+    },
+  }
+}
+
+// 问题 1:在 vite dev 阶段,console.table 会被调用吗?
+// 问题 2:在 vite build 阶段呢?
+// 问题 3:Vite 8 下这两个答案有变化吗?
+```

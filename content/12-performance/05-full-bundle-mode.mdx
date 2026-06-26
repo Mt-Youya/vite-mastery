@@ -1,0 +1,102 @@
+---
+title: Full Bundle Mode(实验性)
+description: Vite 8 路线图里的下一步——Full Bundle Mode 让 dev 模式也做完整 bundle,以换取更接近生产的行为和更少的 HTTP 请求数。
+order: 5
+part: 12-performance
+chapter: "12.5"
+difficulty: 4
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="warning">
+  Full Bundle Mode 在 Vite 8.1.x 中仍处于**实验阶段**,不建议在生产项目中使用。本节介绍概念和方向。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - Full Bundle Mode 的设计目标 - 为什么需要它:原生 ESM dev 的局限 - 与传统 dev server 模式的权衡 -
+  何时可能需要关注这个特性
+</Callout>
+
+## 原生 ESM dev 的局限
+
+Vite 的 dev server 默认使用原生 ESM:每个模块单独请求。这带来了极快的冷启动,但也有代价:
+
+**问题一:HTTP 请求数量多**
+
+大型项目可能有几千个模块。浏览器并发请求数有限(HTTP/2 也不是无限的),首次加载时可能出现明显延迟。
+
+**问题二:Dev/Build 行为差异**
+
+即使 Rolldown 统一了 transform,dev 模式仍然没有 bundle——没有 tree-shaking、没有 chunk 分割。某些只在 bundle 后才能发现的问题在 dev 阶段看不出来。
+
+**问题三:无法模拟 CDN 场景**
+
+某些第三方库的 CDN 版本行为与 npm 版本不同,原生 ESM dev 无法模拟这种场景。
+
+## Full Bundle Mode 的思路
+
+Full Bundle Mode 让 dev server 也做完整 bundle:
+
+```text
+当前 dev 模式:
+  浏览器请求 /src/App.tsx
+    → Vite transform (单文件)
+    → 返回单个 ESM 模块
+    → 浏览器再请求依赖...
+  (几十到几千个请求)
+
+Full Bundle Mode:
+  Vite 用 Rolldown 构建一个 dev bundle
+    → 所有模块打包(但不压缩)
+    → 仍然支持 HMR(增量 bundle)
+    → 只有 1~几个请求
+```
+
+## 权衡
+
+| 维度             | 当前 ESM dev       | Full Bundle Mode  |
+| ---------------- | ------------------ | ----------------- |
+| 冷启动速度       | 极快(不 bundle)    | 较慢(需要 bundle) |
+| 每次 HMR         | 只更新改变的模块   | 增量 rebundle     |
+| 请求数量         | 很多(每个模块一个) | 少(几个 chunk)    |
+| Dev/Build 一致性 | 有差异             | 更接近 build      |
+
+**适合场景**:网络延迟高的环境、需要精确模拟生产行为的场景。
+
+## 如何尝鲜(实验性)
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  experimental: {
+    // 在 Vite 8.1.x 里查看具体 API
+    // bundleMode: "full",  // 假设 API
+  },
+})
+```
+
+<Callout type="warning">
+  实验性 API 随时可能变化。如需了解最新状态,请查看 [Vite 官方 GitHub](https://github.com/vitejs/vite)。
+</Callout>
+
+## 自测题
+
+1. 原生 ESM dev 模式为什么会有大量 HTTP 请求?
+2. Full Bundle Mode 牺牲了什么换取了什么?
+3. 什么类型的项目最能受益于 Full Bundle Mode?
+4. Full Bundle Mode 下 HMR 如何工作?
+
+```ts filename="练习"
+// 思考题:
+// 如果你的项目有 2000 个模块,
+// 使用原生 ESM dev 首次加载可能需要 3-5 秒(网络慢的情况下)
+// 使用 Full Bundle Mode 冷启动可能需要 5 秒,但首次加载快
+//
+// 对以下开发场景,你会选择哪种模式?解释理由:
+// A: 本地开发,SSD,Chrome
+// B: 通过 SSH 远程连接服务器开发
+// C: 在 CI 里做集成测试
+// D: 给设计师展示最终效果(他们的网络可能较慢)
+```

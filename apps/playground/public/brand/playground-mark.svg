@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">vite-mastery playground mark</title>
+  <desc id="desc">A WebContainer sandbox window with a Vite pipeline play mark.</desc>
+  <defs>
+    <linearGradient id="pg-shell" x1="8" x2="56" y1="8" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#111827" />
+      <stop offset="1" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="pg-signal" x1="20" x2="45" y1="19" y2="49" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbbf24" />
+      <stop offset="0.55" stop-color="#2dd4bf" />
+      <stop offset="1" stop-color="#67e8f9" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="url(#pg-shell)" />
+  <rect x="11" y="14" width="42" height="37" rx="9" fill="#0f172a" stroke="#334155" stroke-width="2" />
+  <path d="M12 24h40" stroke="#334155" stroke-width="2" />
+  <circle cx="20" cy="19.2" r="2" fill="#fbbf24" />
+  <circle cx="27" cy="19.2" r="2" fill="#34d399" />
+  <circle cx="34" cy="19.2" r="2" fill="#22d3ee" />
+  <path
+    d="M19.5 30.2h7.4l4.4 11.4 6-16.1h7.2L34.8 48h-6.4L19.5 30.2Z"
+    fill="url(#pg-signal)"
+  />
+  <path
+    d="M24 31.2 31.1 45.5 41.2 26.4"
+    fill="none"
+    stroke="#ecfeff"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2.2"
+    opacity="0.82"
+  />
+  <path d="M21 38.5h4.7" stroke="#020617" stroke-linecap="round" stroke-width="2.4" opacity="0.36" />
+  <path d="M43.5 34.5 48 37l-4.5 2.5v-5Z" fill="#fde68a" />
+  <path d="M17 55h30" stroke="#475569" stroke-linecap="round" stroke-width="2" opacity="0.68" />
+</svg>

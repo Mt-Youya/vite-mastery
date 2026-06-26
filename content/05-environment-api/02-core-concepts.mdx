@@ -1,0 +1,245 @@
+---
+title: 核心概念:Environment、ModuleRunner、HotChannel
+description: Environment API 的三个核心抽象——每个是什么、解决了什么问题、如何协同工作。包含可视化组件辅助理解。
+order: 2
+part: 05-environment-api
+chapter: "5.2"
+difficulty: 4
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。本章基于 Vite
+  8.1.x。生产项目使用前请确认对应 Vite 版本的官方文档。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - `Environment` 对象代表什么,包含哪些核心能力 - `ModuleRunner` 如何在指定环境里执行模块 - `HotChannel`
+  如何实现跨环境的 HMR 消息传递 - 三者如何协同工作构成完整的多环境开发体验
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「为什么需要 Environment API」(5.1 节) - 了解 Node.js Module 系统基础
+</Callout>
+
+## 三个核心抽象的关系
+
+先从整体视角看三个概念的分工:
+
+```text
+┌─────────────────────────────────────────────┐
+│              Vite Dev Server                │
+│                                             │
+│  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ Environment │  │  ModuleRunner       │  │
+│  │  (client)   │  │  (在 client 环境里  │  │
+│  │  - 模块图谱  │  │   执行 import)      │  │
+│  │  - resolve  │──│                     │  │
+│  │  - plugins  │  └─────────────────────┘  │
+│  └─────────────┘                           │
+│                          ▲                  │
+│  ┌─────────────┐         │ HotChannel       │
+│  │ Environment │         │ (HMR 消息)       │
+│  │   (ssr)     │─────────┘                  │
+│  │  - 模块图谱  │                            │
+│  │  - resolve  │                            │
+│  └─────────────┘                            │
+└─────────────────────────────────────────────┘
+```
+
+- **Environment** — 一个独立的模块执行上下文
+- **ModuleRunner** — 在 Environment 里执行模块的运行器
+- **HotChannel** — 环境间传递 HMR 消息的通道
+
+用下面的组件可视化当前配置中各环境的模块边界:
+
+<EnvironmentExplorer />
+
+## Environment:执行上下文的封装
+
+`Environment` 对象封装了一个独立执行上下文的全部配置:
+
+- **模块图谱(Module Graph)**:这个环境独享的依赖关系图
+- **Resolve 配置**:哪些 `conditions` 有效、哪些包 external、别名规则等
+- **插件管道**:可以为特定环境配置专属插件
+- **运行时信息**:环境名称、是否支持 HMR 等
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    client: {
+      // 浏览器环境,支持 HMR
+    },
+    ssr: {
+      // Node.js SSR 环境
+      resolve: {
+        conditions: ["node", "import", "require"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+  },
+})
+```
+
+在 dev server 运行时,可以通过 `server.environments` 访问已配置的环境:
+
+```ts
+// 在插件或中间件里访问环境
+configureServer(server) {
+  const clientEnv = server.environments.client
+  const ssrEnv = server.environments.ssr
+
+  // 每个环境有独立的模块图谱
+  console.log(clientEnv.moduleGraph)
+  console.log(ssrEnv.moduleGraph)
+}
+```
+
+<Callout type="warning">
+  具体的 API 属性名(如 `server.environments.xxx`)在 RC 阶段可能调整。使用前请查阅当前 Vite 8.1.x 官方文档确认。
+</Callout>
+
+## ModuleRunner:在环境里执行模块
+
+`ModuleRunner` 是在指定环境里动态执行模块的机制。它相当于 Vite 7 `ssrLoadModule` 的替代,但具有环境感知能力。
+
+```ts
+// 概念示意(具体 API 以官方文档为准)
+const runner = await createModuleRunner(server.environments.ssr)
+
+// 在 ssr 环境里执行模块
+const module = await runner.import("/src/entry-server.tsx")
+const html = await module.render(url)
+```
+
+与旧的 `ssrLoadModule` 的关键区别:
+
+| 维度     | `ssrLoadModule`    | `ModuleRunner`         |
+| -------- | ------------------ | ---------------------- |
+| 环境感知 | 无(共用全局模块图) | 有(每个环境独立模块图) |
+| HMR 集成 | 手动管理           | 自动通过 HotChannel    |
+| 多环境   | 不支持             | 原生支持               |
+| 语义     | "eval 代码"        | "在环境里 import"      |
+
+### ModuleRunner 的内部工作
+
+当你调用 `runner.import("/src/component.tsx")` 时:
+
+1. runner 向 dev server 请求这个模块
+2. dev server 在对应 Environment 的上下文里执行 resolve + load + transform
+3. 执行结果(编译后的代码)返回给 runner
+4. runner 在本地执行并缓存这个模块
+5. 如果模块有依赖,递归处理
+
+这个流程确保了模块在"正确的环境上下文"里被处理,而不是共用一个全局的 transform 管道。
+
+## HotChannel:跨环境 HMR 消息传递
+
+`HotChannel` 解决了多环境 HMR 的通信问题:当一个文件改变时,需要通知**所有**依赖它的环境进行热更新。
+
+```text
+文件改变: src/utils.ts
+          │
+          ▼
+    Vite Dev Server
+          │
+          ├── client 环境的 HotChannel → WebSocket → 浏览器 HMR
+          │
+          └── ssr 环境的 HotChannel → 通知 ModuleRunner 失效缓存
+                                       → 下次 runner.import 重新加载
+```
+
+`HotChannel` 有两种内置实现:
+
+1. **WebSocket 通道**(client 环境):通过 `import.meta.hot` API 与浏览器通信
+2. **服务端消息通道**(ssr 等环境):通过进程间通信通知 ModuleRunner
+
+框架作者也可以自定义 `HotChannel`,例如实现通过 WebSocket 通知 Edge Worker 刷新。
+
+```ts
+// 插件里监听特定环境的 HMR 事件
+configureServer(server) {
+  // 订阅 ssr 环境的模块变化
+  server.environments.ssr.hot.on("vite:invalidate", (data) => {
+    console.log("SSR 模块失效:", data)
+  })
+}
+```
+
+<Callout type="warning">
+  HotChannel 的具体事件名称和 API 形状在 RC 阶段仍在迭代。上面的代码仅为概念示意,实际使用时请以 Vite 8.1.x
+  官方文档为准。
+</Callout>
+
+## 三者协同:一个完整的请求流程
+
+以 SSR 框架为例,一个完整的请求处理流程:
+
+```text
+1. 浏览器请求 GET /page
+         │
+2. Express 中间件收到请求
+         │
+3. 调用 ssrRunner.import("/src/entry-server.tsx")
+   (ssrRunner 是 ssr Environment 里的 ModuleRunner)
+         │
+4. ModuleRunner → 向 ssr Environment 请求模块
+         │
+5. ssr Environment 执行 resolve + transform
+   (使用 Node.js conditions,不同于 client 的 browser conditions)
+         │
+6. 模块在 ssr 上下文里执行,调用 render(url)
+         │
+7. 得到 HTML → 返回给浏览器
+         │
+8. 浏览器收到 HTML,加载 client bundle
+   (client bundle 由 client Environment 生成)
+         │
+9. client 执行 hydration
+```
+
+在这个流程里:
+
+- **client Environment** 管理 `<script>` bundle 的模块图谱和 HMR
+- **ssr Environment** 管理 server render 的模块图谱和 HMR
+- **HotChannel** 确保文件改变时,两个环境都能正确更新
+
+## 自测题
+
+1. `Environment` 对象里的"独立模块图谱"具体解决了什么问题?举一个 `src/utils.ts` 同时被 client 和 ssr 使用的例子。
+2. `ModuleRunner` 和 Vite 7 的 `ssrLoadModule` 有什么本质区别?
+3. 为什么 client 环境的 HotChannel 用 WebSocket,而 ssr 环境的 HotChannel 需要不同的实现?
+4. 如果你要实现一个 Cloudflare Worker 环境,你需要自定义哪些部分?
+
+```ts filename="练习"
+// 阅读下面的伪代码,填写缺失部分并解释每一步的作用
+
+const vite = await createServer({
+  environments: {
+    client: {},
+    ssr: {
+      resolve: { conditions: ["node"] },
+    },
+  },
+})
+
+// Q1: 这里应该用哪个 Environment?为什么?
+const runner = createModuleRunner(
+  vite.environments.??? // 填空
+)
+
+// Q2: 下面的请求处理对 ssr 模块图谱有什么影响?
+app.get("*", async (req, res) => {
+  const { render } = await runner.import("/src/entry-server.tsx")
+  const html = await render(req.url)
+  res.send(html)
+})
+
+// Q3: 如果 src/data.ts 被修改了,ssr 环境的 HotChannel 会触发什么?
+// 下一次 runner.import 会拿到旧的还是新的模块?
+```

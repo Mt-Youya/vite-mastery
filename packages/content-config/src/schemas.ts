@@ -5,25 +5,31 @@
  * 的 `schema` 字段(它要求 StandardSchemaV1)。
  */
 
-import { z } from "zod";
+import { z } from "zod"
 
-/** 章节归属(Part 0 ~ Part 11) */
+/** 章节归属(Part 0 ~ Part 13,v2 共 14 章) */
 export const PART_KEYS = [
   "00-getting-started",
   "01-core-concepts",
-  "02-plugin-system",
-  "03-hooks-deep-dive",
-  "04-hmr",
-  "05-build-pipeline",
-  "06-ssr-ssg",
-  "07-framework-integration",
-  "08-library-mode",
-  "09-monorepo",
-  "10-performance",
-  "11-real-world-plugins",
-] as const;
+  "02-bundler-evolution",
+  "03-plugin-system",
+  "04-hooks-deep-dive",
+  "05-environment-api",
+  "06-hmr",
+  "07-build-pipeline",
+  "08-ssr-ssg",
+  "09-framework-integration",
+  "10-library-mode",
+  "11-monorepo",
+  "12-performance",
+  "13-real-world-plugins",
+] as const
 
-export type PartKey = (typeof PART_KEYS)[number];
+export type PartKey = (typeof PART_KEYS)[number]
+
+/** API 稳定性等级,影响文档站徽章颜色与读者预期 */
+export const API_STABILITY = ["stable", "rc", "experimental"] as const
+export type ApiStability = (typeof API_STABILITY)[number]
 
 /** docs collection 的 frontmatter 形状 */
 export const docFrontmatter = z.object({
@@ -45,7 +51,11 @@ export const docFrontmatter = z.object({
   draft: z.boolean().default(false),
   /** 关联的实战项目目录名 */
   example: z.string().optional(),
-});
+  /** 示例代码基线版本,默认 8.1。语义版本号字符串,如 "8.1" / "8.0" / "7.3" */
+  viteVersion: z.string().default("8.1"),
+  /** API 稳定性,默认 stable。Env API / Rolldown 实验功能要显式标 rc / experimental */
+  apiStability: z.enum(API_STABILITY).default("stable"),
+})
 
 /** examples collection 的 frontmatter 形状 */
 export const exampleFrontmatter = z.object({
@@ -60,7 +70,17 @@ export const exampleFrontmatter = z.object({
   /** 学完产出 */
   outcome: z.string().min(8),
   tags: z.array(z.string()).default([]),
-});
+})
 
-export type DocFrontmatter = z.infer<typeof docFrontmatter>;
-export type ExampleFrontmatter = z.infer<typeof exampleFrontmatter>;
+/** appendix collection 的 frontmatter 形状(迁移指南等) */
+export const appendixFrontmatter = z.object({
+  title: z.string().min(2),
+  description: z.string().min(8),
+  /** 附录内部排序权重,越小越靠前 */
+  order: z.number().int().nonnegative(),
+  updatedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD"),
+})
+
+export type DocFrontmatter = z.infer<typeof docFrontmatter>
+export type ExampleFrontmatter = z.infer<typeof exampleFrontmatter>
+export type AppendixFrontmatter = z.infer<typeof appendixFrontmatter>

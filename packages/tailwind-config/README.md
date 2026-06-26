@@ -13,13 +13,13 @@ Tailwind v4 CSS-first 共享主题。
 
 ## Token 设计倾向
 
-| 类别 | 选型 | 理由 |
-|---|---|---|
-| 主色 brand | 琥珀暖橙(`oklch(0.685 0.18 55)`) | 向 Vite Flame 致敬,但比官方 `#FFD028` 克制,作为正文背景不刺眼 |
-| 强调色 accent | 冷紫 iris(`oklch(0.555 0.19 285)`) | 与暖主色对比明显,适合链接 / 焦点环 |
-| 中性色 | slate | 偏蓝中性,文档站正文 contrast 友好 |
-| 色彩空间 | OKLCH | v4 推荐,且 dark mode 切换时亮度感知更稳定 |
-| 字体 | Inter Variable + Geist Mono | display/sans 统一,代码用 Geist Mono |
+| 类别          | 选型                               | 理由                                                          |
+| ------------- | ---------------------------------- | ------------------------------------------------------------- |
+| 主色 brand    | 琥珀暖橙(`oklch(0.685 0.18 55)`)   | 向 Vite Flame 致敬,但比官方 `#FFD028` 克制,作为正文背景不刺眼 |
+| 强调色 accent | 冷紫 iris(`oklch(0.555 0.19 285)`) | 与暖主色对比明显,适合链接 / 焦点环                            |
+| 中性色        | slate                              | 偏蓝中性,文档站正文 contrast 友好                             |
+| 色彩空间      | OKLCH                              | v4 推荐,且 dark mode 切换时亮度感知更稳定                     |
+| 字体          | Inter Variable + Geist Mono        | display/sans 统一,代码用 Geist Mono                           |
 
 ## 待办
 

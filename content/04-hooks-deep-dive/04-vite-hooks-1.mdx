@@ -1,0 +1,318 @@
+---
+title: Vite 独有 Hooks(上):config / configResolved / configureServer
+description: Vite 在 Rollup 基础上扩展的服务端 hook——如何在运行时修改配置、访问 dev server 实例、添加自定义中间件。
+order: 4
+part: 04-hooks-deep-dive
+chapter: "4.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `config` hook:在配置解析前修改配置的正确方式 - `configResolved` hook:安全读取最终配置的时机 - `configureServer`
+  hook:访问 dev server 实例、添加中间件 - 三个 hook 之间的执行顺序和依赖关系
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Hooks 全景图」(4.1 节) - 了解 Express/Koa 中间件概念
+</Callout>
+
+## `config` hook
+
+**触发时机**:用户配置文件(vite.config.ts)读取后、最终配置解析前。
+
+**调用约定**:sequential,返回值会与已有配置 deep merge。
+
+**参数**:
+
+```ts
+config(
+  config: UserConfig,            // 用户提供的配置(未处理)
+  env: { command: "serve" | "build"; mode: string; ssrBuild: boolean }
+): UserConfig | null | void | Promise<UserConfig | null | void>
+```
+
+### 根据命令分别配置
+
+```ts
+import type { Plugin } from "vite"
+
+export function conditionalPlugin(): Plugin {
+  return {
+    name: "vite-plugin-conditional",
+    config(config, { command, mode }) {
+      if (command === "serve") {
+        // 只在 dev 时生效的配置
+        return {
+          server: {
+            port: 4000,
+          },
+        }
+      }
+
+      if (command === "build" && mode === "production") {
+        // 只在生产 build 时生效的配置
+        return {
+          build: {
+            sourcemap: false,
+            minify: "esbuild",
+          },
+        }
+      }
+    },
+  }
+}
+```
+
+### 注入 define(环境变量替换)
+
+```ts
+config() {
+  return {
+    define: {
+      __APP_VERSION__: JSON.stringify("1.0.0"),
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    },
+  }
+},
+```
+
+`define` 里的 key 会在 transform 阶段被替换成对应的值字符串。
+
+### 注入 resolve alias
+
+```ts
+import { resolve } from "node:path"
+
+config() {
+  return {
+    resolve: {
+      alias: {
+        "@": resolve("src"),
+        "@components": resolve("src/components"),
+      },
+    },
+  }
+},
+```
+
+### 重要限制
+
+```ts
+config(userConfig) {
+  // ❌ 直接修改 userConfig 对象(有时能工作,但不可靠)
+  userConfig.define = { ...userConfig.define, __VERSION__: '"1.0"' }
+
+  // ✅ 返回一个新对象,让 Vite 做 deep merge
+  return {
+    define: { __VERSION__: '"1.0"' },
+  }
+}
+```
+
+**返回值与用户配置的 merge 规则**:Vite 会把插件的返回值和用户配置做 deep merge。如果用户配置了 `define.FOO`,插件返回 `{ define: { BAR: "bar" } }`,最终 `define` 里两者都有。
+
+## `configResolved` hook
+
+**触发时机**:所有配置合并完毕,最终 `ResolvedConfig` 生成后。
+
+**调用约定**:parallel(所有插件并发执行)
+
+**参数**:
+
+```ts
+configResolved(config: ResolvedConfig): void
+```
+
+**`ResolvedConfig` 与 `UserConfig` 的区别**:
+
+- `UserConfig`:用户写的原始配置,可能有缺省值
+- `ResolvedConfig`:处理后的完整配置,所有默认值都已填充,路径已解析为绝对路径
+
+### 最典型用法:缓存 config 引用
+
+```ts
+import type { Plugin, ResolvedConfig } from "vite"
+
+export function myPlugin(): Plugin {
+  let config: ResolvedConfig // 存储 config 引用
+
+  return {
+    name: "my-plugin",
+    configResolved(resolvedConfig) {
+      // 缓存最终配置,供后续 hook 使用
+      config = resolvedConfig
+    },
+    transform(code, id) {
+      // 在 transform 里使用缓存的配置
+      if (config.command === "build" && config.mode === "production") {
+        return { code: code.replace("__DEV__", "false"), map: null }
+      }
+      return { code: code.replace("__DEV__", "true"), map: null }
+    },
+  }
+}
+```
+
+### 读取最终解析的路径
+
+```ts
+configResolved(config) {
+  // config.root 是项目根目录的绝对路径
+  console.log("项目根目录:", config.root)
+  // config.build.outDir 是产物输出目录的绝对路径
+  console.log("产物目录:", config.build.outDir)
+  // config.resolve.alias 是最终处理后的别名配置
+  console.log("别名:", config.resolve.alias)
+},
+```
+
+### 为什么不能在 configResolved 里修改 config
+
+`configResolved` 的参数是只读的。尝试修改会被 TypeScript 报错,运行时也可能无效:
+
+```ts
+configResolved(config) {
+  // ❌ 不要这样做
+  config.define["__VERSION__"] = '"2.0"'  // TypeScript error: Readonly
+
+  // ✅ 如果需要修改配置,应该用 config hook
+}
+```
+
+## `configureServer` hook
+
+**触发时机**:dev server 创建完成后,内置中间件安装之前(可以在内置中间件之前注入)。
+
+**触发条件**:只在 `pnpm dev`(serve 模式)时触发,`pnpm build` 不触发。
+
+**调用约定**:sequential
+
+**参数**:
+
+```ts
+configureServer(server: ViteDevServer): (() => void) | void | Promise<...>
+```
+
+**`ViteDevServer` 包含什么**:
+
+```ts
+interface ViteDevServer {
+  config: ResolvedConfig
+  middlewares: Connect.Server // Express-like 中间件栈
+  httpServer: http.Server | null
+  watcher: FSWatcher // chokidar 文件监听实例
+  moduleGraph: ModuleGraph
+  hot: HotChannel // HMR 消息发送
+  // ...
+}
+```
+
+### 添加自定义 HTTP 路由
+
+```ts
+import type { Plugin } from "vite"
+
+export function apiMockPlugin(): Plugin {
+  return {
+    name: "vite-plugin-api-mock",
+    configureServer(server) {
+      // 在所有 Vite 内置中间件之前执行
+      server.middlewares.use("/api/health", (req, res) => {
+        res.setHeader("Content-Type", "application/json")
+        res.end(JSON.stringify({ status: "ok", timestamp: Date.now() }))
+      })
+
+      server.middlewares.use("/api/users", (req, res) => {
+        res.setHeader("Content-Type", "application/json")
+        res.end(
+          JSON.stringify([
+            { id: 1, name: "Alice" },
+            { id: 2, name: "Bob" },
+          ])
+        )
+      })
+    },
+  }
+}
+```
+
+### 在内置中间件之后注入(返回函数)
+
+如果你需要在 Vite 的内置中间件**之后**注入,返回一个函数:
+
+```ts
+configureServer(server) {
+  // 返回一个函数:这个函数会在所有内置中间件安装后调用
+  return () => {
+    server.middlewares.use((req, res, next) => {
+      // 所有 Vite 中间件都没处理的请求才到这里
+      if (req.url === "/fallback") {
+        res.end("fallback response")
+      } else {
+        next()
+      }
+    })
+  }
+},
+```
+
+### 访问 WebSocket 发送 HMR 消息
+
+```ts
+configureServer(server) {
+  // 向所有连接的客户端广播自定义消息
+  setInterval(() => {
+    server.hot.send({
+      type: "custom",
+      event: "server-time",
+      data: { time: new Date().toISOString() },
+    })
+  }, 5000)
+},
+```
+
+浏览器端接收:
+
+```ts
+// src/main.ts
+if (import.meta.hot) {
+  import.meta.hot.on("server-time", (data) => {
+    console.log("Server time:", data.time)
+  })
+}
+```
+
+## 自测题
+
+1. `config` 和 `configResolved` 的执行顺序是什么?各自适合做什么事情?
+2. 为什么在 `configResolved` 里不能修改 config?如果需要根据其他插件的配置决定自己的行为,应该怎么做?
+3. `configureServer` 返回一个函数和直接调用 `server.middlewares.use` 有什么区别?
+4. `configureServer` 在 `pnpm build` 时触发吗?如果你的插件需要在 build 时也做初始化,应该用什么 hook?
+
+```ts filename="练习"
+// 实现一个开发代理插件:
+// - 把所有 /api/* 请求代理到 http://localhost:3000
+// - 在代理请求前打印 "[proxy] GET /api/xxx"
+// - 如果代理请求失败,返回 { error: "proxy failed" }
+
+import type { Plugin } from "vite"
+import { createServer } from "node:http"
+
+export function proxyPlugin(target: string): Plugin {
+  return {
+    name: "vite-plugin-proxy",
+    configureServer(server) {
+      server.middlewares.use("/api", (req, res, next) => {
+        // TODO:实现代理逻辑
+        // 打印请求信息
+        // 转发到 target + req.url
+        // 处理错误情况
+      })
+    },
+  }
+}
+```

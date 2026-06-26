@@ -7,12 +7,12 @@ chapter: "0.1"
 difficulty: 1
 readingTime: 8
 updatedAt: "2026-06-25"
+viteVersion: "8.1"
+apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-- Webpack dev server 慢在哪里
-- 浏览器原生 ESM 解决了什么问题
-- 为什么 Vite 在 dev 用 esbuild、build 用 Rollup
+  - Webpack dev server 慢在哪里 - 浏览器原生 ESM 解决了什么问题 - 为什么 Vite 在 dev 用 esbuild、build 用 Rollup
 </Callout>
 
 ## 历史问题:为什么 dev server 变得这么慢
@@ -34,10 +34,10 @@ Vite 的 dev server 做的事很简单:**当浏览器请求一个模块时,Vite 
 
 ## 双引擎架构:dev vs build
 
-| 阶段 | 工具 | 为什么 |
-|---|---|---|
-| **dev** | esbuild | 单文件 transform 性能极高,适合按需编译 |
-| **build** | Rollup | 代码分割、tree-shaking、插件生态成熟,产物质量高 |
+| 阶段      | 工具    | 为什么                                          |
+| --------- | ------- | ----------------------------------------------- |
+| **dev**   | esbuild | 单文件 transform 性能极高,适合按需编译          |
+| **build** | Rollup  | 代码分割、tree-shaking、插件生态成熟,产物质量高 |
 
 esbuild 也能做 build,但 tree-shaking 与代码分割不如 Rollup 精细,所以 Vite 选择了"开发用 esbuild、生产用 Rollup"的双引擎设计。
 
@@ -47,6 +47,4 @@ esbuild 也能做 build,但 tree-shaking 与代码分割不如 Rollup 精细,所
 2. 用 `<script type="module">` 引入 1000 个模块,浏览器会发起多少次请求?Vite 怎么优化这个问题?
 3. esbuild 比 webpack 快 10-100 倍的关键是什么?
 
-<Callout type="tip">
-答案在 [Part 1 · Core Concepts](/docs/01-core-concepts) 里展开。
-</Callout>
+<Callout type="tip">答案在 [Part 1 · Core Concepts](/docs/01-core-concepts) 里展开。</Callout>

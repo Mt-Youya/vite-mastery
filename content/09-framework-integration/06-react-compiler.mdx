@@ -1,0 +1,200 @@
+---
+title: React Compiler 怎么接入
+description: React Compiler(自动记忆化)在 Vite 8 里的接入方式——`reactCompilerOptions` 配置、与 `@rolldown/plugin-babel` 的配合、以及何时值得启用。
+order: 6
+part: 09-framework-integration
+chapter: "9.6"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="warning">
+  React Compiler 当前处于 RC 阶段。以下配置以 Vite 8.1.x 和 `@vitejs/plugin-react` v6 的官方文档为准。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - React Compiler 解决了什么问题(自动记忆化) - 在 Vite 8 + `@vitejs/plugin-react` v6 里的接入方式 - 与 OXC 和 Babel
+  的关系 - 何时值得启用 React Compiler
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 React 的 `useMemo` / `useCallback` / `memo` - 阅读「React + Vite 8」(9.1 节)
+</Callout>
+
+## React Compiler 是什么
+
+React Compiler(前身 React Forget)是 Meta 开发的编译器,在构建时自动为 React 组件添加记忆化:
+
+**没有 React Compiler:**
+
+```tsx
+// 手动用 useMemo / useCallback 防止不必要渲染
+function ExpensiveList({ items, filter }: Props) {
+  const filtered = useMemo(() => items.filter((item) => item.category === filter), [items, filter])
+
+  const handleClick = useCallback(
+    (id: string) => {
+      onSelect(id)
+    },
+    [onSelect]
+  )
+
+  return <List items={filtered} onClick={handleClick} />
+}
+```
+
+**有 React Compiler:**
+
+```tsx
+// 不需要手写 useMemo / useCallback!编译器自动处理
+function ExpensiveList({ items, filter }: Props) {
+  const filtered = items.filter((item) => item.category === filter)
+  const handleClick = (id: string) => onSelect(id)
+  return <List items={filtered} onClick={handleClick} />
+}
+// ↑ 编译器分析依赖,自动加入必要的记忆化
+```
+
+## 在 Vite 8 里接入
+
+### 安装依赖
+
+```bash
+pnpm add -D babel-plugin-react-compiler @babel/core
+```
+
+### 配置 vite.config.ts
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [
+    react({
+      // v6 默认用 OXC,启用 Compiler 需要额外配置 Babel
+      babel: {
+        plugins: [
+          [
+            "babel-plugin-react-compiler",
+            {
+              target: "19",
+            },
+          ],
+        ],
+      },
+    }),
+  ],
+})
+```
+
+### 验证
+
+构建时检查控制台是否有 Compiler 相关输出:
+
+```bash
+pnpm build
+
+# 应该看到类似:
+# Compiled N components with React Compiler
+```
+
+## OXC 和 Babel 的分工
+
+启用 React Compiler 后,插件的处理流程变为:
+
+```text
+.tsx 文件
+    │
+    ▼ Babel(React Compiler)
+  自动记忆化分析 + 注入
+    │
+    ▼ OXC
+  JSX → JS transform
+  TypeScript 类型擦除
+    │
+    ▼
+  最终 JS
+```
+
+两者同时运行,Babel 只处理记忆化注入,OXC 处理其余 transform。性能影响:Babel 会让每个文件的 transform 稍慢,但记忆化带来的运行时性能收益通常值得。
+
+## 何时值得启用
+
+| 场景                           | 值得启用?                      |
+| ------------------------------ | ------------------------------ |
+| 大量手写 useMemo / useCallback | ✅ 可以减少手动优化            |
+| 组件重渲染是明显性能瓶颈       | ✅ 可能有明显改善              |
+| 小型应用 / 原型                | ❓ 引入构建开销,收益有限       |
+| 已有大量 useMemo,性能良好      | ❓ 效果有限,可能不值得迁移成本 |
+| 使用 Class Components          | ❌ React Compiler 不支持       |
+| 代码违反 React 规则            | ❌ 需要先修复                  |
+
+## React Compiler 的限制
+
+Compiler 会跳过违反 React 规则的组件:
+
+- 直接修改 Props
+- 在 if 语句里调用 hooks
+- 在循环里调用 hooks
+
+使用前建议先运行 `eslint-plugin-react-compiler` 检查代码:
+
+```bash
+pnpm add -D eslint-plugin-react-compiler
+
+# .eslintrc.js
+rules: {
+  "react-compiler/react-compiler": "error"
+}
+```
+
+## 自测题
+
+1. React Compiler 解决了什么问题?为什么叫"自动记忆化"?
+2. 启用 React Compiler 后,原有的 `useMemo` / `useCallback` 代码需要删除吗?
+3. 为什么 `@vitejs/plugin-react` v6 在启用 React Compiler 时还需要 Babel?
+4. React Compiler 无法处理哪类代码?
+
+```tsx filename="练习"
+// 以下哪些组件能被 React Compiler 正确优化?
+// 哪些不能?解释原因。
+
+// 组件 A:
+function A({ items }) {
+  const result = items.map((i) => i * 2)
+  return (
+    <ul>
+      {result.map((n) => (
+        <li key={n}>{n}</li>
+      ))}
+    </ul>
+  )
+}
+
+// 组件 B:
+function B({ condition, data }) {
+  // 违规:条件 hook
+  if (condition) {
+    const [state, setState] = useState(0)
+  }
+  return <div>{data}</div>
+}
+
+// 组件 C:
+class C extends React.Component {
+  render() {
+    return <div>{this.props.value}</div>
+  }
+}
+
+// 组件 D:
+function D({ data, onUpdate }) {
+  const processed = expensiveComputation(data)
+  const handleClick = () => onUpdate(processed)
+  return <button onClick={handleClick}>{processed}</button>
+}
+```

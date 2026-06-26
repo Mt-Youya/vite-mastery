@@ -1,0 +1,195 @@
+---
+title: Hooks 全景图
+description: 所有 Vite/Rolldown hook 一览。通用构建 hook、Vite 独有 hook、Rolldown 扩展 hook 三大类的边界在哪里?时序是什么?
+order: 1
+part: 04-hooks-deep-dive
+chapter: "4.1"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Hook 的三大分类:通用构建 / Vite 独有 / Rolldown 扩展 - Dev server 启动阶段 vs 构建阶段的 hook 时序 - 每个 hook
+  的调用约定(parallel / sequential / first) - 如何快速查找某个 hook 的详细信息
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「插件结构剖析」(3.2 节) - 了解 Vite 的 dev 和 build 两个阶段
+</Callout>
+
+## 三大分类
+
+Vite 的 hook 来自三个层面:
+
+| 分类                   | 来源                          | 在哪里运行                    |
+| ---------------------- | ----------------------------- | ----------------------------- |
+| **通用构建 Hook**      | Rollup / Rolldown API         | dev 和 build 都运行           |
+| **Vite 独有 Hook**     | Vite 在 Rollup 基础上扩展     | 只在 Vite 环境有效            |
+| **Rolldown 扩展 Hook** | Rolldown 在 Rollup 基础上扩展 | Vite 8 + 独立使用 Rolldown 时 |
+
+**通用构建 Hook** 是 Rollup 标准 API 的一部分——这些 hook 写出来的插件理论上可以直接在 Rollup 项目里复用。
+
+**Vite 独有 Hook** 是 Vite 专门加的,涉及 dev server、HTML 处理、HMR 等 Rollup 没有的概念。
+
+**Rolldown 扩展 Hook** 是 Rolldown 在兼容 Rollup API 基础上新增的能力,例如访问 OXC AST、多环境标注等。
+
+## Dev Server 阶段的 Hook 时序
+
+```text
+Vite Dev Server 启动序列:
+
+config ─────────────────────── 读取用户配置前(可修改)
+configResolved ─────────────── 配置最终确定(只读)
+configureServer ────────────── dev server 创建后(可添加中间件)
+
+─── 等待浏览器请求 ───
+
+(每次请求一个模块):
+resolveId ──────────────────── 解析模块路径
+load ───────────────────────── 读取模块内容
+transform ──────────────────── 转换模块代码
+
+(文件变化时):
+handleHotUpdate ────────────── HMR 更新处理
+
+(HTML 请求时):
+transformIndexHtml ─────────── 修改 index.html
+```
+
+## Build 阶段的 Hook 时序
+
+```text
+Vite Build 序列:
+
+config / configResolved ─────── 同 dev
+
+options ─────────────────────── 读取/修改 Rolldown 输入选项
+buildStart ──────────────────── 构建开始(初始化)
+
+(对每个模块):
+resolveId ──────────────────────
+load ────────────────────────── } 构建所有模块的图谱
+transform ──────────────────────
+moduleParsed ───────────────────
+
+buildEnd ────────────────────── 模块图构建完毕
+
+renderStart ─────────────────── 开始生成输出文件
+renderChunk ─────────────────── 对每个 chunk 进行代码变换
+generateBundle ──────────────── 所有 chunk 已生成
+
+writeBundle ─────────────────── chunk 已写入磁盘
+closeBundle ─────────────────── 整个流程结束
+```
+
+## 全景图(可交互)
+
+点击任意 hook 查看详细信息:
+
+<HookExplorer />
+
+## Hook 调用约定速查
+
+| Hook                 | 约定           | 含义                         |
+| -------------------- | -------------- | ---------------------------- |
+| `buildStart`         | parallel       | 所有插件的此 hook 并发执行   |
+| `resolveId`          | **first**      | 第一个返回非 null 的插件获胜 |
+| `load`               | **first**      | 同上                         |
+| `transform`          | **sequential** | 按插件顺序依次传递 code      |
+| `moduleParsed`       | parallel       | 并发执行                     |
+| `buildEnd`           | parallel       | 并发执行                     |
+| `renderChunk`        | sequential     | 按顺序处理 chunk             |
+| `generateBundle`     | sequential     | 按顺序执行                   |
+| `writeBundle`        | parallel       | 并发执行                     |
+| `closeBundle`        | parallel       | 并发执行                     |
+| `config`             | sequential     | 顺序执行,返回值 merge        |
+| `configResolved`     | parallel       | 并发执行                     |
+| `configureServer`    | sequential     | 顺序执行                     |
+| `transformIndexHtml` | sequential     | 顺序执行                     |
+| `handleHotUpdate`    | sequential     | 顺序执行                     |
+
+**关键区别**:
+
+- **parallel(并行)**:所有插件的该 hook 同时执行,不互相等待
+- **sequential(顺序)**:按插件数组顺序依次执行,前一个完成才轮到下一个
+- **first(竞争)**:按顺序执行,第一个返回非 null/undefined 的插件获胜,后面的不执行
+
+## 不同阶段哪些 Hook 会触发
+
+| Hook                     | dev          | build        |
+| ------------------------ | ------------ | ------------ |
+| `config`                 | ✅           | ✅           |
+| `configResolved`         | ✅           | ✅           |
+| `configureServer`        | ✅           | ❌           |
+| `configurePreviewServer` | ❌           | preview only |
+| `options`                | ❌           | ✅           |
+| `buildStart`             | ✅(Vite 8)   | ✅           |
+| `resolveId`              | ✅           | ✅           |
+| `load`                   | ✅           | ✅           |
+| `transform`              | ✅           | ✅           |
+| `buildEnd`               | ❌           | ✅           |
+| `renderChunk`            | ❌           | ✅           |
+| `generateBundle`         | ❌           | ✅           |
+| `writeBundle`            | ❌           | ✅           |
+| `closeBundle`            | ✅(服务关闭) | ✅           |
+| `transformIndexHtml`     | ✅           | ✅           |
+| `handleHotUpdate`        | ✅           | ❌           |
+
+<V7Note title="Vite 7:buildStart 在 dev 不触发">
+  在 Vite 7 中,`buildStart` hook 在 dev 模式下**不触发**。这意味着依赖 `buildStart` 做初始化的插件,在 dev 下初始化不会执行。
+
+Vite 8 修复了这个问题:dev server 启动时会触发 `buildStart`,与 build 阶段行为保持一致。
+
+</V7Note>
+
+## 自测题
+
+1. `resolveId` 和 `transform` 分别用什么调用约定?为什么它们不同?
+2. `configureServer` 在 `pnpm build` 时会触发吗?如果你的插件需要在 build 时初始化,应该用哪个 hook?
+3. `buildEnd` 和 `closeBundle` 的触发时机有什么区别?
+4. 在 Vite 7 中,一个依赖 `buildStart` 做全局初始化的插件在 dev 模式下会有什么问题?
+
+```ts filename="练习"
+// 判断以下插件中每个 hook 在 dev / build 两种模式下是否会触发:
+
+export function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    config(config) {
+      /* A */
+    },
+    configureServer(server) {
+      /* B */
+    },
+    buildStart() {
+      /* C */
+    },
+    resolveId(id) {
+      /* D */
+    },
+    transform(code, id) {
+      /* E */
+    },
+    generateBundle(_, bundle) {
+      /* F */
+    },
+    handleHotUpdate(ctx) {
+      /* G */
+    },
+  }
+}
+
+// 填写下表:
+// | Hook | dev | build |
+// |------|-----|-------|
+// | A    | ?   | ?     |
+// | B    | ?   | ?     |
+// | C    | ?   | ?     |
+// | D    | ?   | ?     |
+// | E    | ?   | ?     |
+// | F    | ?   | ?     |
+// | G    | ?   | ?     |
+```

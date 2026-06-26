@@ -1,0 +1,223 @@
+---
+title: Native ESM 与浏览器原生模块
+description: 理解 Vite 的基础:浏览器原生 ES Module 是什么?`<script type="module">` 边界在哪里?为什么 Vite 的 dev server 能不打包?
+order: 1
+part: 01-core-concepts
+chapter: "1.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 浏览器原生 ES Module 的工作机制
+  - `<script type="module">` 与普通 `<script>` 的核心差异
+  - CORS / 跨域限制如何影响 ESM
+  - 为什么 Vite 不需要预先打包所有代码就能启动 dev server
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 JavaScript 基础语法(`import` / `export` 关键字) - 知道什么是 HTTP 请求
+</Callout>
+
+## 从一个 HTML 文件说起
+
+打开浏览器 DevTools,Network 面板里能看到什么?
+
+```html filename="index.html"
+<!doctype html>
+<html>
+  <body>
+    <!-- 传统方式:打包好的单文件 -->
+    <script src="/bundle.js"></script>
+
+    <!-- ESM 方式:直接加载源模块 -->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+```
+
+两种方式的 Network 请求截然不同:
+
+- **传统方式**:1 个请求加载 `bundle.js`,所有代码已经合并进去
+- **ESM 方式**:先加载 `main.ts`,浏览器解析后发现 `import` 语句,再发起新请求……递归加载
+
+Vite 的 dev server 就是利用了这个递归加载机制,把"按需 transform"做到了极致。
+
+## ES Module 的三个关键特性
+
+### 特性一:静态导入路径
+
+ES Module 的 `import` 路径必须是**静态字符串**,不能是运行时表达式:
+
+```ts
+// ✅ 合法:路径是静态字符串
+import { useState } from "react"
+import utils from "./utils.ts"
+
+// ❌ 非法:路径是动态表达式(在 ESM 顶层不允许)
+import utils from `./utils.${mode}.ts`  // 语法错误
+```
+
+这个限制看起来是约束,但其实是**优势**:因为路径静态,浏览器和构建工具可以在不执行代码的情况下分析依赖关系,实现 tree-shaking。
+
+### 特性二:严格的作用域隔离
+
+每个 ES Module 文件拥有**独立的模块作用域**。顶层声明的变量不会污染全局:
+
+```ts filename="a.ts"
+// 这个 x 只在 a.ts 模块作用域内
+const x = 42
+```
+
+```ts filename="b.ts"
+// 这里访问不到 a.ts 的 x
+console.log(x) // ReferenceError: x is not defined
+```
+
+与之对比,传统 `<script>` 里的变量默认挂在 `window` 上。
+
+### 特性三:CORS 限制
+
+浏览器加载 ES Module 时遵循严格的 **CORS(跨域资源共享)** 规则——换句话说,**不能用 `file://` 协议直接打开 HTML**:
+
+```bash
+# ❌ 会报跨域错误
+open index.html
+
+# ✅ 需要一个 HTTP server
+npx serve .
+# 或者
+pnpm dev  # Vite dev server
+```
+
+这就是为什么 Vite 必须起一个本地 HTTP server,而不能直接双击 HTML 文件。
+
+## 浏览器如何解析 ESM 请求
+
+当浏览器遇到 `<script type="module" src="/src/main.ts">`:
+
+```text
+1. 浏览器发 GET /src/main.ts
+         │
+2. 服务器返回 main.ts 的内容
+   (Vite 在这一步做 TypeScript 编译、JSX transform)
+         │
+3. 浏览器解析 main.ts,发现:
+   import { useState } from "react"
+   import App from "./App.tsx"
+         │
+4. 浏览器并发发起:
+   GET /node_modules/.vite/deps/react.js  (预构建缓存)
+   GET /src/App.tsx
+         │
+5. 对每个新模块,重复步骤 2~4
+```
+
+这个过程是**树状递归的**,但浏览器会尽量并行请求。
+
+## 为什么 Vite dev server 不需要打包
+
+理解了 ESM 的工作机制,Vite 的设计就很清楚了:
+
+**不需要提前打包**,因为:
+
+1. 浏览器自己会解析 `import` 并发起请求
+2. Vite 只需要在请求到来时,**按需 transform** 对应的模块
+3. 每个模块只 transform 一次(结果缓存)
+
+```text
+传统打包工具:              Vite dev server:
+
+构建时:                    构建时:
+  分析所有模块 →              (几乎什么都不做)
+  合并 → 优化
+  → bundle.js               启动时间: ~ms
+  启动时间: 数十秒
+                           请求时:
+                             按需 transform
+                             → 返回单个模块
+```
+
+## Node.js 里的 ESM vs 浏览器 ESM
+
+一个容易混淆的点:Node.js 也支持 ESM,但有些差异:
+
+| 维度                                 | 浏览器 ESM             | Node.js ESM                    |
+| ------------------------------------ | ---------------------- | ------------------------------ |
+| 文件扩展名                           | 可以省略(需服务器配合) | 建议写完整(`.js` / `.mjs`)     |
+| `package.json` 中 `"type": "module"` | 不适用                 | 必须设置才能用 ESM             |
+| `__dirname` / `__filename`           | 不存在                 | 不存在(需用 `import.meta.url`) |
+| `require()`                          | 不存在                 | 不能在 ESM 文件里用            |
+| 裸模块 (`import "react"`)            | 需要服务器解析         | Node.js 查找 `node_modules`    |
+
+Vite 同时处理两者:dev server 给浏览器提供 ESM,SSR 场景下在 Node.js 环境里执行 ESM。
+
+## 裸模块导入(Bare Module Imports)
+
+一个 `import "react"` 在浏览器里是**非法的**:
+
+```ts
+// ❌ 浏览器不知道去哪里找 "react"
+import { useState } from "react"
+```
+
+浏览器的 ESM 规范要求 import 路径必须是:
+
+- 以 `/` 开头(绝对路径)
+- 以 `./` 或 `../` 开头(相对路径)
+- 完整 URL
+
+这就是为什么 Vite 需要**依赖预构建**:把 `"react"` 这样的裸模块导入,在 dev 阶段重写成浏览器能理解的路径:
+
+```ts
+// Vite 重写后:
+import { useState } from "/node_modules/.vite/deps/react.js"
+```
+
+下一节会详细讲依赖预构建。
+
+## Import Map(现代浏览器的裸模块方案)
+
+`<script type="importmap">` 是现代浏览器原生支持裸模块的标准方案:
+
+```html
+<script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@19",
+      "react-dom": "https://esm.sh/react-dom@19"
+    }
+  }
+</script>
+
+<script type="module">
+  import { useState } from "react" // 现在合法了
+</script>
+```
+
+Vite 目前不使用 importmap,而是在 dev 阶段通过 Rolldown 重写裸导入路径。这是因为 importmap 不支持所有需要的功能(如 HMR)。
+
+## 自测题
+
+1. 为什么 ES Module 的 `import` 路径必须是静态字符串?这个约束带来了哪些好处?
+2. 在 `file://` 协议下打开 HTML 文件,`<script type="module">` 会报什么错?为什么?
+3. 浏览器遇到 `import { useState } from "react"` 时会怎么处理?Vite 如何让这段代码在浏览器里工作?
+4. 同一个 `<script type="module">` 文件被多次 import,浏览器只会请求一次还是多次?
+
+```ts filename="练习"
+// 下面的代码在哪种场景下会出错?解释原因。
+// 场景 A:在 Vite dev server 下
+// 场景 B:直接用 file:// 打开 HTML
+// 场景 C:用 Node.js 执行
+
+import { add } from "./math.ts" // 没有写完整 .ts 扩展名
+
+const result = add(1, 2)
+console.log(result)
+
+// 另外:这段动态 import 是否合法?为什么?
+const mod = await import(`./utils-${Math.random()}.ts`)
+```

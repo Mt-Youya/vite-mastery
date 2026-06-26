@@ -1,0 +1,173 @@
+---
+title: 类型声明文件生成
+description: 发布 npm 包必须提供 .d.ts 类型声明——vite-plugin-dts 自动生成、手写 d.ts 的场景、tsconfig 配置的影响。
+order: 2
+part: 10-library-mode
+chapter: "10.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 为什么 npm 包需要 `.d.ts` 类型声明文件 - `vite-plugin-dts` 的基本用法和配置 - tsconfig 对类型生成的影响 - 手写
+  `.d.ts` 文件的场景
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 TypeScript 的基本类型系统 - 阅读「build.lib 配置全解」(10.1 节)
+</Callout>
+
+## 为什么需要 .d.ts 文件
+
+当你 `pnpm add my-lib` 后,TypeScript 项目需要知道这个库的类型:
+
+```ts
+import { Button } from "my-lib"
+// TypeScript 要去 node_modules/my-lib/ 找类型声明
+// 如果没有 .d.ts,就会报错: "Could not find a declaration file for module 'my-lib'"
+```
+
+类型声明文件来源:
+
+1. 包本身提供(在 `package.json` 的 `types` / `exports["types"]` 里声明)
+2. 单独的 `@types/xxx` 包(如 `@types/react`)
+3. 包里内置了 TypeScript 源码,tsconfig 里配置了路径解析
+
+## vite-plugin-dts
+
+最省心的方式:用 `vite-plugin-dts` 在构建时自动生成 `.d.ts`:
+
+```bash
+pnpm add -D vite-plugin-dts
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import dts from "vite-plugin-dts"
+
+export default defineConfig({
+  plugins: [
+    dts({
+      // 从 tsconfig.json 读取配置
+      // 生成的 .d.ts 放在 dist/ 里
+      include: ["src"],
+      outDir: "dist",
+      // 生成 rollupTypes:把所有声明合并为单个文件(可选)
+      rollupTypes: true,
+    }),
+  ],
+  build: {
+    lib: {
+      entry: "src/index.ts",
+      formats: ["es", "cjs"],
+    },
+  },
+})
+```
+
+构建后产物:
+
+```text
+dist/
+  index.js         ← ESM
+  index.cjs        ← CJS
+  index.d.ts       ← 类型声明
+```
+
+## tsconfig 配置的影响
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "declaration": true, // 生成 .d.ts
+    "declarationDir": "dist", // .d.ts 输出目录
+    "declarationMap": true, // 生成 .d.ts.map(可选,用于 Go to Definition)
+    "emitDeclarationOnly": true // 只生成 .d.ts,不生成 .js(配合 vite 使用)
+  }
+}
+```
+
+## 直接用 tsc 生成(不用插件)
+
+对于简单的库,也可以在 build 脚本里直接调用 tsc:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "build": "vite build && tsc --emitDeclarationOnly --outDir dist"
+  }
+}
+```
+
+## 手写 .d.ts 的场景
+
+有时候需要手写类型声明:
+
+1. **虚拟模块**:你的插件生成的虚拟模块需要类型
+
+```ts filename="src/virtual.d.ts"
+declare module "virtual:my-data" {
+  export const items: string[]
+  export default items
+}
+```
+
+2. **全局类型扩展**
+
+```ts filename="src/global.d.ts"
+declare global {
+  interface Window {
+    __MY_LIB__: { version: string }
+  }
+}
+
+export {}
+```
+
+3. **.vue / .svelte 文件类型**
+
+```ts filename="src/shims.d.ts"
+declare module "*.vue" {
+  import type { DefineComponent } from "vue"
+  const Component: DefineComponent
+  export default Component
+}
+```
+
+## 验证类型声明是否正确
+
+发布前用 `arethetypeswrong` 检查:
+
+```bash
+npx arethetypeswrong@latest --pack
+```
+
+这个工具会验证你的包在不同模块系统下的类型是否能被正确解析。
+
+## 自测题
+
+1. 如果发布的 npm 包没有 `.d.ts` 文件,TypeScript 用户会遇到什么问题?
+2. `vite-plugin-dts` 的 `rollupTypes: true` 有什么作用?
+3. `.d.ts.map` 文件有什么用途?发布 npm 包时需要包含它吗?
+4. 什么情况下应该手写 `.d.ts` 而不是自动生成?
+
+```ts filename="练习"
+// 为一个 React 组件库完整配置类型生成:
+// - 组件库有 Button / Input / Modal 三个组件
+// - 每个组件有 Props 类型
+// - 需要在消费者的 IDE 里有完整的类型提示
+
+// 1. 写出 src/index.ts 的导出结构
+// 2. 写出 vite.config.ts 的 dts 配置
+// 3. 写出 package.json 的 types/exports 配置
+
+// src/index.ts
+export { Button } from "./components/Button"
+export type { ButtonProps } from "./components/Button"
+export { Input } from "./components/Input"
+export type { InputProps } from "./components/Input"
+// TODO:...
+```

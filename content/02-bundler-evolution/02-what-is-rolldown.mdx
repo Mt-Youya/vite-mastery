@@ -1,0 +1,153 @@
+---
+title: Rolldown 是什么
+description: 用 Rust 写的下一代 JavaScript bundler——为什么要重新造轮子?Rolldown 与 Rollup 的关系是什么?它的设计目标是什么?
+order: 2
+part: 02-bundler-evolution
+chapter: "2.2"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Rolldown 的设计目标和定位 - Rolldown 与 Rollup 的关系(不是竞争,是继承) - OXC(Oxidation Compiler)是什么 - Rolldown 在
+  Vite 8 生态里的角色
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「双引擎遗产」(2.1 节) - 了解 Rust 语言存在即可(不需要会写)
+</Callout>
+
+## Rolldown 的定位
+
+Rolldown 是一个用 **Rust** 实现的 JavaScript / TypeScript bundler,由 Vite 团队主导开发。
+
+> 官方定义:Rolldown 是一个用 Rust 构建的快速 JavaScript bundler,旨在作为 Vite 中使用的统一打包器,以取代对 esbuild 和 Rollup 的双重使用。
+>
+> ——[rolldown.rs](https://rolldown.rs)
+
+**关键字:统一**。这就是 Rolldown 的核心使命——不是要取代 Rollup 在社区里的位置,而是在 Vite 内部提供一个统一的 transform + bundle 管道。
+
+## Rolldown 与 Rollup:继承关系
+
+Rolldown 的 API 设计故意对 Rollup 保持高度兼容。对于插件作者来说,一个为 Rollup 写的插件,理论上不需要修改就能在 Rolldown 上运行。
+
+这个兼容性是设计目标,不是意外:
+
+```ts
+// 这是一个标准 Rollup 插件
+function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    resolveId(id, importer) {
+      if (id === "virtual:data") return "\0virtual:data"
+      return null
+    },
+    load(id) {
+      if (id === "\0virtual:data") {
+        return `export const data = ${JSON.stringify(getData())}`
+      }
+      return null
+    },
+  }
+}
+
+// 在 Vite 8(Rolldown)里,上面的插件无需任何修改即可运行
+```
+
+Rolldown 的 hook 系统、plugin 接口、`resolveId` / `load` / `transform` 的语义均与 Rollup 保持一致。
+
+<V7Note title="Vite 7:Rollup 插件在 dev 阶段的局限">
+  在 Vite 7 中,某些 Rollup 插件的 hook(如 `renderChunk`、`generateBundle`)在 dev 阶段不触发,因为 dev 走 esbuild 而不是
+  Rollup。Vite 8 的 Rolldown 统一管道解决了这个问题。
+</V7Note>
+
+## OXC:Rolldown 的解析引擎
+
+Rolldown 内部使用 **OXC**(Oxidation Compiler)处理 JavaScript / TypeScript 的解析和基础 transform。
+
+OXC 是一个用 Rust 实现的 JavaScript 工具链集合,包括:
+
+| 组件                | 功能                              |
+| ------------------- | --------------------------------- |
+| OXC Parser          | JS/TS 解析器,输出 AST             |
+| OXC Transformer     | AST 级别的 TypeScript / JSX 编译  |
+| OXC Minifier        | 代码压缩(Rolldown build 阶段使用) |
+| OXC Linter (oxlint) | 独立的 Lint 工具(本站也在用)      |
+
+OXC Parser 是目前 JS 生态里最快的解析器之一。Rolldown 使用 OXC 做模块解析,使 `import` 路径分析和 tree-shaking 的速度远超纯 JS 实现。
+
+> 参考:[oxc-project.github.io](https://oxc-project.github.io/) — OXC 官方文档
+
+## Rolldown 在 Vite 8 里做什么
+
+Vite 8 的构建流程简化为:
+
+```text
+源码(TS/JSX/CSS/...)
+       │
+       ▼
+   Rolldown
+   ┌─────────────────────────────────┐
+   │  OXC Parser  →  Module Graph   │
+   │  Transform   →  Resolve        │
+   │  Chunking    →  Minify         │
+   └─────────────────────────────────┘
+       │              │
+       ▼              ▼
+   Dev: 按需      Build: 完整
+   transform      bundle 产物
+```
+
+在 **dev 模式**下,Rolldown 被用作 transform 引擎:每当浏览器请求一个模块,Rolldown 对其进行 TypeScript 类型擦除、JSX 编译等操作,然后返回浏览器可执行的 ESM。
+
+在 **build 模式**下,Rolldown 进行完整的静态分析、tree-shaking、code splitting 和产物生成——这部分与 Rollup 的职责完全相同。
+
+## Rolldown 和 Rollup 会长期共存吗
+
+是的。Rolldown 是为 Vite 内部使用而设计的——它不会取代 Rollup 在整个 JS 生态里的地位。大量独立使用 Rollup(不通过 Vite)的项目不受影响。
+
+对于使用 Vite 的开发者:
+
+- 如果你只写应用代码,Rolldown 对你完全透明,感受不到变化
+- 如果你写 Vite 插件,需要留意 [2.5 节](./05-cross-bundler-plugin)提到的少数行为差异
+
+> **参考资料**:Rolldown 的项目目标和路线图详见 [rolldown.rs](https://rolldown.rs) 官方文档。
+
+## 自测题
+
+1. Rolldown 与 Rollup 是竞争关系还是继承关系?这个定位对插件作者意味着什么?
+2. OXC 解决了 Rolldown 的什么问题?如果不用 OXC 而用纯 JS 解析器会有什么影响?
+3. 在 Vite 8 中,dev 模式和 build 模式分别用 Rolldown 做什么?
+4. "统一管道"具体解决了 Vite 7 的哪两个问题?
+
+```ts filename="练习"
+// 以下是一个 Rollup 插件。假设 Vite 8(Rolldown 兼容)已正确实现了 Rollup API,
+// 判断这个插件哪些部分能在 dev 阶段运行,哪些不能。
+
+function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    buildStart() {
+      // (A) 构建开始时初始化
+    },
+    resolveId(id) {
+      // (B) 模块路径解析
+      return null
+    },
+    transform(code, id) {
+      // (C) 源码转换
+      return null
+    },
+    generateBundle(_, bundle) {
+      // (D) 产物分析
+    },
+  }
+}
+
+// 在 Vite 7(双引擎)中:哪些 hook 在 dev 下会被调用?
+// 在 Vite 8(Rolldown)中:同样的问题?
+// 原因是什么?
+```

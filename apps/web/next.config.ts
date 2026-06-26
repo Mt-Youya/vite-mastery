@@ -1,10 +1,8 @@
-import { withContentCollections } from "@content-collections/next";
-import type { NextConfig } from "next";
-import { fileURLToPath } from "node:url";
+import { withContentCollections } from "@content-collections/next"
+import type { NextConfig } from "next"
+import { fileURLToPath } from "node:url"
 
-const contentCollectionsEntry = fileURLToPath(
-  new URL("./.content-collections/generated/index.js", import.meta.url),
-);
+const contentCollectionsEntry = fileURLToPath(new URL("./.content-collections/generated/index.js", import.meta.url))
 
 const config: NextConfig = {
   reactStrictMode: true,
@@ -20,11 +18,7 @@ const config: NextConfig = {
   ],
   experimental: {
     /** MDX 内容路由会大量用,Turbopack 已是 Next 16 默认 */
-    optimizePackageImports: [
-      "@hugeicons/react",
-      "@hugeicons/core-free-icons",
-      "@base-ui/react",
-    ],
+    optimizePackageImports: ["@hugeicons/react", "@hugeicons/core-free-icons", "@base-ui/react"],
   },
   turbopack: {
     resolveAlias: {
@@ -34,11 +28,11 @@ const config: NextConfig = {
   /** RSC 阶段把 shiki / twoslash 当 server-only,避免打进 client bundle */
   serverExternalPackages: ["shiki", "@shikijs/twoslash", "@shikijs/transformers"],
   webpack: (webpackConfig) => {
-    webpackConfig.resolve ??= {};
-    webpackConfig.resolve.alias ??= {};
-    webpackConfig.resolve.alias["content-collections"] = contentCollectionsEntry;
-    return webpackConfig;
+    webpackConfig.resolve ??= {}
+    webpackConfig.resolve.alias ??= {}
+    webpackConfig.resolve.alias["content-collections"] = contentCollectionsEntry
+    return webpackConfig
   },
-};
+}
 
-export default withContentCollections(config);
+export default withContentCollections(config)

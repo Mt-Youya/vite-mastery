@@ -1,0 +1,162 @@
+---
+title: "`buildApp` Hook 实战"
+description: 用 Vite 7+ 新增的 buildApp hook 协调多环境构建顺序——先 ssr 再 client,或者并行构建,以及如何把构建信息在环境间共享。
+order: 8
+part: 05-environment-api
+chapter: "5.8"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。`buildApp` hook 自 Vite 7
+  引入,在 Vite 8 中进一步完善。本章基于 Vite 8.1.x 官方文档概念。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - `buildApp` hook 的作用和适用场景 - 如何控制多个环境的构建顺序 - 在 buildApp 里收集跨环境信息 - 框架作者如何用
+  buildApp 实现复杂的多环境构建
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「DevEnvironment vs BuildEnvironment」(5.5 节) - 了解异步编程:Promise / async-await
+</Callout>
+
+## buildApp 是什么
+
+`buildApp` 是 Vite 7 新增、Vite 8 进一步成熟的插件 hook,专门用于**编排多环境构建**。
+
+在没有 `buildApp` 之前,如果你的项目有三个环境(client / ssr / rsc),需要分别执行:
+
+```bash
+vite build                  # 构建 client
+vite build --ssr            # 构建 ssr
+# rsc 没有标准方式,框架各自实现
+```
+
+`buildApp` 让这个编排过程可以用代码描述:
+
+```ts filename="my-framework-plugin.ts"
+import type { Plugin } from "vite"
+
+export function myFrameworkPlugin(): Plugin {
+  return {
+    name: "my-framework",
+    async buildApp(app) {
+      // 按顺序构建:先 ssr,再 client(client 可能依赖 ssr 的产物)
+      await app.build("ssr")
+      await app.build("client")
+    },
+  }
+}
+```
+
+<Callout type="warning">
+  `buildApp` hook 的具体参数和 `app.build()` 的 API 在 RC 阶段仍在确认中。上面的代码是概念示意,以官方文档为准。
+</Callout>
+
+## 典型场景:SSR + Client 顺序构建
+
+许多 SSR 框架需要先构建服务端代码,再构建客户端代码。原因:
+
+1. SSR 产物包含路由清单
+2. Client 需要读取路由清单来做代码分割
+
+```ts
+async buildApp(app) {
+  // 第一步:构建 SSR 环境
+  await app.build("ssr")
+  // SSR 产物现在在 dist/server/ 里
+
+  // 从 SSR 产物读取路由清单
+  const manifest = readRouteManifest("dist/server/route-manifest.json")
+
+  // 第二步:带着路由清单构建 Client
+  // (需要某种方式把 manifest 传给 client 构建)
+  await app.build("client")
+}
+```
+
+## 典型场景:并行构建独立环境
+
+如果两个环境没有依赖关系,可以并行:
+
+```ts
+async buildApp(app) {
+  // client 和 worker 互不依赖,并行构建
+  await Promise.all([
+    app.build("client"),
+    app.build("worker"),
+  ])
+}
+```
+
+## 框架视角:Next.js 类似的构建流程
+
+```ts
+async buildApp(app) {
+  // 1. 构建 RSC 环境(React Server Components)
+  await app.build("rsc")
+
+  // 2. 读取 RSC 构建的 server component manifest
+  const rscManifest = readManifest("dist/rsc/manifest.json")
+
+  // 3. 把 manifest 传入 ssr 构建
+  await app.build("ssr")
+
+  // 4. 最后构建 client(需要完整的 SSR + RSC manifest)
+  await app.build("client")
+}
+```
+
+## 在 buildApp 里共享信息
+
+```ts
+async buildApp(app) {
+  const sharedData = new Map<string, unknown>()
+
+  // ssr 构建完成后,收集信息
+  await app.build("ssr")
+  sharedData.set("routeManifest", readManifest())
+
+  // client 构建时,插件可以访问 sharedData
+  // (通过闭包或其他机制传递,具体实现取决于框架)
+  await app.build("client")
+}
+```
+
+## 自测题
+
+1. `buildApp` hook 主要是给应用开发者用还是框架作者用?为什么?
+2. 在 `buildApp` 里用 `await Promise.all([app.build("a"), app.build("b")])` 和 `await app.build("a"); await app.build("b")` 分别适合什么情况?
+3. 为什么有些框架需要先构建 SSR 再构建 Client,而不是反过来?
+4. 如果 `buildApp` hook 不存在,框架怎么实现多环境构建编排?
+
+```ts filename="练习"
+// 为一个假设的 SSR 框架实现 buildApp:
+// 环境结构:
+//   - ssr:服务端渲染入口,构建后生成 dist/server/
+//   - client:浏览器代码,构建后生成 dist/client/
+//   - edge:可选的 Edge Middleware,构建后生成 dist/edge/
+//
+// 构建规则:
+//   - ssr 必须先于 client 构建(因为 client 需要 ssr 的 manifest)
+//   - edge 可以与 client 并行构建
+//   - 如果没有配置 edge 环境,跳过 edge 构建
+
+import type { Plugin } from "vite"
+
+export function frameworkPlugin(): Plugin {
+  return {
+    name: "my-framework",
+    async buildApp(app) {
+      // TODO:实现上述构建顺序
+      // 提示:app.environments 包含所有已配置的环境
+      // app.build(envName) 构建指定环境
+    },
+  }
+}
+```

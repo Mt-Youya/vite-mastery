@@ -1,0 +1,221 @@
+---
+title: DevEnvironment vs BuildEnvironment
+description: Environment API 的两种状态——开发态的 DevEnvironment 有 hot channel 和 module runner;构建态的 BuildEnvironment 专注产物生成。两者的 API 差异是什么?
+order: 5
+part: 05-environment-api
+chapter: "5.5"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。本章基于 Vite
+  8.1.x。生产项目使用前请确认对应 Vite 版本的官方文档。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - `DevEnvironment` 和 `BuildEnvironment` 的职责划分 - 两者各自有哪些独有的能力 - 如何在插件里区分和使用两种环境状态 -
+  共用 Environment 配置但分开处理 dev/build 行为
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「核心概念」(5.2 节) - 阅读「默认环境:client 与 ssr」(5.3 节)
+</Callout>
+
+## 两种 Environment 状态
+
+同一个 `environments.ssr` 配置,在 dev 模式和 build 模式下实例化的是不同的类:
+
+```text
+vite dev:
+  ssr 配置 → DevEnvironment 实例
+    ├── moduleGraph (per-environment)
+    ├── hot (HotChannel)
+    └── runner (ModuleRunner)
+
+vite build:
+  ssr 配置 → BuildEnvironment 实例
+    ├── bundle (输出产物)
+    └── (无 hot / runner)
+```
+
+## DevEnvironment:开发态的能力
+
+`DevEnvironment` 是 dev server 运行时的 Environment 实例:
+
+```ts
+interface DevEnvironment {
+  name: string // "client" | "ssr" | 自定义
+  config: ResolvedConfig
+  moduleGraph: EnvironmentModuleGraph // 独立的模块图谱
+
+  // 开发态独有:
+  hot: HotChannel // HMR 消息通道
+  // runner: ModuleRunner         // 模块执行器(独立接口,以官方文档为准)
+
+  // 方法:
+  // transformRequest(url): 手动触发模块 transform
+}
+```
+
+### 访问 DevEnvironment
+
+```ts
+configureServer(server) {
+  const ssrEnv = server.environments.ssr
+
+  // 检查环境是否存在
+  if (!ssrEnv) return
+
+  // 发送 HMR 消息到 ssr 环境
+  ssrEnv.hot.send({
+    type: "custom",
+    event: "ssr:cache-clear",
+    data: {},
+  })
+}
+```
+
+### 在插件里区分 DevEnvironment 和 BuildEnvironment
+
+```ts
+import type { Plugin, DevEnvironment } from "vite"
+
+export function adaptivePlugin(): Plugin {
+  return {
+    name: "adaptive-plugin",
+    buildStart() {
+      // this.environment 是当前 Environment 实例
+      const env = this.environment
+
+      if (!env) return
+
+      // 区分 dev 和 build
+      if ("hot" in env) {
+        // dev 模式:DevEnvironment
+        const devEnv = env as DevEnvironment
+        console.log(`[${devEnv.name}] dev 模式启动`)
+      } else {
+        // build 模式:BuildEnvironment
+        console.log(`[${env.name}] build 模式启动`)
+      }
+    },
+  }
+}
+```
+
+## BuildEnvironment:构建态的能力
+
+`BuildEnvironment` 在 `vite build` 时使用:
+
+```ts
+interface BuildEnvironment {
+  name: string
+  config: ResolvedConfig
+
+  // 构建态独有:
+  // 产物相关的 API,具体以官方文档为准
+}
+```
+
+BuildEnvironment 没有 `hot` 和 `runner`——这些概念只在 dev server 有意义。
+
+构建时通过插件的 `generateBundle` 等 hook 处理产物,而不是通过 Environment API 的高层方法。
+
+## 为两种状态编写不同的行为
+
+```ts
+import type { Plugin } from "vite"
+
+export function dualModePlugin(): Plugin {
+  return {
+    name: "dual-mode-plugin",
+
+    // 这两个 hook 在 dev 和 build 都触发
+    resolveId(id) {
+      /* ... */
+    },
+    load(id) {
+      /* ... */
+    },
+
+    // 只在 dev 模式下:配置 server
+    configureServer(server) {
+      // 注册 dev 专属的中间件
+      server.middlewares.use("/api/refresh", (req, res) => {
+        res.end("ok")
+      })
+    },
+
+    // 只在 build 模式下:分析产物
+    generateBundle(_, bundle) {
+      // 分析 build 产物
+      const chunks = Object.values(bundle).filter((c) => c.type === "chunk")
+      console.log(`构建产出 ${chunks.length} 个 chunk`)
+    },
+  }
+}
+```
+
+## Environment 感知的 transform
+
+在 transform 里,根据是否有 hot 通道判断当前状态:
+
+```ts
+transform(code, id) {
+  const env = this.environment
+  const isDevMode = env && "hot" in env
+
+  if (isDevMode) {
+    // 开发模式:注入调试辅助代码
+    return {
+      code: `
+// [dev-only] 开发调试代码
+if (import.meta.env.DEV) {
+  window.__DEBUG_MODULES__ = window.__DEBUG_MODULES__ || new Set()
+  window.__DEBUG_MODULES__.add(${JSON.stringify(id)})
+}
+${code}
+`,
+      map: null,
+    }
+  }
+
+  // 生产模式:不注入调试代码
+  return null
+},
+```
+
+## 自测题
+
+1. `DevEnvironment` 和 `BuildEnvironment` 最显著的区别是什么?
+2. 为什么 `BuildEnvironment` 没有 `hot` 属性?
+3. 如果你在 `buildStart` 里需要发送 HMR 消息,应该怎么判断当前是否在 dev 模式?
+4. `configureServer` hook 在 BuildEnvironment 下触发吗?为什么?
+
+```ts filename="练习"
+// 实现一个插件,在 dev 模式下:
+// - 每次 buildStart 时打印 "[dev] 服务已就绪:${envName}"
+// - 向所有 client 连接发送 "plugin-ready" 事件
+
+// 在 build 模式下:
+// - 每次 buildStart 时打印 "[build] 开始构建 ${envName} 环境"
+// - 构建完成时打印 "[build] ${envName} 环境完成,共 N 个 chunk"
+
+import type { Plugin } from "vite"
+
+export function modeAwarePlugin(): Plugin {
+  return {
+    name: "mode-aware",
+    buildStart() {
+      // TODO:根据 this.environment 判断 dev 还是 build
+    },
+    generateBundle(_, bundle) {
+      // TODO:build 模式下统计 chunk
+    },
+  }
+}
+```

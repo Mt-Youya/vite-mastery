@@ -1,0 +1,174 @@
+---
+title: Svelte + Vite
+description: Svelte 5 的 Runes 语法与 Vite 的集成——`@sveltejs/vite-plugin-svelte` 如何把 .svelte 文件编译成 JavaScript,以及 Svelte 独特的编译时优化。
+order: 3
+part: 09-framework-integration
+chapter: "9.3"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `@sveltejs/vite-plugin-svelte` 的工作方式 - Svelte 5 Runes(`$state` / `$derived` / `$effect`) - Svelte
+  的编译时优化:为什么不需要 Virtual DOM - Svelte 与 Vite 集成的推荐配置
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 Svelte 基础(组件、响应式) - 理解编译器的概念
+</Callout>
+
+## Svelte 的核心思路
+
+Svelte 与 React / Vue 最大的不同:**编译时框架**。
+
+- React / Vue:运行时框架,需要虚拟 DOM diffing
+- Svelte:**编译器**,把 `.svelte` 文件编译成原生 DOM 操作代码
+
+```svelte
+<!-- Counter.svelte (Svelte 5 Runes) -->
+<script>
+  let count = $state(0)
+  let doubled = $derived(count * 2)
+</script>
+
+<button onclick={() => count++}>
+  Count: {count}, Doubled: {doubled}
+</button>
+```
+
+编译后大致等价于:
+
+```js
+// 没有虚拟 DOM!直接 DOM 操作
+let count = 0
+
+button.addEventListener("click", () => {
+  count++
+  // 直接更新 DOM 节点
+  buttonText.textContent = `Count: ${count}, Doubled: ${count * 2}`
+})
+```
+
+## @sveltejs/vite-plugin-svelte 的角色
+
+插件在 `transform` hook 里把 `.svelte` 文件交给 Svelte 编译器:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { svelte } from "@sveltejs/vite-plugin-svelte"
+
+export default defineConfig({
+  plugins: [svelte()],
+})
+```
+
+Svelte 编译器处理:
+
+- `<script>`:提取 JS 逻辑,处理 Runes 语法
+- `<template>`:编译为高效的 DOM 操作代码
+- `<style>`:提取并 scope(基于组件 hash)
+
+## Svelte 5 Runes 与 Vite
+
+Svelte 5 引入了 Runes 系统——更显式的响应式声明:
+
+```svelte
+<script>
+  // $state:响应式变量(替代原来的 let)
+  let count = $state(0)
+  let name = $state("World")
+
+  // $derived:派生值(替代原来的 $: 语句)
+  let greeting = $derived(`Hello, ${name}!`)
+  let doubled = $derived(count * 2)
+
+  // $effect:副作用(替代原来的 $: 语句块)
+  $effect(() => {
+    console.log(`count changed to ${count}`)
+  })
+
+  // $props:组件 Props
+  let { title = "Default" } = $props()
+</script>
+
+<h1>{greeting}</h1>
+<p>Count: {count}, Doubled: {doubled}</p>
+<button onclick={() => count++}>+1</button>
+```
+
+## Svelte 与 TypeScript
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { svelte } from "@sveltejs/vite-plugin-svelte"
+
+export default defineConfig({
+  plugins: [
+    svelte({
+      // 启用 TypeScript 支持
+      // (Svelte 5 默认支持 TypeScript)
+    }),
+  ],
+})
+```
+
+```svelte
+<script lang="ts">
+  interface Props {
+    name: string
+    count?: number
+  }
+
+  let { name, count = 0 }: Props = $props()
+</script>
+```
+
+## Svelte 的构建优势
+
+Svelte 的编译时特性让它的产物体积通常更小:
+
+| 框架   | 运行时大小               | 组件逻辑   |
+| ------ | ------------------------ | ---------- |
+| React  | ~45KB(react + react-dom) | 额外 JS    |
+| Vue    | ~30KB(vue core)          | 额外 JS    |
+| Svelte | ~2KB(极小)               | 编译进组件 |
+
+**注意**:当应用变大,Svelte 的优势会减小(每个组件的编译产物都有重复模式)。
+
+## 自测题
+
+1. Svelte 为什么不需要 Virtual DOM?这对性能有什么影响?
+2. Svelte 5 的 `$state` 和 `let` 有什么区别?
+3. Svelte 的 `<style>` 样式隔离与 Vue `<style scoped>` 有什么异同?
+4. 在什么规模的应用里 Svelte 的体积优势最显著?
+
+```svelte filename="练习">
+<!-- 将以下 React 组件改写为 Svelte 5 版本: -->
+
+// React 版本:
+function Counter({ initialCount = 0 }) {
+  const [count, setCount] = useState(initialCount)
+  const doubled = useMemo(() => count * 2, [count])
+
+  useEffect(() => {
+    document.title = `Count: ${count}`
+    return () => {
+      document.title = "App"
+    }
+  }, [count])
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <p>Doubled: {doubled}</p>
+      <button onClick={() => setCount(c => c + 1)}>+1</button>
+      <button onClick={() => setCount(0)}>Reset</button>
+    </div>
+  )
+}
+
+<!-- TODO:Svelte 5 Runes 版本 -->
+```

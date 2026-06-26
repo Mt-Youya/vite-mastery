@@ -1,0 +1,167 @@
+---
+title: React + Vite 8
+description: "@vitejs/plugin-react v6 深度解析——OXC Refresh 替代 Babel、React Compiler 如何接入、Vite 8 的 React 生态现状。"
+order: 1
+part: 09-framework-integration
+chapter: "9.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `@vitejs/plugin-react` v6 与 v5 的核心区别 - OXC Refresh 如何比 Babel 更快 - 如何在 Vite 8 里启用 React Compiler -
+  TypeScript + React 的推荐配置
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 React 基础 - 了解 Vite 基本配置(Part 0)
+</Callout>
+
+## @vitejs/plugin-react v6:OXC 时代
+
+Vite 8 配套的 `@vitejs/plugin-react` v6 是 React 集成的重大升级:
+
+| 维度              | v5(Vite 7 时代)                    | v6(Vite 8 时代)        |
+| ----------------- | ---------------------------------- | ---------------------- |
+| Fast Refresh 实现 | Babel + babel-plugin-react-refresh | OXC(Rust)              |
+| 依赖 Babel        | ✅ 必须                            | ❌ 可选                |
+| 启动速度          | 基准                               | 明显更快               |
+| JSX transform     | Babel                              | OXC                    |
+| React Compiler    | 手动配置                           | `reactCompilerOptions` |
+
+**配置方式不变**:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+  // ↑ v5 和 v6 写法完全相同
+})
+```
+
+## OXC Refresh 的工作原理
+
+OXC(Oxidation Compiler)用 Rust 实现了 React Fast Refresh 所需的 AST transform:
+
+1. **检测 React 组件**:扫描文件里的函数声明/表达式,识别哪些是 React 组件(首字母大写、返回 JSX)
+2. **注入 HMR 代码**:在每个组件文件末尾注入 `import.meta.hot.accept()` + 组件注册
+3. **处理 hooks**:追踪 hooks 调用,确保 Fast Refresh 的 rules 得到满足
+
+这个过程完全在 Rust 里完成,不需要启动 Babel 进程,也不需要序列化/反序列化 AST。
+
+## TypeScript 推荐配置
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true
+  }
+}
+```
+
+## React Compiler 接入(Vite 8)
+
+React Compiler(前身 React Forget)是 React 19 引入的自动记忆化编译器。在 Vite 8 里启用:
+
+<Callout type="warning">
+  React Compiler 仍处于 RC 阶段。以下配置以 Vite 8.1.x 和 `@vitejs/plugin-react` v6 的官方文档为准。
+</Callout>
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [
+    react({
+      // 启用 React Compiler
+      babel: {
+        plugins: [
+          [
+            "babel-plugin-react-compiler",
+            {
+              target: "19", // React 19
+            },
+          ],
+        ],
+      },
+    }),
+  ],
+})
+```
+
+<Callout type="tip">
+  注意:启用 React Compiler 需要额外安装 `babel-plugin-react-compiler` 和 Babel。v6 默认不依赖 Babel,但 React Compiler
+  支持需要它。
+</Callout>
+
+## 常见配置场景
+
+### 路径别名
+
+```ts
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": resolve("src"),
+      "@components": resolve("src/components"),
+      "@utils": resolve("src/utils"),
+    },
+  },
+})
+```
+
+### 环境变量 TypeScript 类型
+
+```ts filename="src/env.d.ts"
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string
+  readonly VITE_APP_TITLE: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+```
+
+## 自测题
+
+1. `@vitejs/plugin-react` v6 用 OXC 替代 Babel 后,项目的哪个环节变得更快?
+2. 如果你的项目需要一些 Babel 插件(比如 styled-components 的 babel-plugin),v6 还能用吗?如何配置?
+3. `tsconfig.json` 里 `"moduleResolution": "Bundler"` 是什么意思?与 `"Node16"` 有什么区别?
+4. React Compiler 解决了什么问题?为什么它需要 Babel 而不能用 OXC?
+
+```ts filename="练习"
+// 配置一个完整的 React + TypeScript + Vite 8 项目:
+// 1. 路径别名:@ → src/
+// 2. 全局 CSS 变量通过 CSS Modules 或 PostCSS 注入
+// 3. 环境变量:VITE_API_BASE_URL
+// 4. 生产 build 配置:sourcemap 关闭,vendor chunk 分割
+
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig(({ command }) => ({
+  plugins: [react()],
+  // TODO:完整配置
+}))
+```

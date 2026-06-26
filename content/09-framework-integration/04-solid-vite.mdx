@@ -1,0 +1,186 @@
+---
+title: Solid + Vite
+description: SolidJS 是细粒度响应式的代表——`vite-plugin-solid` 把 JSX 编译为原生 DOM 操作,没有虚拟 DOM,没有组件重渲染。
+order: 4
+part: 09-framework-integration
+chapter: "9.4"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - SolidJS 的细粒度响应式原理 - `vite-plugin-solid` 如何把 Solid JSX 编译为原生 DOM - Solid 与 React
+  的核心差异(看起来像 React,但完全不同) - Solid + TypeScript + Vite 的推荐配置
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 React 基础(因为 Solid API 类似 React) - 理解响应式编程的概念
+</Callout>
+
+## SolidJS 的核心原理
+
+Solid 的 JSX 看起来像 React,但编译后完全不同:
+
+```tsx
+// 看起来像 React...
+function Counter() {
+  const [count, setCount] = createSignal(0)
+
+  return (
+    <div>
+      <p>Count: {count()}</p>
+      <button onClick={() => setCount((c) => c + 1)}>+1</button>
+    </div>
+  )
+}
+```
+
+编译后(简化):
+
+```ts
+// 没有 Virtual DOM!没有组件重渲染!
+function Counter() {
+  const [count, setCount] = createSignal(0)
+
+  // Solid 的 JSX 只运行一次,创建真实 DOM 节点
+  const div = document.createElement("div")
+  const p = document.createElement("p")
+  const button = document.createElement("button")
+
+  // 创建响应式绑定:count 信号改变时只更新 text node
+  insert(p, () => `Count: ${count()}`)
+
+  button.textContent = "+1"
+  button.addEventListener("click", () => setCount((c) => c + 1))
+
+  return div
+}
+```
+
+关键区别:**Solid 的组件函数只运行一次**,不像 React 每次状态改变都重新渲染。
+
+## 配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import solid from "vite-plugin-solid"
+
+export default defineConfig({
+  plugins: [solid()],
+})
+```
+
+TypeScript 配置:
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "strict": true
+  }
+}
+```
+
+## Solid 核心 API
+
+```tsx
+import {
+  createSignal, // 基础响应式状态
+  createEffect, // 响应式副作用
+  createMemo, // 计算值
+  Show,
+  For, // 控制流组件
+} from "solid-js"
+
+function App() {
+  const [count, setCount] = createSignal(0)
+  const doubled = createMemo(() => count() * 2)
+
+  createEffect(() => {
+    // 当 count 改变时执行(注意:读取 count() 建立依赖)
+    console.log("count:", count())
+  })
+
+  return (
+    <div>
+      {/* Show:条件渲染(比 && 更精确) */}
+      <Show when={count() > 0}>
+        <p>Count: {count()}</p>
+        <p>Doubled: {doubled()}</p>
+      </Show>
+
+      {/* For:列表渲染(带 key 的高效更新) */}
+      <For each={["a", "b", "c"]}>{(item) => <span>{item}</span>}</For>
+
+      <button onClick={() => setCount((c) => c + 1)}>+1</button>
+    </div>
+  )
+}
+```
+
+## Solid vs React 的关键差异
+
+| 维度        | React                | Solid                |
+| ----------- | -------------------- | -------------------- |
+| 更新粒度    | 组件重渲染           | 信号级别精确更新     |
+| 组件函数    | 每次状态变化重新调用 | 只调用一次           |
+| 访问状态    | `state`              | `state()` (函数调用) |
+| 条件渲染    | `&&` 或三元          | `<Show>` 组件        |
+| 列表渲染    | `Array.map()`        | `<For>` 组件         |
+| Virtual DOM | ✅                   | ❌ 原生 DOM          |
+
+## 自测题
+
+1. 为什么 Solid 的组件函数只调用一次,而 React 每次更新都会调用?
+2. `createSignal` 返回的值为什么是一个函数 `count()`,而不是直接返回值 `count`?
+3. Solid 的 `<Show>` 组件与 React 的 `&&` 条件渲染有什么本质区别?
+4. 在 Solid 里,把 `{count()}` 改写成 `{count}` 会发生什么?
+
+```tsx filename="练习"
+// 把以下 React 代码改写为 Solid:
+
+function TodoList() {
+  const [todos, setTodos] = useState([
+    { id: 1, text: "学习 Vite", done: false },
+    { id: 2, text: "学习 Solid", done: false },
+  ])
+  const [input, setInput] = useState("")
+
+  const completedCount = useMemo(() => todos.filter((t) => t.done).length, [todos])
+
+  const addTodo = () => {
+    if (!input.trim()) return
+    setTodos([...todos, { id: Date.now(), text: input, done: false }])
+    setInput("")
+  }
+
+  return (
+    <div>
+      <p>
+        {completedCount}/{todos.length} 完成
+      </p>
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            <input
+              type="checkbox"
+              checked={todo.done}
+              onChange={() => setTodos(todos.map((t) => (t.id === todo.id ? { ...t, done: !t.done } : t)))}
+            />
+            {todo.text}
+          </li>
+        ))}
+      </ul>
+      <input value={input} onChange={(e) => setInput(e.target.value)} />
+      <button onClick={addTodo}>添加</button>
+    </div>
+  )
+}
+```

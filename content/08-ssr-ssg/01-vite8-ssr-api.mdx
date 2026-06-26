@@ -1,0 +1,206 @@
+---
+title: Vite 8 时代的 SSR API
+description: 基于 Environment API 的新 SSR 模型——ssrLoadModule 的局限、ModuleRunner 的替代、以及 Vite 8 SSR 的最佳实践。
+order: 1
+part: 08-ssr-ssg
+chapter: "8.1"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 8 SSR 的推荐 API 路径 - `ssrLoadModule` 的局限与 Environment API 的替代 - SSR build 的配置(`--ssr` 标志的作用)
+  - Vite 8 SSR 的完整请求处理流程
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 SSR 的基本概念(服务端渲染 + 客户端 hydration) - 阅读「为什么需要 Environment API」(5.1 节)
+</Callout>
+
+## SSR 的两种模式
+
+Vite 支持两种 SSR 使用方式:
+
+### 模式一:中间件模式(开发推荐)
+
+```ts filename="server.js"
+import { createServer as createViteServer } from "vite"
+import express from "express"
+
+const vite = await createViteServer({
+  server: { middlewareMode: true },
+  appType: "custom", // 不自动注入 HTML
+})
+
+const app = express()
+app.use(vite.middlewares) // Vite 处理静态资源和 HMR
+
+app.use("*", async (req, res) => {
+  const url = req.originalUrl
+
+  try {
+    // 加载并执行服务端入口
+    const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+    const appHtml = await render(url)
+
+    // 获取 index.html 并注入渲染结果
+    const template = await vite.transformIndexHtml(url, readFileSync("index.html", "utf-8"))
+    const html = template.replace("<!--ssr-outlet-->", appHtml)
+
+    res.status(200).set("Content-Type", "text/html").end(html)
+  } catch (e) {
+    vite.ssrFixStacktrace(e)
+    res.status(500).end(String(e))
+  }
+})
+```
+
+### 模式二:预构建 SSR(生产推荐)
+
+```bash
+# 构建 client 端
+vite build
+
+# 构建 SSR 端(--ssr 标志)
+vite build --ssr src/entry-server.tsx
+```
+
+产物:
+
+```text
+dist/
+  client/         ← 浏览器端代码
+    index.html
+    assets/
+  server/         ← Node.js 端代码
+    entry-server.js
+```
+
+## ssrLoadModule vs Environment API
+
+`vite.ssrLoadModule()` 是 Vite 的传统 SSR API,在 Vite 8 里**仍然有效**但不是推荐方式:
+
+```ts
+// 传统方式(仍然有效)
+const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+
+// Vite 8 推荐(Environment API)
+// 以官方文档 API 为准
+const { render } = await runner.import("/src/entry-server.tsx")
+```
+
+两者的主要区别:
+
+- `ssrLoadModule`:每次调用都重新执行,不缓存
+- `ModuleRunner.import()`:有缓存,HMR 更新时才重新执行
+
+## SSR 构建配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+
+  build: {
+    // SSR 构建时需要的配置
+    // (注意:不要把这些放在顶层,用条件判断或分开的配置文件)
+  },
+
+  ssr: {
+    // SSR 专属配置
+    noExternal: ["some-esm-only-package"], // 需要 bundle 进产物的包
+    external: ["express"], // 明确 external(Node.js 内置模块自动 external)
+    target: "node", // 目标是 Node.js 环境
+  },
+})
+```
+
+## 错误处理与 stack trace
+
+SSR 报错时,stack trace 会指向 transform 后的代码而不是源码。`ssrFixStacktrace` 修复这个问题:
+
+```ts
+} catch (e) {
+  vite.ssrFixStacktrace(e)  // 把 stack trace 重写为源码行号
+  console.error(e)
+  res.status(500).end(String(e))
+}
+```
+
+## 完整请求流程
+
+```text
+浏览器请求 GET /page
+      │
+      ▼
+Express 中间件
+      │
+      ▼
+ssrLoadModule("/src/entry-server.tsx")
+  → Vite 在 ssr 环境执行模块
+  → 返回 { render } 函数
+      │
+      ▼
+render(url)
+  → 调用 React renderToString 或 Vue renderToString
+  → 返回 HTML 字符串
+      │
+      ▼
+transformIndexHtml(url, template)
+  → 把 Vite 处理的 HTML 模板返回(含资源链接)
+      │
+      ▼
+template.replace("<!--ssr-outlet-->", appHtml)
+      │
+      ▼
+res.end(html)
+```
+
+## 自测题
+
+1. `vite build` 和 `vite build --ssr` 的产物有什么区别?各自适合部署在哪里?
+2. `ssrLoadModule` 在 Vite 8 里还能用吗?如果可以,为什么还要迁移到 Environment API?
+3. `vite.ssrFixStacktrace()` 做了什么?为什么 SSR 的错误堆栈需要修复?
+4. `ssr.noExternal` 配置什么情况下需要用?
+
+```ts filename="练习"
+// 实现一个简单的 React SSR 服务器:
+// 1. 用 vite.ssrLoadModule 加载服务端入口
+// 2. 渲染 HTML(renderToString)
+// 3. 正确处理错误(ssrFixStacktrace)
+// 4. 在开发模式实现 HMR(修改文件后自动重新加载模块)
+
+// entry-server.tsx:
+import { renderToString } from "react-dom/server"
+import { App } from "./App"
+
+export async function render(url: string): Promise<string> {
+  return renderToString(<App url={url} />)
+}
+
+// server.js(TODO 实现):
+import { createServer as createViteServer } from "vite"
+import { createServer as createHttpServer } from "node:http"
+import { readFileSync } from "node:fs"
+
+const vite = await createViteServer({ /* TODO */ })
+
+const server = createHttpServer(async (req, res) => {
+  try {
+    // TODO:
+    // 1. 调用 ssrLoadModule 加载 entry-server.tsx
+    // 2. 调用 render(req.url)
+    // 3. 获取 HTML 模板并注入渲染结果
+    // 4. 返回完整 HTML
+  } catch (e) {
+    // TODO:错误处理
+  }
+})
+
+server.listen(3000)
+```

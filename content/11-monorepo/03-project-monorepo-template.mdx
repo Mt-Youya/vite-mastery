@@ -1,0 +1,221 @@
+---
+title: 实战项目 9:复刻本站 Monorepo
+description: 从零搭建与 vite-mastery 相同的 Monorepo 结构——apps/ + packages/ + content/ 三层架构,Vite 8 + Next.js + pnpm workspace 的完整配置。
+order: 3
+part: 11-monorepo
+chapter: "11.3"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 生产级 monorepo 的目录结构设计 - 共享配置包的设计原则 - Vite 8 在 monorepo 里的最佳实践 -
+  配套实战项目:`examples/monorepo-template`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Vite + Monorepo 的坑」(11.2 节) - 了解 Next.js App Router 基础
+</Callout>
+
+## 项目结构设计
+
+```text
+my-monorepo/
+├── apps/
+│   └── web/                    ← 主应用(Next.js)
+│       ├── package.json
+│       ├── next.config.ts
+│       └── src/
+├── packages/
+│   ├── ui/                     ← 共享 UI 组件
+│   │   ├── package.json
+│   │   ├── vite.config.ts      ← 库模式构建
+│   │   └── src/
+│   └── utils/                  ← 共享工具函数
+│       ├── package.json
+│       ├── vite.config.ts
+│       └── src/
+├── pnpm-workspace.yaml
+├── package.json                ← 根 package.json
+└── tsconfig.json               ← 根 tsconfig(引用)
+```
+
+## 根配置文件
+
+### pnpm-workspace.yaml
+
+```yaml filename="pnpm-workspace.yaml"
+packages:
+  - "apps/*"
+  - "packages/*"
+```
+
+### 根 package.json
+
+```json filename="package.json"
+{
+  "name": "my-monorepo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @my/web dev",
+    "build": "nex build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint .",
+    "clean": "next clean"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.0",
+    "oxlint": "^1.0.0",
+    "next:" "^16.2.9"
+  }
+}
+```
+
+### 根 tsconfig.json(引用聚合)
+
+```json filename="tsconfig.json"
+{
+  "files": [],
+  "references": [{ "path": "./packages/ui" }, { "path": "./packages/utils" }, { "path": "./apps/web" }]
+}
+```
+
+## packages/utils 配置
+
+最简单的工具包:
+
+```ts filename="packages/utils/vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: resolve("src/index.ts"),
+      formats: ["es", "cjs"],
+      fileName: (f) => `index.${f === "es" ? "js" : "cjs"}`,
+    },
+  },
+})
+```
+
+```json filename="packages/utils/package.json"
+{
+  "name": "@my/utils",
+  "version": "0.0.1",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "vite": "^8.1.0",
+    "typescript": "^6.0.0",
+    "rimraf": "^6.0.0"
+  }
+}
+```
+
+## packages/ui 配置
+
+React 组件库包:
+
+```json filename="packages/ui/package.json"
+{
+  "name": "@my/ui",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./src/index.tsx",
+      "types": "./src/index.tsx"
+    }
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@my/utils": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.0",
+    "react": "^19.0.0",
+    "vite": "^8.1.0",
+    "typescript": "^6.0.0",
+    "rimraf": "^6.0.0"
+  }
+}
+```
+
+## apps/web 配置
+
+```ts filename="apps/web/next.config.ts"
+import type { NextConfig } from "next"
+
+const config: NextConfig = {
+  // 把 workspace 包通过 Next.js 的 webpack 处理
+  // (这样它们的 TypeScript 源码会被编译)
+  transpilePackages: ["@my/ui", "@my/utils"],
+}
+
+export default config
+```
+
+## 开发体验优化:alias 直指 src
+
+在 Vite 项目里,通过 alias 让 IDE 和 HMR 都指向源码:
+
+```ts filename="apps/web/vite.config.ts"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@my/ui": resolve("../../packages/ui/src"),
+      "@my/utils": resolve("../../packages/utils/src"),
+    },
+  },
+})
+```
+
+## 运行实战项目
+
+```bash
+cd examples/monorepo-template
+pnpm install
+pnpm dev     # 启动 apps/web
+```
+
+## 自测题
+
+1. 为什么根 `tsconfig.json` 用 `references` 而不是直接配置所有文件?
+2. Turborepo 的 `dependsOn: ["^build"]` 是什么意思?
+3. `transpilePackages` 在 Next.js 里做了什么?为什么需要它?
+4. 如果不用 Turborepo,只用 `pnpm -r run build`,会有什么问题?
+
+```ts filename="练习"
+// 扩展这个 monorepo:添加一个 packages/icons 包
+// - 包含 SVG 图标,每个图标是一个 React 组件
+// - 图标从 SVG 文件自动生成(可用脚本)
+// - 消费方:import { ArrowIcon } from "@my/icons"
+//
+// 问题:
+// 1. packages/icons/package.json 应该怎么配?
+// 2. vite.config.ts 需要什么特殊处理?(SVG → React 组件)
+// 3. 如果图标很多(500+),如何优化 tree-shaking 让消费方只打包用到的图标?
+```

@@ -1,0 +1,152 @@
+---
+title: Bundle 分析
+description: 用 rollup-plugin-visualizer 找出 bundle 里的胖子——哪个包占了最多体积、哪里可以优化、如何持续追踪产物大小。
+order: 4
+part: 12-performance
+chapter: "12.4"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `rollup-plugin-visualizer` 的用法和解读 - 如何找出 bundle 里的大包 - 常见的体积优化策略 - 持续追踪产物大小(CI
+  里设置体积预算)
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 Vite build 的基本流程 - 了解代码分割(7.4 节)
+</Callout>
+
+## 可视化 Bundle
+
+```bash
+pnpm add -D rollup-plugin-visualizer
+```
+
+```ts filename="vite.config.ts"
+import { visualizer } from "rollup-plugin-visualizer"
+
+export default defineConfig({
+  plugins: [
+    visualizer({
+      open: true, // 构建后自动打开浏览器
+      gzipSize: true, // 显示 gzip 后大小
+      brotliSize: true, // 显示 brotli 后大小
+      filename: "stats.html",
+      template: "treemap", // "treemap" | "sunburst" | "network"
+    }),
+  ],
+})
+```
+
+## 如何读懂可视化报告
+
+**Treemap 视图**(推荐):方块面积代表文件大小
+
+```text
+┌─────────────────────────────────┐
+│  react-dom (120KB)              │
+│  ┌───────────────────────────┐  │
+│  │ react-dom.development.js  │  │
+│  └───────────────────────────┘  │
+├─────────────────────────────────┤
+│  antd (245KB) ← 可能太大了!     │
+├─────────────────────────────────┤
+│  lodash-es (8KB)                │
+└─────────────────────────────────┘
+```
+
+**关注点**:
+
+- 体积最大的方块:值得优化
+- 意外出现的包:可能是幽灵依赖
+- 重复的包:同一个包被打包了两次
+
+## 常见优化策略
+
+### 策略一:换更轻量的替代品
+
+```text
+lodash → lodash-es (按需 tree-shake)
+moment → dayjs (2KB vs 300KB)
+axios → ky 或 fetch (浏览器原生)
+antd → 按需引入特定组件
+```
+
+### 策略二:动态 import 延迟加载
+
+```ts
+// 把图表库的初始加载延迟到用户真正需要时
+const ChartComponent = lazy(() => import("./heavyChartComponent"))
+```
+
+### 策略三:检查是否引入了 Dev 依赖
+
+```ts
+// 确保开发工具不进入生产 bundle
+import { debug } from "debug" // ← 是否在生产代码里用了这个?
+```
+
+## CI 里监控 bundle 大小
+
+用 `bundlesize` 或 `size-limit` 在 CI 里设置体积预算:
+
+```bash
+pnpm add -D size-limit @size-limit/preset-app
+```
+
+```json filename="package.json"
+{
+  "size-limit": [
+    {
+      "path": "dist/assets/*.js",
+      "limit": "300 KB" // 超过就 CI 失败
+    }
+  ]
+}
+```
+
+或者用 GitHub Actions 的 `preinstall-size-comment` action 在 PR 里自动评论 bundle 大小变化。
+
+## 自测题
+
+1. Bundle 可视化工具里,方块的面积代表什么?
+2. 如何判断 antd 引入了不必要的组件?
+3. 什么是"幽灵依赖"?在 bundle 分析里如何发现它?
+4. `gzipSize` 和原始文件大小哪个更能代表用户的实际下载量?
+
+```ts filename="练习"
+// 你的 bundle 分析显示:
+// - @mui/material: 150KB (实际只用了 Button 和 TextField)
+// - recharts: 80KB (只用了 LineChart)
+// - date-fns: 45KB (只用了 3 个函数)
+//
+// 为每个包写出优化方案:
+// 1. @mui/material 的按需引入
+// 2. recharts 的懒加载
+// 3. date-fns 的正确 import 方式
+
+// 1. @mui/material 按需引入(避免全量导入)
+// 错误:
+import { Button, TextField } from "@mui/material"
+
+// 正确:
+// TODO
+
+// 2. recharts 懒加载
+// 错误:
+import { LineChart } from "recharts"
+
+// 正确:
+// TODO
+
+// 3. date-fns 按需引入
+// 错误:
+import { format, addDays, subMonths } from "date-fns"
+
+// 正确:
+// TODO
+```

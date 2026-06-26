@@ -1,0 +1,170 @@
+---
+title: 插件 API 兼容层
+description: Rolldown 如何做到向后兼容 Rollup 插件?哪些 hook 完全兼容?哪些有细微差异?迁移 Vite 7 插件需要注意什么?
+order: 4
+part: 02-bundler-evolution
+chapter: "2.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Rolldown 兼容 Rollup 插件的实现机制 - 哪些 hook 在两者之间完全兼容 - 哪些行为有细微差异,需要留意 - 从 Vite 7(Rollup
+  插件)迁移到 Vite 8(Rolldown)的实用检查清单
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Rolldown 架构剖析」(2.3 节) - 了解 Rollup/Vite 插件基础(3.1 节)
+</Callout>
+
+## 兼容层的设计目标
+
+Rolldown 的插件 API 设计目标是:**对用户透明的 Rollup 兼容**。一个正确实现的 Rollup 插件,不需要任何修改就应该能在 Rolldown 上运行,且行为一致。
+
+这个目标的实现难度在于:Rollup 的插件 API 是基于 JavaScript 对象和 Promise 设计的,而 Rolldown 的内部是 Rust 实现。每次插件 hook 调用都需要跨越 JS ↔ Rust 边界。
+
+## 核心 Hook 兼容性速查
+
+### 完全兼容(行为与 Rollup 一致)
+
+以下 hook 在 Rolldown 中的语义与 Rollup 完全相同:
+
+| Hook                                       | 调用时机                    |
+| ------------------------------------------ | --------------------------- |
+| `buildStart(options)`                      | 构建开始时(parallel)        |
+| `resolveId(id, importer, options)`         | 每次模块 resolve(first)     |
+| `load(id, options)`                        | 模块加载(first)             |
+| `transform(code, id, options)`             | 模块 transform(sequential)  |
+| `moduleParsed(info)`                       | 模块 AST 解析完毕(parallel) |
+| `buildEnd(error?)`                         | 构建结束(parallel)          |
+| `generateBundle(options, bundle, isWrite)` | chunk 全部生成后            |
+| `writeBundle(options, bundle)`             | chunk 写入磁盘后            |
+| `closeBundle()`                            | 构建流程完全结束            |
+
+这些 hook 覆盖了绝大多数插件的使用场景。
+
+<V7Note title="Vite 7 中这些 hook 的 dev 阶段情况">
+  在 Vite 7 中,上述 hook 里只有 `resolveId`、`load`、`transform` 在 dev 阶段触发(通过 esbuild 插件系统间接触发)。`buildStart`、`generateBundle` 等纯 build hook 在 dev 下不触发。
+
+Vite 8(Rolldown 统一管道)后,`buildStart` 在 dev 启动时也会触发,`generateBundle` 在 build 时依然只在 build 触发。
+
+</V7Note>
+
+### 有细微差异的 Hook
+
+#### `renderChunk`
+
+```ts
+// Rollup:
+renderChunk(code: string, chunk: RenderedChunk, options: OutputOptions): { code, map } | null
+
+// Rolldown:chunk 对象上可能有额外字段
+// 例如 chunk.environmentName(如果启用了 Environment API)
+```
+
+Rolldown 的 `RenderedChunk` 在启用多环境构建时,包含 Rollup 原版没有的额外字段。如果插件里有对 chunk 对象做严格类型检查或 key 遍历,需要注意。
+
+#### `this.resolve()` 的选项
+
+插件上下文里的 `this.resolve(id, importer, options)` 在 Rolldown 中支持的选项字段可能与 Rollup 有出入。建议只传最基础的参数(`id` 和 `importer`),避免依赖 Rollup 特有的高级选项。
+
+#### AST 格式
+
+当插件通过 `this.parse(code)` 或 `moduleParsed` hook 访问 AST 时,Rolldown 返回的是 **OXC AST** 格式,而 Rollup 返回 **Acorn AST** 格式。两者都符合 ESTree 规范的基本结构,但节点属性有差异。
+
+```ts
+// Rollup(Acorn):
+// node.type 用 camelCase
+// 例如 "ImportDeclaration", "ExportNamedDeclaration"
+
+// Rolldown(OXC):
+// node.type 与 Acorn 基本一致,但某些节点的属性名或子节点结构可能不同
+```
+
+<Callout type="warning">
+  如果你的插件直接操作 AST(如 magic-string 结合 acorn 做 code transform),从 Rollup 迁移到 Rolldown 时需要验证 AST
+  遍历逻辑。推荐使用 `transform` hook 的 `code` 字符串操作,避免直接依赖 AST 格式。
+</Callout>
+
+## Vite 专有 Hook 不受影响
+
+以下 hook 是 Vite 在 Rollup/Rolldown 之上额外提供的,与底层 bundler 无关:
+
+- `config` / `configResolved`
+- `configureServer` / `configurePreviewServer`
+- `transformIndexHtml`
+- `handleHotUpdate` / `hotUpdate`
+
+这些 hook 在 Vite 7 和 Vite 8 中语义完全一致。
+
+## 插件迁移检查清单
+
+如果你有一个为 Vite 7 写的插件,迁移到 Vite 8 前检查以下几点:
+
+```text
+□ 插件是否使用了 this.parse() 并依赖 Acorn AST 格式?
+  → 如果是,测试 OXC AST 格式是否兼容
+
+□ 插件是否访问了 renderChunk 的 chunk 对象上的特定字段?
+  → 确认这些字段在 Rolldown 中还存在
+
+□ 插件是否用 this.resolve() 传了非基础参数?
+  → 简化为只传 id + importer
+
+□ 插件是否依赖 buildStart 在 dev 阶段"不触发"这个行为?
+  → 在 Vite 8 中 buildStart 在 dev 也会触发,检查是否有副作用
+
+□ 插件的 hook 执行顺序假设是否与 Rollup 一致?
+  → 用 enforce: "pre"/"post" 显式控制,不要依赖默认顺序
+```
+
+## 如何验证兼容性
+
+最可靠的方法是针对同一个实际项目同时跑 Vite 7 和 Vite 8:
+
+```bash
+# 在 examples/plugin-rollup-rolldown-compat 里有完整的兼容性测试框架
+cd examples/plugin-rollup-rolldown-compat
+pnpm build   # Vite 8(Rolldown)
+```
+
+对于 Rollup 生态的插件(不通过 Vite 使用),可以参考 Rolldown 官方的 [兼容性测试套件](https://rolldown.rs)。
+
+## 自测题
+
+1. 一个插件只用了 `resolveId` / `load` / `transform` 三个 hook,从 Vite 7 迁移到 Vite 8 需要修改代码吗?为什么?
+2. 如果插件在 `buildStart` 里初始化了一个全局计数器,Vite 8 dev 阶段也会执行这个初始化吗?
+3. 使用 `this.parse(code)` 遍历 AST 的插件,迁移到 Rolldown 时可能遇到什么问题?最安全的规避方式是什么?
+4. Vite 专有 hook(`configureServer` 等)在 Vite 8 中是否需要修改?
+
+```ts filename="练习"
+// 下面这个插件用了 Acorn AST 格式来找所有的 console.log 调用
+// 迁移到 Rolldown 时可能有什么问题?如何用更安全的方式重写?
+
+import MagicString from "magic-string"
+
+function removeConsoleLogs(): Plugin {
+  return {
+    name: "remove-console-logs",
+    transform(code, id) {
+      if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return null
+
+      // 依赖 Acorn AST 格式
+      const ast = this.parse(code)
+      const ms = new MagicString(code)
+
+      // 遍历 AST 找 CallExpression
+      // ...
+
+      return { code: ms.toString(), map: ms.generateMap() }
+    },
+  }
+}
+
+// 问题:这个插件在 Rolldown 上运行时可能有什么风险?
+// 如何改写成不依赖 AST 格式的版本?
+// 提示:用正则或者字符串操作替代 AST 遍历
+```

@@ -1,0 +1,141 @@
+---
+title: Wasm SSR(Vite 8 新增)
+description: 在 SSR 环境里运行 WebAssembly——Vite 8 提供了原生的 Wasm SSR 支持,让 Rust/Go/C++ 编写的高性能算法直接在 Node.js SSR 里运行。
+order: 4
+part: 08-ssr-ssg
+chapter: "8.4"
+difficulty: 4
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 8 的 Wasm SSR 支持 - 在 Node.js SSR 环境里加载和运行 `.wasm` 文件 - Wasm SSR 的性能场景和局限 - 与 client-side
+  Wasm 的对比
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 WebAssembly 的基本概念 - 阅读「Vite 8 时代的 SSR API」(8.1 节)
+</Callout>
+
+## 为什么要在 SSR 里用 Wasm
+
+WebAssembly 在浏览器里的典型用途:
+
+- 图片/视频处理(ffmpeg.wasm)
+- 加密算法
+- 物理模拟、游戏引擎
+
+**SSR 里的 Wasm**用途:
+
+- 服务端图片处理(代替 sharp)
+- 高性能 Markdown 解析
+- 服务端加密(比 Node.js 原生实现更快)
+- Rust 编写的 SQL 解析器、数据处理
+
+## Vite 8 的 Wasm SSR 支持
+
+在 client 端,Vite 一直支持 Wasm:
+
+```ts
+import init, { encode } from "./codec.wasm"
+await init()
+const result = encode("hello")
+```
+
+在 SSR 环境,Vite 8 扩展了对 Node.js 的 Wasm 支持:
+
+```ts
+// entry-server.tsx
+import init, { processImage } from "./image-processor.wasm"
+
+// Vite 8:在 SSR 环境里也能正常初始化和调用
+await init()
+
+export async function render(url: string) {
+  // 在服务端调用 Wasm 函数
+  const processedBuffer = await processImage(rawImageBuffer)
+  // ...
+}
+```
+
+## 配置 Wasm SSR
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  ssr: {
+    // 不要把 .wasm 文件 external
+    noExternal: [/\.wasm$/],
+  },
+  optimizeDeps: {
+    // 在预构建阶段处理 wasm
+    include: ["my-wasm-package"],
+  },
+})
+```
+
+## 实际使用示例:Markdown 解析
+
+```ts filename="entry-server.tsx"
+// 使用 Rust 写的 Markdown 解析器(比 marked 快 10x)
+import init, { renderMarkdown } from "./markdown-parser.wasm"
+
+let wasmInitialized = false
+
+async function ensureWasmInitialized() {
+  if (!wasmInitialized) {
+    await init()
+    wasmInitialized = true
+  }
+}
+
+export async function render(url: string) {
+  await ensureWasmInitialized()
+
+  const markdownContent = await fetchContent(url)
+  // 在 Node.js SSR 里调用 Wasm 渲染 Markdown
+  const htmlContent = renderMarkdown(markdownContent)
+
+  return renderToString(<Article html={htmlContent} />)
+}
+```
+
+## Wasm SSR vs Client Wasm
+
+| 维度       | Client Wasm      | SSR Wasm       |
+| ---------- | ---------------- | -------------- |
+| 运行环境   | 浏览器           | Node.js        |
+| 初始化时机 | 页面加载时       | 服务器启动时   |
+| 内存共享   | 每个用户一份     | 所有请求共享   |
+| 网络开销   | 用户需下载 .wasm | 服务器本地加载 |
+| 适合场景   | 交互式处理       | 静态内容生成   |
+
+**服务端初始化一次,全部请求共用**——这是 SSR Wasm 的核心优势。
+
+## 局限与注意事项
+
+1. **不是所有 Wasm 都支持 SSR**:依赖 DOM / browser API 的 Wasm 不能在 Node.js 里运行
+2. **内存管理**:长期运行的 SSR 服务器里,Wasm 内存泄漏是实际问题
+3. **Node.js Wasm API**:Node.js 的 `WebAssembly` API 与浏览器基本兼容,但有细节差异
+
+## 自测题
+
+1. 为什么在 SSR 环境里使用 Wasm 比在 client 端更节省内存?
+2. 哪类 Wasm 模块**不适合**在 SSR 里运行?
+3. 在 SSR 里初始化 Wasm 应该在什么时机?为什么要用 `wasmInitialized` 标志?
+4. 相比 Node.js 原生实现(如 sharp 处理图片),Wasm 版本有什么优劣?
+
+```ts filename="练习"
+// 设计一个 SSR 服务,用 Wasm 模块处理请求:
+// 场景:服务端实时生成 SVG 图表(用 Rust 写的 chart-engine.wasm)
+// 要求:
+// 1. 服务器启动时初始化 Wasm(不是每次请求都初始化)
+// 2. 每次请求传入数据,返回 SVG 字符串
+// 3. 正确处理并发请求(Wasm 是单线程的)
+
+// 思考:
+// - 如果 Wasm 是单线程的,多个并发请求会有问题吗?
+// - 如何用请求队列解决并发问题?
+```

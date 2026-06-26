@@ -1,6 +1,39 @@
 {
   "name": "@vite-mastery/playground",
+  "version": "0.0.1",
   "private": true,
-  "version": "0.0.0",
-  "description": "在线交互式 demo playground(后续阶段填充)"
+  "description": "vite-mastery WebContainer 在线实验场",
+  "author": "Cyrus Doyle",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --open --host",
+    "build": "pnpm typecheck && vite build",
+    "preview": "pnpm build && vite preview --host",
+    "start": "pnpm build && vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist .turbo"
+  },
+  "dependencies": {
+    "@vite-mastery/ui": "workspace:*",
+    "@webcontainer/api": "^1.6.4",
+    "clsx": "^2.1.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.6.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vite-mastery/tsconfig": "workspace:*",
+    "@vitejs/plugin-react": "^6.0.3",
+    "rimraf": "^6.1.3",
+    "tailwindcss": "^4.3.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0"
+  },
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11"
+  }
 }

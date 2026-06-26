@@ -1,0 +1,235 @@
+---
+title: 框架视角:Nuxt / SvelteKit / React Router 怎么用 Env API
+description: 三大 meta 框架如何基于 Vite 8 Environment API 重构它们的 SSR 和多环境支持——从框架角度理解 Env API 的设计意图。
+order: 9
+part: 05-environment-api
+chapter: "5.9"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。本章基于 Vite
+  8.1.x。各框架的具体 Env API 集成情况以其官方文档为准。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - 主流 meta 框架在 Vite 8 之前如何解决多环境问题 - Environment API 如何让框架层面的实现更简洁 - Nuxt、SvelteKit、React
+  Router 各自的集成思路 - 作为应用开发者,如何受益于这些框架的 Env API 适配
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「为什么需要 Environment API」(5.1 节) - 了解 Nuxt / SvelteKit / React Router 中的任意一个框架的基本用法
+</Callout>
+
+## 框架面临的问题
+
+在 Vite 7 及之前,主流 meta 框架都要独立解决同一个问题:
+
+> **如何在一个 Vite dev server 里同时运行 client 代码和 server 代码,同时让 HMR 在两端都工作?**
+
+每个框架的解法各不相同,很多是"私有 API hack":
+
+- 直接操作 Vite 内部状态
+- 多次实例化 Vite server
+- 自己维护模块图谱
+
+Environment API 的出现提供了**标准化的接口**,让框架不再需要 hack。
+
+## Nuxt 的适配思路
+
+Nuxt 3 的 SSR 架构需要:
+
+- `client` 环境:Vue 应用的浏览器端代码
+- `server` 环境:Nitro 服务端(不是普通 Node.js SSR,是 Nitro 的 H3 应用)
+- 可选的 `edge` 环境:部署到 CloudFlare/Vercel Edge 时
+
+Nuxt 的 Environment API 适配大致方向:
+
+```ts
+// nuxt-vite-plugin(概念示意)
+export function nuxtVitePlugin(): Plugin {
+  return {
+    name: "nuxt:environment",
+    config() {
+      return {
+        environments: {
+          client: {
+            // Vue 浏览器端配置
+          },
+          server: {
+            // Nitro 服务端配置
+            resolve: {
+              conditions: ["node", "import"],
+            },
+          },
+        },
+      }
+    },
+    async buildApp(app) {
+      // 先构建 server(Nitro 需要 Vue 组件的 SSR manifest)
+      await app.build("server")
+      await app.build("client")
+    },
+  }
+}
+```
+
+**应用开发者感受不到变化**——你仍然只需要写 Vue 组件和 Nuxt 配置。Env API 的复杂度被 Nuxt 内部吸收了。
+
+## SvelteKit 的适配思路
+
+SvelteKit 的特点是有非常精细的 server/client 代码划分:
+
+- `.server.ts` 文件只在服务端加载
+- `+page.server.ts` 只在 server 环境执行
+- `+page.ts` 在 client 和 server 都执行(同构)
+
+这天然对应 Environment API 的多环境模型:
+
+```ts
+// sveltekit-vite-plugin(概念示意)
+export function sveltekitPlugin(): Plugin {
+  return {
+    name: "sveltekit:environment",
+    config() {
+      return {
+        environments: {
+          client: {
+            resolve: {
+              conditions: ["browser", "svelte", "import"],
+            },
+          },
+          ssr: {
+            resolve: {
+              conditions: ["node", "svelte", "import"],
+              noExternal: ["svelte"],
+            },
+          },
+        },
+      }
+    },
+    transform(code, id) {
+      // .server.ts 文件只允许在 ssr 环境 import
+      if (id.endsWith(".server.ts") && this.environment?.name === "client") {
+        return { code: 'throw new Error("server-only module")', map: null }
+      }
+      return null
+    },
+  }
+}
+```
+
+### 边界违规检测
+
+Environment API 让 SvelteKit 能更精确地检测"client 代码 import 了 server-only 模块"的错误:
+
+```ts
+// 以前:运行时才报错(甚至不报错,只是数据泄露)
+// 现在:在 transform 阶段就能检测到
+```
+
+## React Router v7 / Remix 的适配思路
+
+React Router v7(Remix 的演进)需要支持 RSC(React Server Components):
+
+```ts
+// react-router-vite-plugin(概念示意)
+export function reactRouterPlugin(): Plugin {
+  return {
+    name: "react-router:environment",
+    config() {
+      return {
+        environments: {
+          client: {
+            resolve: {
+              conditions: ["browser", "react-client", "import"],
+            },
+          },
+          ssr: {
+            resolve: {
+              conditions: ["node", "import"],
+            },
+          },
+          rsc: {
+            resolve: {
+              conditions: ["react-server", "node", "import"],
+            },
+          },
+        },
+      }
+    },
+    async buildApp(app) {
+      // RSC → SSR → Client 的顺序
+      await app.build("rsc")
+      await app.build("ssr")
+      await app.build("client")
+    },
+  }
+}
+```
+
+## 框架对应用开发者的屏蔽层
+
+所有框架都有一个共同点:对应用开发者**屏蔽 Env API 的复杂度**:
+
+```text
+应用开发者看到的:
+  写 .vue 文件  /  写 .svelte 文件  /  写 .tsx 文件
+       │
+框架层屏蔽:
+  Vite Plugin + Environment API 配置
+       │
+底层:
+  client Environment / ssr Environment / rsc Environment
+```
+
+作为应用开发者,你通常不需要直接使用 Environment API。你只需要:
+
+- 使用框架约定(`.server.ts` 后缀、server-only 导入等)
+- 配置框架的选项(不是 Vite 的 `environments` 选项)
+
+## 何时需要直接用 Env API
+
+作为应用开发者,以下情况才需要直接接触 Environment API:
+
+1. **自定义部署环境**:公司内部有特定的 runtime(非标准 Node.js)
+2. **写 meta 框架或框架插件**:你在帮助框架实现 Env API 支持
+3. **多 Worker 架构**:项目本身是 monorepo,不同 Worker 需要不同 Environment
+
+## 自测题
+
+1. 为什么说 Environment API 是"给框架作者用的 API"?
+2. SvelteKit 的 `.server.ts` 文件限制,在 Env API 之前如何实现?Env API 如何让它更可靠?
+3. React Server Components 为什么需要三个独立环境(client / ssr / rsc)而不是两个?
+4. 作为应用开发者,什么情况下才需要直接使用 Environment API?
+
+```ts filename="练习"
+// 设计一个简单的"微型框架"Vite 插件:
+// 约束:
+// - 文件名包含 ".server." 的模块只允许在 ssr 环境导入
+// - 文件名包含 ".client." 的模块只允许在 client 环境导入
+// - 违规时在 transform 阶段抛出有意义的错误
+
+import type { Plugin } from "vite"
+
+export function serverClientBoundaryPlugin(): Plugin {
+  return {
+    name: "server-client-boundary",
+    transform(code, id) {
+      const envName = this.environment?.name
+
+      // TODO:
+      // 1. 检测当前文件是否有 .server. 或 .client. 后缀
+      // 2. 检测当前环境(this.environment?.name)
+      // 3. 如果违规,返回会抛出 Error 的代码(而不是直接 throw)
+      //    这样才能让浏览器/Node 在运行时显示有意义的错误
+
+      return null
+    },
+  }
+}
+```

@@ -1,0 +1,210 @@
+---
+title: 代码分割与 chunk 策略
+description: Rolldown 的 code splitting 机制——动态 import 自动分割、manualChunks 手动控制、chunk 命名策略。如何让产物大小和加载性能达到最优?
+order: 4
+part: 07-build-pipeline
+chapter: "7.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 动态 `import()` 触发的自动代码分割 - `manualChunks` 手动控制 chunk 分割 - chunk 命名策略(`chunkFileNames` /
+  `entryFileNames`) - 如何分析 bundle 找出优化点
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 ES Module 动态导入(`import()`) - 理解代码分割的基本概念
+</Callout>
+
+## 动态 import 自动分割
+
+任何动态 `import()` 都会自动触发代码分割:
+
+```ts
+// 路由懒加载(以 React Router 为例)
+const Home = lazy(() => import("./pages/Home"))
+const About = lazy(() => import("./pages/About"))
+const Admin = lazy(() => import("./pages/Admin"))
+```
+
+构建后产物:
+
+```text
+dist/
+  assets/
+    index-HASH.js         ← 入口 chunk(包含路由配置)
+    Home-HASH.js          ← 按需加载的页面 chunk
+    About-HASH.js
+    Admin-HASH.js
+    vendor-HASH.js        ← 共享依赖(react 等)
+```
+
+用户访问首页时只下载 `index.js` 和 `Home.js`,其他页面按需下载。
+
+## `manualChunks`:手动控制分割
+
+### 对象格式(简单)
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // 指定 chunk 名 → 包含的模块(包名或文件路径)
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "ui-vendor": ["@radix-ui/react-dialog", "@base-ui/react"],
+          utils: ["lodash-es", "date-fns", "axios"],
+        },
+      },
+    },
+  },
+})
+```
+
+### 函数格式(灵活)
+
+```ts
+manualChunks(id: string) {
+  // id 是模块的文件路径
+
+  if (id.includes("node_modules")) {
+    // 把所有 node_modules 按包名分割
+    const match = id.match(/node_modules\/([^/]+)\//)
+    const packageName = match?.[1]
+
+    if (!packageName) return undefined
+
+    // react 生态放一起
+    if (packageName.startsWith("react") || packageName === "scheduler") {
+      return "react-vendor"
+    }
+
+    // Radix UI 组件库
+    if (packageName.startsWith("@radix-ui")) {
+      return "radix-vendor"
+    }
+
+    // 工具库
+    if (["lodash-es", "date-fns", "dayjs"].includes(packageName)) {
+      return "utils"
+    }
+
+    // 其他小包合并进 vendor
+    return "vendor"
+  }
+
+  // 按路由分割页面代码
+  if (id.includes("/pages/")) {
+    const pageName = id.match(/\/pages\/([^/]+)\//)?.[1]
+    if (pageName) return `page-${pageName}`
+  }
+},
+```
+
+## chunk 命名策略
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        // 动态 chunk(懒加载的)的文件名
+        chunkFileNames: (chunkInfo) => {
+          const { name } = chunkInfo
+          if (name.startsWith("page-")) {
+            return "pages/[name]-[hash].js"
+          }
+          return "assets/[name]-[hash].js"
+        },
+
+        // 入口 chunk 的文件名
+        entryFileNames: "assets/[name]-[hash].js",
+
+        // 静态资源(图片、字体等)的文件名
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+    },
+  },
+})
+```
+
+## 分析 bundle
+
+使用 `rollup-plugin-visualizer` 分析产物:
+
+```bash
+pnpm add -D rollup-plugin-visualizer
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { visualizer } from "rollup-plugin-visualizer"
+
+export default defineConfig({
+  plugins: [
+    visualizer({
+      open: true, // 构建后自动打开
+      gzipSize: true, // 显示 gzip 后大小
+      brotliSize: true, // 显示 brotli 后大小
+      filename: "stats.html",
+    }),
+  ],
+})
+```
+
+运行 `pnpm build`,自动打开可视化图表——能直观看到哪个包占用了最多体积。
+
+## 预加载策略
+
+Vite 自动生成预加载提示,减少懒加载时的延迟:
+
+```html
+<!-- Vite 在 HTML 里自动注入 modulepreload -->
+<link rel="modulepreload" href="/assets/react-vendor-HASH.js" />
+<link rel="modulepreload" href="/assets/index-HASH.js" />
+```
+
+可以禁用:
+
+```ts
+export default defineConfig({
+  build: {
+    modulePreload: false, // 禁用预加载
+    // 或
+    modulePreload: {
+      polyfill: false, // 不注入 modulepreload polyfill
+    },
+  },
+})
+```
+
+## 自测题
+
+1. 动态 `import()` 和静态 `import` 的区别是什么?对 bundle 产物有什么影响?
+2. `manualChunks` 对象格式和函数格式各有什么优劣?
+3. 如果两个页面都 import 了同一个大型组件,Rolldown 会自动创建共享 chunk 吗?
+4. `chunkFileNames` 配置有什么实际用途?
+
+```ts filename="练习"
+// 你有一个电商应用,有以下模块:
+// - react, react-dom (框架)
+// - antd (UI 库,很大)
+// - lodash-es (工具库)
+// - 4 个页面: Home / ProductList / ProductDetail / Cart
+// - 1 个管理后台入口: /admin
+
+// 设计一个合理的代码分割策略:
+// 1. 什么应该放进 vendor chunk?
+// 2. 页面如何分割?
+// 3. 管理后台如何处理?
+
+// 写出 manualChunks 配置:
+const manualChunks = (id: string) => {
+  // TODO
+}
+```

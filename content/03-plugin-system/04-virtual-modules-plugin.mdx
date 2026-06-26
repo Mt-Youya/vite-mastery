@@ -1,0 +1,288 @@
+---
+title: 实战:虚拟模块插件
+description: 用 resolveId + load 从零实现一个虚拟模块插件,理解 \0 前缀约定、HMR 支持,以及如何发布为可复用的 npm 包。
+order: 4
+part: 03-plugin-system
+chapter: "3.4"
+difficulty: 2
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 虚拟模块(Virtual Module)是什么,解决了什么问题 - `\0` 前缀约定的来历与必要性 - `resolveId` + `load` 的完整配合方式 -
+  给虚拟模块添加 HMR 支持 - 配套实战项目:`examples/plugin-virtual-modules`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「插件执行顺序」(3.3 节) - 理解 ES Module 的 `import` 解析流程
+</Callout>
+
+## 什么是虚拟模块
+
+正常 `import` 对应的是一个真实存在的文件:
+
+```ts
+import utils from "./utils.ts" // 对应 src/utils.ts
+import logo from "./logo.svg" // 对应 src/logo.svg
+```
+
+**虚拟模块**是一个**不存在于文件系统**的模块——它的内容由插件在运行时动态生成:
+
+```ts
+import meta from "virtual:site-meta"
+//              ↑ 这个路径没有对应的真实文件
+//              ↑ 内容由插件即时计算
+```
+
+### 适合用虚拟模块的场景
+
+- 注入**构建时信息**:当前时间、git commit、package.json 版本号
+- 把配置文件的内容暴露给运行时代码,而不是 import JSON(可以做类型安全的封装)
+- 生成**路由表**、**国际化语言包**、**图标精灵**等需要扫描文件系统得到的数据
+- `import.meta.glob` 的底层实现就是虚拟模块
+
+## `\0` 前缀约定
+
+实现虚拟模块需要两个 hook 配合:`resolveId` 和 `load`。
+
+```ts filename="plugin.ts"
+const VIRTUAL_ID = "virtual:site-meta"
+const RESOLVED_ID = "\0" + VIRTUAL_ID // = "\0virtual:site-meta"
+
+export function virtualSiteMeta(): Plugin {
+  return {
+    name: "vite-plugin-virtual-site-meta",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+      // 返回模块内容(字符串形式的 ES Module 代码)
+      return `export const buildTime = "${new Date().toISOString()}"`
+    },
+  }
+}
+```
+
+为什么必须加 `\0`?
+
+当 `resolveId` 返回一个 ID,Vite/Rolldown 会检查这个 ID 是不是一个真实的文件路径。如果不加 `\0` 前缀,Rolldown 会尝试在文件系统里找 `virtual:site-meta` 这个文件——当然找不到,然后报错。
+
+`\0`(null byte)是 Rolldown/Rollup 内部约定的「这是虚拟模块」信号:加了 `\0` 前缀的 ID 会跳过文件系统查找,直接交给 `load` hook 处理。
+
+<Callout type="tip">`\0` 在 JSON 或日志里会显示为 `%00` 或乱码,不要被吓到。它只是一个约定的标记字符。</Callout>
+
+<V7Note title="Vite 7 虚拟模块行为一致">`\0` 前缀约定来自 Rollup 规范,Vite 7 和 Vite 8 均遵守,无差异。</V7Note>
+
+## 完整实现:构建信息注入
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+const VIRTUAL_ID = "virtual:site-meta"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export interface SiteMetaOptions {
+  /** 额外注入的字段 */
+  extra?: Record<string, unknown>
+}
+
+export function virtualSiteMeta(options: SiteMetaOptions = {}): Plugin {
+  return {
+    name: "vite-plugin-virtual-site-meta",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // 读取 package.json 版本号
+      const pkg = JSON.parse(readFileSync(resolve("package.json"), "utf-8")) as { version?: string; name?: string }
+
+      const meta = {
+        buildTime: new Date().toISOString(),
+        version: pkg.version ?? "0.0.0",
+        name: pkg.name ?? "unknown",
+        ...options.extra,
+      }
+
+      // 返回合法的 ES Module 源码
+      return `
+export const buildTime = ${JSON.stringify(meta.buildTime)}
+export const version = ${JSON.stringify(meta.version)}
+export const name = ${JSON.stringify(meta.name)}
+
+export default ${JSON.stringify(meta)}
+`
+    },
+  }
+}
+```
+
+使用:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { virtualSiteMeta } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [
+    virtualSiteMeta({
+      extra: {
+        repo: "https://github.com/my/repo",
+      },
+    }),
+  ],
+})
+```
+
+```ts filename="src/main.ts"
+import meta from "virtual:site-meta"
+
+console.log(meta.buildTime) // "2026-06-26T12:00:00.000Z"
+console.log(meta.version) // "1.0.0"
+```
+
+## 类型声明文件
+
+直接 import 虚拟模块会让 TypeScript 报错,需要提供类型声明:
+
+```ts filename="src/virtual.d.ts"
+declare module "virtual:site-meta" {
+  export const buildTime: string
+  export const version: string
+  export const name: string
+
+  const meta: {
+    buildTime: string
+    version: string
+    name: string
+    [key: string]: unknown
+  }
+  export default meta
+}
+```
+
+或者在插件内用 `generateBundle` 自动生成 `.d.ts` 文件(见 `examples/plugin-auto-import` 实战项目的步骤 4)。
+
+## 多个虚拟模块
+
+一个插件可以管理多个虚拟模块:
+
+```ts filename="plugin.ts"
+const MODULES: Record<string, () => string> = {
+  "virtual:config": () => `export default ${JSON.stringify(loadConfig())}`,
+  "virtual:routes": () => `export default ${JSON.stringify(scanRoutes())}`,
+  "virtual:i18n": () => `export default ${JSON.stringify(loadLocale())}`,
+}
+
+export function multiVirtual(): Plugin {
+  return {
+    name: "vite-plugin-multi-virtual",
+    resolveId(id) {
+      if (id in MODULES) return "\0" + id
+      return null
+    },
+    load(id) {
+      const originalId = id.slice(1) // 去掉 \0 前缀
+      const factory = MODULES[originalId]
+      if (!factory) return null
+      return factory()
+    },
+  }
+}
+```
+
+## 添加 HMR 支持
+
+虚拟模块的内容通常依赖外部数据(配置文件、语言包、路由文件)。当这些文件改变时,虚拟模块应该触发 HMR。
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite"
+import { watch } from "node:fs"
+
+export function virtualConfig(): Plugin {
+  const configPath = resolve("config.json")
+
+  return {
+    name: "vite-plugin-virtual-config",
+
+    resolveId(id) {
+      if (id === "virtual:config") return "\0virtual:config"
+      return null
+    },
+
+    load(id) {
+      if (id !== "\0virtual:config") return null
+      // 告诉 Vite:这个虚拟模块依赖 config.json
+      this.addWatchFile(configPath)
+      return `export default ${readFileSync(configPath, "utf-8")}`
+    },
+
+    // dev server 文件变化时,使虚拟模块失效
+    handleHotUpdate({ file, server }) {
+      if (file === configPath) {
+        const module = server.moduleGraph.getModuleById("\0virtual:config")
+        if (module) {
+          server.moduleGraph.invalidateModule(module)
+          // 通知浏览器重新加载该模块
+          return [module]
+        }
+      }
+    },
+  }
+}
+```
+
+## 配套实战项目
+
+`examples/plugin-virtual-modules` 是本节配套的完整实战项目。
+
+进入项目目录后:
+
+```bash
+pnpm install
+pnpm dev      # 在浏览器看 buildTime 等信息
+```
+
+完整步骤在 `steps/` 目录下拆分:
+
+- `steps/01-bare-plugin` — 最小骨架,只有 `name`
+- `steps/02-resolveId-load` — 实现核心两个 hook
+- `steps/03-hmr` — 添加 HMR 支持
+- `final/` — 带类型声明的完整版本
+
+## 自测题
+
+1. 为什么 `resolveId` 要返回加了 `\0` 前缀的 ID,而不是直接返回原始的 `"virtual:xxx"`?
+2. 虚拟模块的 `load` hook 为什么不需要读取任何文件就能返回内容?
+3. `this.addWatchFile(path)` 在 `load` 里调用有什么效果?
+4. 如果虚拟模块依赖的外部配置文件改变了,但没有 `handleHotUpdate`,会发生什么?
+
+```ts filename="练习"
+// 实现一个 virtual:env 插件
+// import env from "virtual:env"
+// env 应包含:
+//   - NODE_ENV 当前环境名称
+//   - APP_VERSION 从 package.json 读取
+//   - BUILD_TIME 构建时间戳(number)
+//
+// 并为 virtual:env 生成正确的 TypeScript 类型声明
+
+import type { Plugin } from "vite"
+
+export function virtualEnv(): Plugin {
+  // TODO
+}
+```

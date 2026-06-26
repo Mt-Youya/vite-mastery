@@ -1,0 +1,169 @@
+---
+title: HMR 性能诊断
+description: HMR 变慢了?用 `--debug hmr` 找到慢在哪里——是 transform 慢还是模块图遍历慢还是 WebSocket 传输慢?对症下药。
+order: 3
+part: 12-performance
+chapter: "12.3"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - HMR 慢的几种根本原因 - `--debug hmr` 命令的使用 - 模块图过大如何优化 - transform 耗时过长的排查方法
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 HMR 的基本工作原理(6.1 节) - 了解 Module Graph(1.4 节)
+</Callout>
+
+## HMR 时间组成
+
+```text
+修改文件 → HMR 更新完成
+  │
+  ├── 1. 文件系统检测延迟 (chokidar, 通常 <10ms)
+  │
+  ├── 2. 模块图遍历 (找出受影响的模块)
+  │         对于复杂图谱可能 >100ms
+  │
+  ├── 3. Transform 受影响的模块
+  │         如果有插件处理,可能很慢
+  │
+  ├── 4. WebSocket 消息传输 (<1ms)
+  │
+  └── 5. 浏览器执行热更新 (取决于框架)
+```
+
+## `--debug hmr` 诊断
+
+```bash
+DEBUG=vite:hmr pnpm dev
+```
+
+输出示例:
+
+```text
+  vite:hmr hmr update /src/components/Button.tsx
+  vite:hmr hotModules: [
+    { url: '/src/components/Button.tsx', type: 'js-update' }
+  ] +2ms
+  vite:hmr propagate: Button.tsx → App.tsx → main.tsx +15ms
+```
+
+关注:
+
+- `propagate` 时间:模块图遍历耗时(>100ms 要优化)
+- transform 时间:每个模块的重新编译时间
+
+## 问题一:模块图太大,遍历慢
+
+**症状**:`propagate` 时间长(几百毫秒)。
+
+**原因**:某个基础模块(如 `utils.ts`)被大量其他模块导入,形成巨大的传播链。
+
+**诊断**:
+
+```ts
+// 在 configureServer 里查看模块的 importer 数量
+configureServer(server) {
+  server.middlewares.use("/__graph-info", (req, res) => {
+    const info = [...server.moduleGraph.idToModuleMap.values()]
+      .map(m => ({ id: m.id, importers: m.importers.size }))
+      .sort((a, b) => b.importers - a.importers)
+      .slice(0, 20)  // Top 20 最多被 import 的模块
+
+    res.end(JSON.stringify(info, null, 2))
+  })
+}
+```
+
+**解法**:
+
+- 把常用的工具函数拆分到更细粒度的文件
+- 避免"桶文件"(一个 index.ts 导出所有)把所有模块都连接在一起
+- 使用 `import.meta.glob` 时注意边界
+
+## 问题二:Transform 耗时长
+
+**症状**:修改一个文件后,页面要等 500ms+ 才更新。
+
+**诊断**:在 transform hook 里加计时:
+
+```ts
+transform(code, id) {
+  const start = performance.now()
+
+  const result = doExpensiveWork(code)
+
+  const elapsed = performance.now() - start
+  if (elapsed > 50) {
+    console.warn(`[slow-plugin] ${id}: ${elapsed.toFixed(0)}ms`)
+  }
+
+  return result
+},
+```
+
+**常见原因**:
+
+- 插件做了不必要的全量 AST 解析
+- 正则表达式在大文件上执行很慢
+- 调用了同步 I/O 操作
+
+## 问题三:不必要的 HMR 传播
+
+**症状**:修改一个小文件,触发了大范围的模块更新。
+
+**诊断**:用 `handleHotUpdate` 打印传播情况:
+
+```ts
+handleHotUpdate({ file, modules }) {
+  console.log(`[HMR] ${file} 触发了 ${modules.length} 个模块更新`)
+  modules.forEach(m => console.log(`  - ${m.id}`))
+  return modules
+},
+```
+
+**解法**:
+
+- 在 `handleHotUpdate` 里过滤不必要的模块
+- 用自定义事件替代模块级 HMR
+- 检查是否有"全局状态"导致所有模块都依赖同一个基础模块
+
+## 问题四:浏览器端执行慢
+
+React Fast Refresh 在 HMR 更新时需要比较新旧组件树。对于大型组件树这可能很慢。
+
+**解法**:
+
+- 确保组件文件里不混入非组件代码(会导致整个文件刷新)
+- 用 `React.memo` 减少不必要的重渲染
+- 把大型组件拆分到更小的文件
+
+## 自测题
+
+1. HMR 的时间主要花在哪几个阶段?哪个最容易成为瓶颈?
+2. "桶文件"(index.ts 导出所有)为什么会导致 HMR 传播慢?
+3. 如何用 `handleHotUpdate` 阻止不必要的 HMR 传播?
+4. 为什么修改 `store.ts` 有时会导致所有页面组件都 HMR 更新?
+
+```ts filename="练习"
+// 诊断以下场景的 HMR 性能问题:
+// - 项目有 200+ 组件
+// - 修改任意组件后,HMR 总是需要 800ms+
+// - 模块图显示 src/index.ts 有 180+ importers
+//
+// 1. 这是什么问题?
+// 2. 写出 handleHotUpdate 来打印 propagate 情况
+// 3. 如何重构 src/index.ts 来解决这个问题?
+
+// 当前的 src/index.ts(有问题的桶文件):
+export { Button } from "./components/Button"
+export { Input } from "./components/Input"
+// ... 导出 100+ 个组件
+
+// TODO:如何重构以减少 HMR 传播?
+```

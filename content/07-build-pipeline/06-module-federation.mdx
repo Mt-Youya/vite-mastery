@@ -1,0 +1,201 @@
+---
+title: Module Federation(Rolldown 解锁)
+description: Module Federation 让多个独立部署的应用共享代码——Vite 8 通过 Rolldown 原生支持这一能力。概念介绍与基本配置。
+order: 6
+part: 07-build-pipeline
+chapter: "7.6"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Module Federation 是什么,解决了什么问题 - Vite 8 + Rolldown 如何支持 Module Federation - 基本配置:host 和 remote
+  应用 - Module Federation 的局限与适用场景
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解微前端的基本概念(可选) - 理解代码分割(7.4 节)
+</Callout>
+
+## 什么是 Module Federation
+
+Module Federation(模块联邦)允许多个独立的 JavaScript 应用在**运行时**互相共享模块——不是在构建时打包在一起,而是在浏览器里动态加载。
+
+```text
+应用 A(Host)        应用 B(Remote)
+─────────────────   ─────────────────
+部署在 app-a.com    部署在 app-b.com
+
+A 在运行时动态 import B 导出的组件:
+await import("app-b/Button")  // 从远程加载!
+```
+
+主要用途:
+
+- **微前端**:多个团队各自维护一个子应用,汇聚到一个 shell 应用
+- **共享组件库**:多个应用共享同一套 UI 组件,更新时无需重新部署消费方
+
+## 在 Vite 8 中使用 Module Federation
+
+Vite 8 通过 `@module-federation/vite` 插件支持 Module Federation:
+
+```bash
+pnpm add -D @module-federation/vite
+```
+
+### Remote 应用(暴露模块)
+
+```ts filename="app-b/vite.config.ts"
+import { defineConfig } from "vite"
+import { federation } from "@module-federation/vite"
+
+export default defineConfig({
+  plugins: [
+    federation({
+      name: "app-b", // remote 应用名称
+
+      // 声明这个应用暴露哪些模块
+      exposes: {
+        "./Button": "./src/components/Button",
+        "./utils": "./src/utils/index",
+      },
+
+      // 声明哪些包是共享的(Host 和 Remote 共用同一份)
+      shared: {
+        react: { singleton: true },
+        "react-dom": { singleton: true },
+      },
+    }),
+  ],
+})
+```
+
+### Host 应用(消费远程模块)
+
+```ts filename="app-a/vite.config.ts"
+import { defineConfig } from "vite"
+import { federation } from "@module-federation/vite"
+
+export default defineConfig({
+  plugins: [
+    federation({
+      name: "app-a",
+
+      // 声明依赖哪些 remote 应用
+      remotes: {
+        "app-b": "app-b@https://app-b.example.com/assets/remoteEntry.js",
+      },
+
+      shared: {
+        react: { singleton: true },
+        "react-dom": { singleton: true },
+      },
+    }),
+  ],
+})
+```
+
+### 在 Host 应用中使用远程模块
+
+```tsx filename="app-a/src/App.tsx"
+import { lazy, Suspense } from "react"
+
+// 异步加载来自 Remote 的组件
+const RemoteButton = lazy(() => import("app-b/Button"))
+
+export function App() {
+  return (
+    <Suspense fallback={<div>加载中...</div>}>
+      <RemoteButton>来自 app-b 的按钮</RemoteButton>
+    </Suspense>
+  )
+}
+```
+
+## 共享依赖(Shared)
+
+`shared` 配置是 Module Federation 的关键——防止 React 被打包两份:
+
+```ts
+shared: {
+  react: {
+    singleton: true,   // 只允许一个实例(防止多版本冲突)
+    requiredVersion: "^19.0.0",  // 版本要求
+    eager: true,       // 提前加载(不懒加载)
+  },
+}
+```
+
+如果 Host 和 Remote 都用了 React,`singleton: true` 确保浏览器里只有一个 React 实例——这对 hooks 和 context 至关重要。
+
+## 与 Webpack Module Federation 的关系
+
+Vite 的 `@module-federation/vite` 与 Webpack 5 的 Module Federation 格式**兼容**:
+
+- Webpack 5 应用可以消费 Vite 构建的 Remote
+- Vite 应用可以消费 Webpack 5 构建的 Remote
+- 共用同一套配置概念(`name` / `exposes` / `remotes` / `shared`)
+
+## 适用场景与局限
+
+**适合**:
+
+- 大型企业应用,多个团队独立开发子应用
+- 希望独立部署、独立发布的模块
+- 已有 Webpack Module Federation 架构需要迁移到 Vite
+
+**不适合**:
+
+- 小型应用(引入了复杂性但收益有限)
+- 对性能要求极高的场景(运行时网络请求有开销)
+- 需要 SSR 的场景(Module Federation + SSR 集成较复杂)
+
+## 自测题
+
+1. Module Federation 和代码分割(code splitting)都可以按需加载代码,它们的核心区别是什么?
+2. 为什么 `shared.react.singleton: true` 很重要?不设置会有什么问题?
+3. Vite 8 的 Module Federation 与 Webpack 5 的 Module Federation 兼容吗?
+4. Module Federation 的 Remote 应用需要单独部署吗?还是可以和 Host 应用部署在一起?
+
+```ts filename="练习"
+// 设计一个简单的微前端架构:
+// - 一个 Shell 应用(Host):导航 + 路由分发
+// - 一个 Products 应用(Remote):商品列表和详情
+// - 一个 Cart 应用(Remote):购物车
+
+// 写出 Shell 和 Products 应用的 Module Federation 配置:
+// Shell 的 vite.config.ts:
+import { federation } from "@module-federation/vite"
+
+const shellConfig = {
+  plugins: [
+    federation({
+      name: "shell",
+      remotes: {
+        // TODO:声明 products 和 cart 的远程地址
+      },
+      shared: {
+        // TODO:声明共享的 react 相关包
+      },
+    }),
+  ],
+}
+
+// Products 应用的 vite.config.ts:
+const productsConfig = {
+  plugins: [
+    federation({
+      name: "products",
+      exposes: {
+        // TODO:暴露 ProductList 和 ProductDetail 组件
+      },
+      shared: {
+        // TODO
+      },
+    }),
+  ],
+}
+```

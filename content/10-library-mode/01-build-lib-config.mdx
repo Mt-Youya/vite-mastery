@@ -1,0 +1,213 @@
+---
+title: "`build.lib` 配置全解"
+description: Vite 的库模式——用一个配置把你的代码发布为可被他人 npm install 的包。entry / formats / name / fileName 每个字段的含义和典型用法。
+order: 1
+part: 10-library-mode
+chapter: "10.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 库模式与应用模式的区别 - `build.lib` 的所有配置项 - ESM / CJS / UMD 三种输出格式的选择 - `package.json` 的 `exports`
+  字段如何配合
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 npm 包发布的基本流程 - 理解 ESM 和 CommonJS 的区别
+</Callout>
+
+## 库模式 vs 应用模式
+
+| 维度       | 应用模式         | 库模式                    |
+| ---------- | ---------------- | ------------------------- |
+| 入口       | HTML 文件        | TypeScript/JS 文件        |
+| 产物用途   | 直接部署到浏览器 | 被其他项目 import         |
+| 产物格式   | ESM(现代浏览器)  | ESM + CJS + UMD           |
+| 外部依赖   | 打包进产物       | 通常作为 peerDependencies |
+| index.html | 需要             | 不需要                    |
+
+## 最小库配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      // 入口文件:库的公开 API 从这里导出
+      entry: resolve("src/index.ts"),
+
+      // UMD 格式时的全局变量名
+      name: "MyLibrary",
+
+      // 输出文件名规则
+      fileName: "my-library",
+      // 默认产物:
+      //   my-library.js (ES Module)
+      //   my-library.umd.js (UMD)
+    },
+
+    // 不打包这些依赖(由消费者安装)
+    rollupOptions: {
+      external: ["react", "react-dom"],
+      output: {
+        globals: {
+          react: "React",
+          "react-dom": "ReactDOM",
+        },
+      },
+    },
+  },
+})
+```
+
+## `build.lib` 详细配置
+
+### `entry` — 入口文件
+
+```ts
+lib: {
+  // 单入口
+  entry: "src/index.ts",
+
+  // 多入口(每个入口生成独立文件)
+  entry: {
+    index: "src/index.ts",
+    utils: "src/utils/index.ts",
+    components: "src/components/index.ts",
+  },
+},
+```
+
+### `formats` — 输出格式
+
+```ts
+lib: {
+  formats: ["es", "cjs"],  // 默认:["es", "umd"]
+  // "es" → ES Module(.js)
+  // "cjs" → CommonJS(.cjs)
+  // "umd" → UMD(需要 name)
+  // "iife" → 立即执行函数(浏览器全局变量)
+},
+```
+
+**推荐组合**:
+
+- 现代 npm 包:只用 `["es", "cjs"]`
+- 需要 CDN 引用:加 `"umd"` 或 `"iife"`
+
+### `fileName` — 产物文件名
+
+```ts
+lib: {
+  // 字符串格式:文件名模板
+  fileName: "my-lib",
+  // es: my-lib.js
+  // cjs: my-lib.cjs
+
+  // 函数格式:完全自定义
+  fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,
+},
+```
+
+## 配套的 package.json
+
+库模式的 `package.json` 需要正确设置 `exports`:
+
+```json filename="package.json"
+{
+  "name": "@myorg/my-lib",
+  "version": "1.0.0",
+  "type": "module",
+
+  "exports": {
+    ".": {
+      "import": "./dist/index.js", // ESM
+      "require": "./dist/index.cjs", // CJS
+      "types": "./dist/index.d.ts" // TypeScript 类型
+    },
+    "./utils": {
+      "import": "./dist/utils.js",
+      "require": "./dist/utils.cjs",
+      "types": "./dist/utils.d.ts"
+    }
+  },
+
+  "main": "./dist/index.cjs", // 旧版兼容
+  "module": "./dist/index.js", // 旧版 ESM
+  "types": "./dist/index.d.ts", // TypeScript
+
+  "files": ["dist"],
+
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}
+```
+
+## 完整示例:React 组件库配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    lib: {
+      entry: resolve("src/index.ts"),
+      name: "MyComponentLib",
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+    },
+    rollupOptions: {
+      // 不打包 react,让消费者自己提供
+      external: ["react", "react/jsx-runtime", "react-dom"],
+      output: {
+        globals: {
+          react: "React",
+          "react/jsx-runtime": "jsxRuntime",
+          "react-dom": "ReactDOM",
+        },
+        // 防止 CSS 被内联进 JS
+        assetFileNames: "assets/[name][extname]",
+      },
+    },
+  },
+})
+```
+
+## 自测题
+
+1. 库模式和应用模式的主要区别是什么?
+2. 为什么库的 peerDependencies 里的包要用 `rollupOptions.external` 排除?
+3. `package.json` 里的 `exports` 字段有什么用?与 `main` 字段的区别?
+4. 什么情况下需要输出 UMD 格式?
+
+```ts filename="练习"
+// 配置一个工具函数库的 Vite build:
+// - 纯 TypeScript,无框架依赖
+// - 输出 ESM + CJS 两种格式
+// - 多个入口:主入口 / date 工具 / string 工具
+// - 不打包任何 node_modules 依赖
+
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      // TODO
+    },
+    rollupOptions: {
+      // TODO
+    },
+  },
+})
+```

@@ -1,0 +1,198 @@
+---
+title: Tree-shaking 实战
+description: Tree-shaking 不是魔法——它有前提条件。sideEffects 字段如何影响优化、哪些代码无法 tree-shake、如何验证 tree-shaking 是否生效。
+order: 6
+part: 12-performance
+chapter: "12.6"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Tree-shaking 的工作原理和前提条件 - `sideEffects` 字段的正确写法 - 哪些代码模式会阻止 tree-shaking - 验证
+  tree-shaking 是否生效的方法
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 ES Module 的静态 import/export - 了解 Vite build 的代码分割(7.4 节)
+</Callout>
+
+## Tree-shaking 的工作原理
+
+Tree-shaking(摇树优化)是 bundler 的能力:删除代码里**没有被用到的 export**。
+
+```ts
+// utils.ts
+export function add(a: number, b: number) {
+  return a + b
+}
+export function multiply(a: number, b: number) {
+  return a * b
+}
+
+// main.ts
+import { add } from "./utils"
+console.log(add(1, 2))
+// multiply 没有被 import → tree-shaking 删除它
+```
+
+**前提条件**:只有 ES Module(`import` / `export`)才能被 tree-shake。CommonJS(`require` / `module.exports`)无法 tree-shake。
+
+## `sideEffects` 字段
+
+```json filename="package.json"
+{
+  "name": "@my/utils",
+  "sideEffects": false
+}
+```
+
+`sideEffects: false` 告诉 bundler:
+
+> 这个包里的所有模块都没有副作用——如果你没有 import 它的任何导出,可以完全安全地删除对这个文件的 import。
+
+**什么是副作用**:
+
+- 修改全局对象(`window.myLib = ...`)
+- 注册全局事件监听器
+- Polyfill
+- CSS 导入
+
+如果 CSS 文件有副作用:
+
+```json
+{
+  "sideEffects": [
+    "*.css",
+    "./src/polyfills.ts" // 只有这两类有副作用
+  ]
+}
+```
+
+## 常见阻止 Tree-shaking 的模式
+
+### 问题一:CommonJS 格式
+
+```ts
+// ❌ CommonJS:无法 tree-shake
+const { debounce } = require("lodash")
+
+// ✅ ESM:可以 tree-shake
+import { debounce } from "lodash-es"
+```
+
+### 问题二:动态 property 访问
+
+```ts
+// ❌ 动态访问:bundler 不知道用了哪个方法
+const key = "debounce"
+const fn = lodash[key]
+
+// ✅ 静态:可以分析
+import { debounce } from "lodash-es"
+```
+
+### 问题三:有副作用的初始化代码
+
+```ts
+// ❌ 顶层代码有副作用
+console.log("模块已加载!") // 即使没有 import 任何东西,这行也不会被删除
+
+export function foo() {
+  /* ... */
+}
+```
+
+### 问题四:类的方法
+
+```ts
+// ❌ class 的方法不能单独 tree-shake
+class MyUtils {
+  add(a: number, b: number) {
+    return a + b
+  }
+  multiply(a: number, b: number) {
+    return a * b
+  }
+}
+
+// ✅ 独立函数可以 tree-shake
+export function add(a: number, b: number) {
+  return a + b
+}
+export function multiply(a: number, b: number) {
+  return a * b
+}
+```
+
+## 验证 Tree-shaking 是否生效
+
+方法一:检查产物文件
+
+```bash
+pnpm build
+grep -r "multiply" dist/  # 如果有输出,说明没有被 tree-shake
+```
+
+方法二:用 bundle analyzer
+
+用 `rollup-plugin-visualizer` 看看 `multiply` 函数是否出现在产物里。
+
+方法三:用特定工具
+
+```bash
+pnpm add -D rollup-plugin-treeshaker  # 社区工具
+```
+
+## 自测题
+
+1. 为什么 CommonJS 格式不能被 tree-shake?
+2. `sideEffects: false` 在什么情况下会导致样式丢失?
+3. 以下代码中,哪部分会被 tree-shake 掉?
+
+```ts
+export const VERSION = "1.0.0" // 被 import 了
+export function usedFn() {
+  /* ... */
+} // 被 import 了
+export function unusedFn() {
+  /* ... */
+} // 没有被 import
+
+const init = () => {
+  window.LIB = VERSION
+}
+init() // 顶层调用,有副作用
+```
+
+4. 为什么用独立函数比用类方法更有利于 tree-shaking?
+
+```ts filename="练习"
+// 以下是一个工具库的代码,分析 tree-shaking 的效果:
+// 消费方只 import 了 formatDate
+
+// 工具库 utils.ts:
+export function formatDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+export function parseDate(str: string): Date {
+  return new Date(str)
+}
+
+// 有副作用:修改 Date prototype(这很糟糕!)
+Date.prototype.toReadable = function () {
+  return this.toLocaleString()
+}
+
+// 问题 1:parseDate 会被 tree-shake 吗?
+// 问题 2:Date.prototype.toReadable 会被删除吗?
+// 问题 3:如何修复这个库让它对 tree-shaking 更友好?
+
+// 消费方:
+import { formatDate } from "./utils"
+console.log(formatDate(new Date()))
+```

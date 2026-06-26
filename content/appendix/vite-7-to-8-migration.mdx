@@ -1,0 +1,315 @@
+---
+title: Vite 7 → 8 迁移指南
+description: 系统化的 Vite 7 到 Vite 8 迁移指南——升级前检查清单、配置变更对照表、插件兼容性自查、常见迁移坑及解决方案。
+order: 1
+part: appendix
+chapter: "A.1"
+difficulty: 2
+readingTime: 20
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="本文适合谁">
+  已有 Vite 7 项目,想升级到 Vite 8 的开发者。建议在升级前完整读一遍。
+</Callout>
+
+## 升级前检查清单
+
+```text
+升级前确认:
+□ Node.js 版本 ≥ 20.19 或 ≥ 22.12
+□ 备份当前项目(git commit 或 stash)
+□ 阅读 Vite 8 官方发布说明(vitejs.dev/blog)
+□ 确认所有依赖的 Vite 插件已更新到支持 Vite 8 的版本
+□ 如有 @vitejs/plugin-react,确认是否要迁移到 v6
+```
+
+## 升级步骤
+
+### 第一步:更新 Vite 本身
+
+```bash
+pnpm update vite@^8.1.0
+
+# 如果用 React
+pnpm update @vitejs/plugin-react@^6.0.0
+
+# 如果用 Vue
+pnpm update @vitejs/plugin-vue
+
+# 如果用 Svelte
+pnpm update @sveltejs/vite-plugin-svelte
+```
+
+### 第二步:删除旧缓存
+
+```bash
+# 删除预构建缓存(格式可能不兼容)
+rm -rf node_modules/.vite
+```
+
+### 第三步:运行并观察
+
+```bash
+pnpm dev
+```
+
+出现警告 → 查看本文对应章节处理。
+
+## 配置变更对照表
+
+### CSS 压缩
+
+```ts
+// Vite 7:esbuild CSS 压缩
+// build.cssMinify 默认: "esbuild"
+
+// Vite 8:lightningcss 为默认
+// build.cssMinify 默认: "lightningcss"
+
+// 如果要保持旧行为:
+export default defineConfig({
+  build: {
+    cssMinify: "esbuild", // 明确指定回 esbuild
+  },
+})
+```
+
+### 浏览器目标
+
+```ts
+// Vite 7:默认 target 从 Vite 7 起改为 "baseline-widely-available"
+// Vite 8:同样是 "baseline-widely-available"
+// → 这里没有变化
+```
+
+### `@vitejs/plugin-react` v5 → v6
+
+```ts
+// v5(Vite 7 时代):使用 Babel
+import react from "@vitejs/plugin-react"
+export default defineConfig({ plugins: [react()] })
+
+// v6(Vite 8 时代):使用 OXC
+import react from "@vitejs/plugin-react" // ← import 方式一样
+export default defineConfig({ plugins: [react()] }) // ← 配置一样
+// 内部已切换到 OXC,无需修改代码
+```
+
+**特殊情况:如果 v5 用了 Babel 插件**
+
+```ts
+// v5 里有自定义 Babel 配置:
+react({
+  babel: {
+    plugins: ["babel-plugin-styled-components"],
+  },
+})
+
+// 迁移到 v6:
+// v6 支持同样的 babel 选项,但需要手动安装 @babel/core:
+pnpm add -D @babel/core babel-plugin-styled-components
+
+// v6 配置:
+react({
+  babel: {
+    plugins: ["babel-plugin-styled-components"],
+  },
+})
+// ← 写法一样,v6 在检测到 babel 选项时会自动使用 Babel 处理
+```
+
+## 插件兼容性自查
+
+### 检查你的插件是否支持 Vite 8
+
+```bash
+# 查看插件的 peerDependencies 里 vite 版本要求
+cat node_modules/your-plugin/package.json | grep -A5 peerDependencies
+```
+
+如果插件要求 `"vite": "^7.0.0"`,尝试:
+
+1. 检查插件是否有新版本支持 Vite 8
+2. 大多数插件因为 Rollup API 兼容,直接能用
+
+### 插件的 Rollup API 迁移
+
+```ts
+// 以下 hook 在 Vite 8(Rolldown)下行为完全一致,无需修改:
+resolveId()
+load()
+transform()
+generateBundle()
+writeBundle()
+
+// 需要注意的:
+buildStart()
+// Vite 8 dev 模式也会触发 buildStart
+// 检查你的 buildStart 逻辑是否能安全重复运行
+```
+
+## 常见迁移坑
+
+### 坑一:CSS 样式差异
+
+**问题**:升级后某些 CSS 样式渲染略有不同。
+
+**原因**:lightningcss 的 CSS 处理与 esbuild 有细节差异,特别是对某些 CSS 特性的 polyfill 方式。
+
+**解法**:
+
+```ts
+export default defineConfig({
+  build: {
+    cssMinify: "esbuild", // 暂时回退到 esbuild
+  },
+  // 或者用 lightningcss 但关闭某些特性:
+  css: {
+    lightningcss: {
+      targets: {
+        // 调整目标浏览器
+      },
+    },
+  },
+})
+```
+
+### 坑二:buildStart 在 dev 下意外触发
+
+**问题**:某个插件在 dev 启动时报错,但 Vite 7 下正常。
+
+**原因**:Vite 8 dev server 启动时也触发 `buildStart`,某些初始化逻辑在 dev 下不适用。
+
+**解法**:
+
+```ts
+buildStart() {
+  // 检查是否是 build 模式
+  if (this.meta.watchMode) {
+    // dev 模式,跳过某些初始化
+    return
+  }
+  // build 模式的初始化
+  initBuildCache()
+},
+```
+
+### 坑三:manualChunks 函数不再接受 module info
+
+**问题**:升级后 `manualChunks(id, { getModuleInfo })` 报错。
+
+**解法**:
+
+```ts
+// Vite 7/Rollup:
+manualChunks(id, { getModuleInfo }) {
+  const info = getModuleInfo(id)
+  // ...
+}
+
+// Vite 8/Rolldown:验证 getModuleInfo 是否还可用
+// 如果不可用,改用 id 字符串判断:
+manualChunks(id) {
+  if (id.includes("node_modules/react")) return "react"
+}
+```
+
+### 坑四:某些 esbuild 配置不再有效
+
+```ts
+// Vite 7 里有些项目用 esbuild.jsxInject:
+export default defineConfig({
+  esbuild: {
+    jsxInject: `import React from "react"`,
+  },
+})
+
+// Vite 8:Rolldown 不使用 esbuild 做 transform
+// 用 plugin-react 的自动 JSX runtime 替代:
+plugins: [react()] // 自动使用 react/jsx-runtime
+```
+
+## 性能提升预期
+
+升级到 Vite 8 后通常能感受到:
+
+| 场景             | 预期改善                |
+| ---------------- | ----------------------- |
+| 依赖预构建(首次) | 快 10~30%               |
+| 热更新(HMR)      | 相当或略快              |
+| 生产 build       | 快 5~20%(Rolldown 更快) |
+| CSS 压缩         | lightningcss 通常更快   |
+
+具体数字取决于项目大小和依赖复杂度。
+
+## 渐进迁移路径
+
+如果项目很大,担心一步升级风险太高:
+
+### 方案:先用 rolldown-vite 过渡
+
+```bash
+# 在 Vite 7 项目里先试用 Rolldown
+pnpm add -D rolldown-vite
+
+# package.json:
+{
+  "scripts": {
+    "dev": "ROLLDOWN_VITE=1 vite dev",
+    "build": "ROLLDOWN_VITE=1 vite build"
+  }
+}
+```
+
+`rolldown-vite` 是 Vite 7 + Rolldown bundler 的实验性组合,可以提前测试 Rolldown 兼容性。
+
+### 正式迁移时间节点建议
+
+```text
+现在:评估影响范围(本文)
+一周:在开发分支里先升级,跑测试
+两周:提 PR,经过 review
+发布:在流量低谷期升级
+```
+
+## 回滚方案
+
+如果升级后出现严重问题:
+
+```bash
+# 回退 vite 版本
+pnpm add vite@^7.3.0
+
+# 如果用 React
+pnpm add @vitejs/plugin-react@^5.0.0
+
+# 清理缓存
+rm -rf node_modules/.vite
+```
+
+记得删除 `.vite` 缓存,避免 Vite 8 的缓存格式被 Vite 7 读取出错。
+
+## 自测题
+
+1. 升级前为什么要删除 `.vite/deps/` 缓存目录?
+2. `@vitejs/plugin-react` v6 升级时需要修改 vite.config.ts 吗?
+3. 哪些 hook 在 Vite 8 dev 模式下的行为发生了变化?需要注意什么?
+4. 如果某个第三方插件显示不支持 Vite 8,有哪些替代方案?
+
+```bash filename="实操练习"
+# 1. 在一个 Vite 7 项目里执行升级步骤
+# 2. 运行完整的测试套件验证功能正常
+# 3. 对比 pnpm build 的产物大小(Vite 7 vs Vite 8)
+# 4. 记录升级前后的 pnpm dev 启动时间
+
+# 参考记录格式:
+# | 指标 | Vite 7 | Vite 8 | 变化 |
+# |------|---------|---------|------|
+# | 冷启动 | ??s | ??s | ?% |
+# | HMR | ??ms | ??ms | ?% |
+# | Build | ??s | ??s | ?% |
+# | Bundle 大小 | ??KB | ??KB | ?% |
+```

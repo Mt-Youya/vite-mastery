@@ -1,0 +1,304 @@
+---
+title: Vite 独有 Hooks(下):transformIndexHtml / handleHotUpdate
+description: 两个最有个性的 Vite hook——直接操作 HTML 模板的 transformIndexHtml,以及精准控制 HMR 更新的 handleHotUpdate。
+order: 5
+part: 04-hooks-deep-dive
+chapter: "4.5"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `transformIndexHtml` 的两种使用模式(字符串替换 vs 标签注入) - 在 build 和 dev 阶段 HTML 处理的差异 -
+  `handleHotUpdate` 的参数和返回值语义 - 如何为自定义文件类型实现精准 HMR
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Vite 独有 Hooks 上」(4.4 节) - 了解 HMR 的基本工作原理
+</Callout>
+
+## `transformIndexHtml` hook
+
+**触发时机**:Vite 处理 `index.html`(以及其他 HTML 入口)时。
+
+**触发条件**:dev 和 build 都触发。
+
+**调用约定**:sequential
+
+**参数**:
+
+```ts
+transformIndexHtml(
+  html: string,
+  ctx: {
+    path: string           // HTML 文件相对路径,如 "/"
+    filename: string       // HTML 文件绝对路径
+    server?: ViteDevServer // dev 模式下存在
+    bundle?: OutputBundle  // build 模式下存在
+    chunk?: OutputChunk    // build 模式下存在
+  }
+): IndexHtmlTransformResult
+```
+
+**返回值**可以是:
+
+```ts
+type IndexHtmlTransformResult =
+  | string // 返回修改后的完整 HTML 字符串
+  | IndexHtmlTransformHook // 返回一组标签描述对象
+  | { html: string; tags: IndexHtmlTransformHook }
+```
+
+### 模式一:字符串替换
+
+最直接,适合简单替换:
+
+```ts
+transformIndexHtml(html) {
+  // 替换 HTML 里的占位符
+  return html
+    .replace("<!-- INJECT_TITLE -->", "<title>My App</title>")
+    .replace("%APP_VERSION%", "1.0.0")
+},
+```
+
+### 模式二:标签注入(推荐)
+
+通过返回标签描述对象,Vite 负责在正确位置插入:
+
+```ts
+transformIndexHtml(html, ctx) {
+  return {
+    html,
+    tags: [
+      // 在 <head> 末尾注入
+      {
+        tag: "meta",
+        attrs: {
+          name: "build-time",
+          content: new Date().toISOString(),
+        },
+        injectTo: "head",
+      },
+      // 在 <body> 末尾注入 script
+      {
+        tag: "script",
+        attrs: { type: "module" },
+        children: `window.__COMMIT__ = "${getGitCommit()}"`,
+        injectTo: "body",
+      },
+      // 在 <head> 开头注入(优先级高的 meta)
+      {
+        tag: "meta",
+        attrs: { charset: "UTF-8" },
+        injectTo: "head-prepend",
+      },
+    ],
+  }
+},
+```
+
+`injectTo` 可以是:
+
+- `"head"`:在 `</head>` 前插入
+- `"body"`:在 `</body>` 前插入
+- `"head-prepend"`:在 `<head>` 后紧接插入
+- `"body-prepend"`:在 `<body>` 后紧接插入
+
+### 根据 dev/build 不同处理
+
+```ts
+transformIndexHtml(html, ctx) {
+  const tags: HtmlTagDescriptor[] = []
+
+  if (ctx.server) {
+    // dev 模式:注入开发工具
+    tags.push({
+      tag: "script",
+      attrs: { src: "/__dev-tools.js", type: "module" },
+      injectTo: "body",
+    })
+  } else {
+    // build 模式:注入分析脚本
+    tags.push({
+      tag: "script",
+      children: `window.__ANALYTICS_ID__ = "GA-XXXXXXX"`,
+      injectTo: "head",
+    })
+  }
+
+  return { html, tags }
+},
+```
+
+### 修改 HTML 里的 `<link>` / `<script>` 顺序
+
+`transformIndexHtml` 可以完整地重写 HTML 字符串,包括重排标签顺序:
+
+```ts
+transformIndexHtml(html) {
+  // 把所有 CSS link 提前到 head 最顶部(改善 CLS)
+  const cssLinks = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]*>/g)]
+    .map(m => m[0])
+
+  let result = html
+  cssLinks.forEach(link => {
+    result = result.replace(link, "")
+  })
+  result = result.replace("<head>", `<head>\n    ${cssLinks.join("\n    ")}`)
+
+  return result
+},
+```
+
+## `handleHotUpdate` hook
+
+**触发时机**:dev 模式下,文件系统检测到文件改变时。
+
+**触发条件**:只在 dev 模式触发,build 不触发。
+
+**调用约定**:sequential
+
+**参数**:
+
+```ts
+handleHotUpdate(ctx: HmrContext): Array<ModuleNode> | void | Promise<...>
+
+interface HmrContext {
+  file: string                    // 变化的文件绝对路径
+  timestamp: number               // 变化时间戳
+  modules: Array<ModuleNode>      // Vite 认为受影响的模块列表
+  read(): Promise<string>         // 读取文件新内容
+  server: ViteDevServer           // dev server 实例
+}
+```
+
+**返回值**:
+
+- `ModuleNode[]`:手动指定哪些模块需要更新(覆盖 Vite 的默认判断)
+- `[]`:空数组 = 不触发任何 HMR
+- `void` / `undefined`:使用 Vite 默认的 HMR 行为
+
+### 最简单的用法:为自定义文件类型触发 HMR
+
+```ts
+import type { Plugin } from "vite"
+
+export function yamlPlugin(): Plugin {
+  return {
+    name: "vite-plugin-yaml",
+    // ...resolveId, load, transform 处理 .yaml 文件...
+
+    handleHotUpdate({ file, modules, server }) {
+      if (!file.endsWith(".yaml")) return
+
+      // 获取这个 .yaml 文件对应的虚拟模块
+      const virtualModule = server.moduleGraph.getModuleById(`\0virtual:${file}`)
+
+      if (virtualModule) {
+        // 让这个虚拟模块失效
+        server.moduleGraph.invalidateModule(virtualModule)
+        // 返回需要更新的模块列表
+        return [virtualModule]
+      }
+    },
+  }
+}
+```
+
+### 过滤掉不必要的 HMR
+
+```ts
+handleHotUpdate({ file, modules }) {
+  // 过滤:测试文件改变不触发 HMR
+  if (file.includes("__tests__") || file.includes(".spec.")) {
+    return []  // 空数组 = 什么都不做
+  }
+
+  // 默认行为
+},
+```
+
+### 自定义 HMR 消息
+
+有时候文件改变不需要模块热更新,而是要向浏览器发送自定义通知:
+
+```ts
+handleHotUpdate({ file, server }) {
+  if (file.endsWith("locales.json")) {
+    // 翻译文件改变:通知浏览器刷新语言包
+    server.hot.send({
+      type: "custom",
+      event: "locales-update",
+      data: { locale: "zh-CN" },
+    })
+    // 返回 [] 表示不需要模块级 HMR
+    return []
+  }
+},
+```
+
+浏览器端:
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.on("locales-update", async ({ locale }) => {
+    // 重新加载语言包(不需要整页刷新)
+    const messages = await fetchMessages(locale)
+    i18n.setLocale(locale, messages)
+  })
+}
+```
+
+### 当文件改变影响多个模块时
+
+```ts
+handleHotUpdate({ file, modules, server }) {
+  if (!file.endsWith("theme.css")) return
+
+  // theme.css 改变影响所有使用了主题变量的模块
+  const allThemedModules = [...server.moduleGraph.idToModuleMap.values()]
+    .filter(m => m.importedModules.has(server.moduleGraph.getModuleByUrl("/src/theme.css")!))
+
+  // 让这些模块全部失效
+  allThemedModules.forEach(m => server.moduleGraph.invalidateModule(m))
+  return allThemedModules
+},
+```
+
+## 自测题
+
+1. `transformIndexHtml` 返回字符串和返回 `{ html, tags }` 对象有什么区别?后者有什么优势?
+2. `injectTo: "head"` 和 `injectTo: "head-prepend"` 有什么区别?什么时候用哪个?
+3. `handleHotUpdate` 返回空数组 `[]` 和返回 `undefined` 有什么不同?
+4. 如果一个文件改变了,但你不想触发任何 HMR(比如日志文件),应该在 `handleHotUpdate` 里怎么处理?
+
+```ts filename="练习"
+// 实现以下两个功能:
+
+// 1. 在 index.html 的 <head> 里注入:
+//    <meta name="generator" content="vite-mastery">
+//    在开发模式下额外注入:
+//    <script>window.__DEV__ = true</script>
+
+// 2. 当 src/styles/themes/ 目录下的任意文件改变时,
+//    向浏览器发送 "theme-changed" 事件,
+//    浏览器端用这个事件动态刷新 CSS 变量
+
+import type { Plugin, HtmlTagDescriptor } from "vite"
+
+export function metaAndThemePlugin(): Plugin {
+  return {
+    name: "vite-plugin-meta-theme",
+    transformIndexHtml(html, ctx) {
+      // TODO:实现 1
+    },
+    handleHotUpdate({ file, server }) {
+      // TODO:实现 2
+    },
+  }
+}
+```

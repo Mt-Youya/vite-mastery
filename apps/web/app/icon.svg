@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="vm-beam" x1="15" x2="49" y1="13" y2="51" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbbf24" />
+      <stop offset="0.52" stop-color="#34d399" />
+      <stop offset="1" stop-color="#22d3ee" />
+    </linearGradient>
+    <linearGradient id="vm-edge" x1="20" x2="44" y1="13" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff7d6" />
+      <stop offset="1" stop-color="#a5f3fc" />
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#0f172a" />
+  <path d="M14.8 14h10.7l6.4 18.2L40.2 14h9L35.4 50h-8.1L14.8 14Z" fill="url(#vm-beam)" />
+  <path
+    d="M20.5 15.2 31.8 44.5 44.8 15.2"
+    fill="none"
+    stroke="url(#vm-edge)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="2.8"
+    opacity="0.86"
+  />
+  <path
+    d="M17.5 14h8l6.4 18.2L39.8 14h5"
+    fill="none"
+    stroke="#020617"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="1.8"
+    opacity="0.38"
+  />
+  <circle cx="20.5" cy="15.3" r="3.2" fill="#fde68a" />
+  <circle cx="31.8" cy="44.5" r="3.2" fill="#2dd4bf" />
+  <circle cx="44.8" cy="15.3" r="3.2" fill="#67e8f9" />
+  <path d="M18 53h28" stroke="#475569" stroke-linecap="round" stroke-width="2" opacity="0.7" />
+</svg>

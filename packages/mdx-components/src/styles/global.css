@@ -1,0 +1,11 @@
+/**
+ * @vite-mastery/mdx-components 的样式入口。
+ *
+ * `@import "tailwindcss"` 是必须的——给 Tailwind 处理器建立上下文,
+ * 否则 @source 指令会被忽略。
+ *
+ * 路径以本文件为基准:`..` = packages/mdx-components/src
+ */
+@import "tailwindcss";
+
+@source "../**/*.{ts,tsx}";

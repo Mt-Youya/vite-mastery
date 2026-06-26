@@ -1,0 +1,319 @@
+---
+title: 实战项目 3:i18n 自动注入
+description: 把 transformIndexHtml + resolveId + load 组合起来——实现一个不需要手动 import 的 i18n 注入插件,语言包变化时自动 HMR。
+order: 9
+part: 04-hooks-deep-dive
+chapter: "4.9"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `transformIndexHtml` + `resolveId` + `load` 三者组合的实战 - 如何让语言包作为虚拟模块暴露给业务代码 - 用
+  `this.addWatchFile` 监听外部文件变化触发 HMR - 配套实战项目:`examples/plugin-i18n`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Vite 独有 Hooks 下」(4.5 节)中的 `transformIndexHtml` - 阅读「实战项目 1:虚拟模块插件」(3.4 节)
+</Callout>
+
+## 目标:零 import 的 i18n
+
+传统 i18n 需要手动 import 翻译函数:
+
+```ts
+// ❌ 传统方式:每个文件都要 import
+import { t } from "@/i18n"
+console.log(t("hello"))
+```
+
+这个插件的目标:
+
+```ts
+// ✅ 无需 import,直接用
+import t from "virtual:i18n"
+console.log(t("hello")) // "你好"
+console.log(t("welcome")) // "欢迎使用 Vite"
+```
+
+同时在 `<html>` 标签上自动注入 `lang` 属性:
+
+```html
+<!-- index.html 原始 -->
+<html>
+  <!-- 插件处理后 -->
+  <html lang="zh-CN"></html>
+</html>
+```
+
+## 插件架构
+
+```text
+vite-plugin-i18n
+│
+├── resolveId          → 拦截 "virtual:i18n"
+├── load               → 生成 t() 函数代码(从 locales/*.json 读取)
+├── addWatchFile       → 监听 locales/*.json 变化
+├── handleHotUpdate    → 语言包变化时使虚拟模块失效
+└── transformIndexHtml → 在 <html> 标签上注入 lang 属性
+```
+
+## 步骤一:虚拟模块
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface I18nOptions {
+  locale: string // 当前语言,如 "zh"
+  localeDir: string // 语言包目录,如 "./locales"
+}
+
+const VIRTUAL_ID = "virtual:i18n"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function i18nPlugin(options: I18nOptions): Plugin {
+  const { locale, localeDir } = options
+  const localeFile = resolve(localeDir, `${locale}.json`)
+
+  function loadMessages(): Record<string, string> {
+    if (!existsSync(localeFile)) return {}
+    try {
+      return JSON.parse(readFileSync(localeFile, "utf-8")) as Record<string, string>
+    } catch {
+      return {}
+    }
+  }
+
+  return {
+    name: "vite-plugin-i18n",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // 监听语言包文件变化
+      this.addWatchFile(localeFile)
+
+      const messages = loadMessages()
+
+      // 生成 t() 函数
+      return `
+const __messages__ = ${JSON.stringify(messages)}
+
+export default function t(key) {
+  return __messages__[key] ?? key
+}
+
+export function has(key) {
+  return key in __messages__
+}
+
+export const locale = ${JSON.stringify(locale)}
+`
+    },
+  }
+}
+```
+
+## 步骤二:注入 lang 属性
+
+```ts
+// 在插件对象里加上 transformIndexHtml:
+transformIndexHtml(html) {
+  // 在 <html> 标签上注入 lang 属性
+  // 处理两种情况:<html> 和 <html lang="en">
+  return html
+    .replace(/(<html)(\s[^>]*)?>/i, (_, tag, attrs) => {
+      const attrsStr = attrs ?? ""
+      // 如果已有 lang 属性,替换它;否则追加
+      if (/lang=/i.test(attrsStr)) {
+        return `${tag}${attrsStr.replace(/lang="[^"]*"/i, `lang="${locale}"`)}>`
+      }
+      return `${tag}${attrsStr} lang="${locale}">`
+    })
+},
+```
+
+## 步骤三:HMR 支持
+
+当 `locales/zh.json` 改变时,让虚拟模块失效,浏览器自动重新加载新语言包:
+
+```ts
+handleHotUpdate({ file, server }) {
+  if (file !== localeFile) return
+
+  // 找到虚拟模块节点
+  const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+  if (module) {
+    // 使虚拟模块失效
+    server.moduleGraph.invalidateModule(module)
+    // 返回需要更新的模块列表
+    return [module]
+  }
+},
+```
+
+## 完整实现
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface I18nOptions {
+  locale: string
+  localeDir: string
+}
+
+const VIRTUAL_ID = "virtual:i18n"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function i18nPlugin(options: I18nOptions): Plugin {
+  const { locale, localeDir } = options
+  const localeFile = resolve(localeDir, `${locale}.json`)
+
+  function loadMessages(): Record<string, string> {
+    if (!existsSync(localeFile)) return {}
+    try {
+      return JSON.parse(readFileSync(localeFile, "utf-8")) as Record<string, string>
+    } catch {
+      return {}
+    }
+  }
+
+  return {
+    name: "vite-plugin-i18n",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+      this.addWatchFile(localeFile)
+      const messages = loadMessages()
+      return `
+const __messages__ = ${JSON.stringify(messages)}
+export default function t(key) { return __messages__[key] ?? key }
+export function has(key) { return key in __messages__ }
+export const locale = ${JSON.stringify(locale)}
+`
+    },
+
+    transformIndexHtml(html) {
+      return html.replace(/(<html)(\s[^>]*)?>/i, (_, tag, attrs) => {
+        const attrsStr = attrs ?? ""
+        if (/lang=/i.test(attrsStr)) {
+          return `${tag}${attrsStr.replace(/lang="[^"]*"/i, `lang="${locale}"`)}>`
+        }
+        return `${tag}${attrsStr} lang="${locale}">`
+      })
+    },
+
+    handleHotUpdate({ file, server }) {
+      if (file !== localeFile) return
+      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+    },
+  }
+}
+```
+
+## TypeScript 类型声明
+
+```ts filename="src/i18n.d.ts"
+declare module "virtual:i18n" {
+  export default function t(key: string): string
+  export function has(key: string): boolean
+  export const locale: string
+}
+```
+
+## 使用方式
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { i18nPlugin } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [
+    i18nPlugin({
+      locale: "zh",
+      localeDir: "./locales",
+    }),
+  ],
+})
+```
+
+```json filename="locales/zh.json"
+{
+  "hello": "你好",
+  "welcome": "欢迎使用 Vite",
+  "goodbye": "再见"
+}
+```
+
+```ts filename="src/main.ts"
+import t from "virtual:i18n"
+
+document.querySelector("#app")!.innerHTML = `
+  <h1>${t("hello")}</h1>
+  <p>${t("welcome")}</p>
+`
+```
+
+## 运行实战项目
+
+```bash
+cd examples/plugin-i18n
+pnpm install
+pnpm dev
+```
+
+修改 `locales/zh.json` 里的翻译内容,浏览器自动更新无需刷新。
+
+## 自测题
+
+1. `this.addWatchFile(path)` 在 `load` 里调用是最合适的时机吗?能在 `resolveId` 里调用吗?
+2. 为什么 `handleHotUpdate` 里要找 `RESOLVED_ID` 对应的模块而不是 `VIRTUAL_ID`?
+3. 如果要支持多语言切换(运行时动态切换),你会怎么改这个插件?
+4. `transformIndexHtml` 的正则 `/(<html)(\s[^>]*)?>/i` 中,`\s[^>]*` 是什么意思?为什么需要这个模式?
+
+```ts filename="练习"
+// 扩展 i18n 插件:支持带插值的翻译
+// t("greeting", { name: "Jay" }) → "你好 Jay"
+// 语言包格式: { "greeting": "你好 {name}" }
+
+// 另外:支持嵌套 key
+// t("errors.notFound") → 语言包 { "errors": { "notFound": "页面未找到" } }
+
+// 修改 t() 函数的实现
+function generateTFunction(messages: Record<string, unknown>): string {
+  return `
+function get(obj, key) {
+  return key.split(".").reduce((acc, k) => acc?.[k], obj)
+}
+
+export default function t(key, params) {
+  let str = get(__messages__, key) ?? key
+  if (params) {
+    str = str.replace(/\\{(\\w+)\\}/g, (_, k) => params[k] ?? "")
+  }
+  return str
+}
+`
+}
+```

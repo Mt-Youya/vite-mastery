@@ -1,0 +1,188 @@
+---
+title: Vite + Monorepo 的坑
+description: 在 monorepo 里使用 Vite 有几个常见坑——依赖预构建跨包问题、source-import 包需要 transpilePackages、符号链接解析。全部踩过一遍帮你少走弯路。
+order: 2
+part: 11-monorepo
+chapter: "11.2"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 依赖预构建为什么在 monorepo 里有时会失效 - source-import 包需要什么特殊处理 - 符号链接解析的问题和解法 -
+  `resolve.alias` 在 monorepo 里的用法
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「pnpm workspace 基础」(11.1 节) - 理解依赖预构建(1.3 节)
+</Callout>
+
+## 坑一:workspace 包没有被预构建
+
+**问题**:本地 `packages/ui` 是 TypeScript 源码(main 字段指向 `src/index.ts`),Vite 没有预构建它,每次 transform 都重新编译。
+
+**根因**:Vite 的预构建只处理 `node_modules` 里的包。workspace 包通过软链接存在于 `node_modules`,但 Vite 知道它们是本地包,不预构建。
+
+**解法一**:在 Next.js 里用 `transpilePackages`
+
+```ts filename="apps/web/next.config.ts"
+export default {
+  transpilePackages: ["@vite-mastery/ui", "@vite-mastery/mdx-components"],
+}
+```
+
+**解法二**:在 Vite 配置里用 `optimizeDeps.include`
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    include: ["@vite-mastery/ui > react"], // 包含间接依赖
+  },
+})
+```
+
+**解法三**:用 `resolve.alias` 直接指向 src/
+
+```ts filename="vite.config.ts"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@vite-mastery/ui": resolve("../../packages/ui/src"),
+    },
+  },
+})
+```
+
+## 坑二:符号链接解析问题
+
+**问题**:pnpm 使用符号链接管理 workspace 包,但有时候 Vite 的模块解析不能正确跟随符号链接。
+
+**表现**:同一个包被解析为两个不同的模块(导致 `instanceof` 失败、React context 不共享等)。
+
+**根因**:符号链接路径和真实路径被当作不同模块缓存。
+
+**解法**:在 `vite.config.ts` 里启用符号链接解析:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  resolve: {
+    // 把符号链接解析为真实路径
+    preserveSymlinks: false, // 默认值,通常不需要改
+  },
+  server: {
+    fs: {
+      // 允许访问 monorepo 里所有包的文件
+      allow: ["../.."],
+    },
+  },
+})
+```
+
+## 坑三:CSS 变量跨包不生效
+
+**问题**:`packages/tailwind-config/theme.css` 定义了 CSS 变量,但在 `packages/ui` 里使用时不生效。
+
+**根因**:CSS 变量需要在 DOM 里定义,但包本身不引入 CSS 文件——最终由消费方 app 引入。
+
+**解法**:在 `apps/web/app/globals.css` 里显式 import:
+
+```css filename="apps/web/app/globals.css"
+@import "@vite-mastery/tailwind-config/theme.css";
+/* ↑ 确保 CSS 变量在应用级别注入 */
+```
+
+## 坑四:HMR 跨包不更新
+
+**问题**:修改 `packages/ui/src/Button.tsx`,`apps/web` 里的页面没有 HMR 更新。
+
+**根因**:Vite 只监听 `apps/web/` 目录下的文件变化,不监听 `packages/` 里的。
+
+**解法**:配置 `server.watch`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  server: {
+    watch: {
+      // 监听 packages/ 目录
+      // (pnpm workspace 下软链接到 node_modules/.pnpm)
+      followSymlinks: true,
+    },
+  },
+})
+```
+
+或者在 `packages/ui` 里用 `vite build --watch` 保持构建产物更新,`apps/web` 消费构建产物。
+
+## 坑五:TypeScript 找不到类型
+
+**问题**:workspace 包有 `"main": "src/index.ts"` 但没有 `"types"` 字段,TypeScript 找不到类型。
+
+**解法**:在 `package.json` 里正确声明 types 路径:
+
+```json filename="packages/ui/package.json"
+{
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts" // 直接指向 TS 源码
+    }
+  }
+}
+```
+
+或者在根 `tsconfig.json` 里配置路径映射:
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "paths": {
+      "@vite-mastery/ui": ["./packages/ui/src/index.ts"]
+    }
+  }
+}
+```
+
+## 自测题
+
+1. 为什么 Vite 不预构建 workspace 里的本地包?
+2. pnpm 的符号链接机制为什么有时会导致同一个包有两个实例?
+3. `server.fs.allow` 配置的作用是什么?不配置会有什么问题?
+4. 在 monorepo 里,HMR 跨包更新不生效的根本原因是什么?
+
+```ts filename="练习"
+// 你的 monorepo 有以下结构:
+// apps/web ← Next.js 应用
+// packages/ui ← 组件库(src/index.tsx,未编译)
+// packages/utils ← 工具函数(src/index.ts,未编译)
+//
+// 现在 apps/web 里遇到以下问题:
+// 1. 修改 packages/ui/src/Button.tsx 后,浏览器没有 HMR
+// 2. TypeScript 在 apps/web 里使用 @vite-mastery/ui 时有类型错误
+// 3. packages/ui 里用了 packages/utils 的函数,但报 "not found" 错误
+//
+// 写出每个问题的解决方案:
+
+// apps/web/next.config.ts
+export default {
+  // TODO:解决问题 1
+}
+
+// apps/web/tsconfig.json
+{
+  "compilerOptions": {
+    // TODO:解决问题 2
+  }
+}
+
+// packages/ui/vite.config.ts
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  // TODO:解决问题 3
+})
+```

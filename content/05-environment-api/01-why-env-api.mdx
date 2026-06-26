@@ -1,0 +1,164 @@
+---
+title: 为什么需要 Environment API
+description: Vite 的 SSR 模型在多框架时代遇到了什么困境?Environment API 想解决什么问题?它的出发点是什么?
+order: 1
+part: 05-environment-api
+chapter: "5.1"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。本章基于 Vite
+  8.1.x。生产项目使用前请确认对应 Vite 版本的官方文档。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - Vite 旧 SSR 模型的具体限制 - 为什么单一 client / ssr 二元模型无法满足现代框架需求 - Environment API
+  的设计出发点和核心思想 - 哪些框架受益于 Environment API
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 理解 Vite 基本用法(Part 0) - 了解 SSR 的基本概念(服务端渲染返回 HTML,客户端 hydration) - 可选:阅读过 Part 08 手写
+  SSR 章节
+</Callout>
+
+## Vite 旧 SSR 模型的前提假设
+
+Vite 从早期就支持 SSR,但其设计基于一个隐式的前提假设:**只有两个执行环境——浏览器(client)和 Node.js(ssr)**。
+
+这个假设在 2020 年是合理的。绝大多数 SSR 框架确实只有这两个环境:
+
+```text
+浏览器                    Node.js
+─────────────────         ─────────────────
+加载 JS Bundle      ←→   执行 renderToString
+执行 hydration             返回 HTML
+```
+
+Vite 的 SSR API 基于此设计:
+
+```ts
+// 旧的 SSR 模型 API(Vite 7 及更早)
+const module = await server.ssrLoadModule("/src/entry-server.ts")
+const html = await module.render(url)
+```
+
+`ssrLoadModule` 在一个特殊的"SSR 模式"下加载模块——它使用与 client 相同的模块图谱,但不做 bundling,且不缓存(每次都重新执行)。
+
+## 旧模型的三个主要限制
+
+### 限制 1:两个环境共用同一个模块图谱
+
+Vite 7 的 dev server 内部只维护**一个**模块图谱(Module Graph)。所有模块,无论是 client 代码还是 server 代码,都存放在同一张图里。
+
+这带来了混乱:当 `src/utils.ts` 同时被 client 和 server 使用时,Vite 无法区分"这是 client 版本的 utils.ts"还是"server 版本的 utils.ts"——它们共享同一个模块节点。
+
+如果 server 端修改了 `utils.ts`,client HMR 可能被错误地触发;反之亦然。
+
+### 限制 2:无法支持两个以上的环境
+
+React Server Components(RSC)引入了第三个环境:Server Components 有自己的执行上下文,不同于普通 SSR,也不同于 client。
+
+Vite 的旧 API 没有办法原生支持三个独立的环境——`ssrLoadModule` 只有一个模式,要实现 RSC 就必须在 Vite 之外自己管理模块加载,极其复杂。
+
+类似地:
+
+- Cloudflare Workers 是一个独立的 JS 运行时(不是 Node.js),有自己的 API 限制
+- Deno Deploy 有不同的模块解析规则
+- Service Worker 运行在浏览器里但有独立的作用域
+
+这些场景都需要一个"第三个、第四个环境"的抽象——旧 API 完全无法表达。
+
+### 限制 3:`ssrLoadModule` 的性能和语义问题
+
+`server.ssrLoadModule()` 每次都重新执行模块,不依赖正常的模块缓存机制。这在开发模式下足够用,但语义上是"eval 一段代码"而不是"在某个环境里 import 一个模块"。
+
+它也无法准确地做 HMR:server 端的模块热更新需要手动管理,而不是像 client 那样自动通过模块图谱传播。
+
+## Environment API 的核心思想
+
+Environment API 用**显式的 Environment 对象**替代了隐式的 client/ssr 二元假设。
+
+每个 `Environment` 代表一个独立的执行上下文,拥有:
+
+- **独立的模块图谱**:这个环境里的 `src/utils.ts` 和另一个环境里的完全隔离
+- **独立的 resolve 配置**:可以为不同环境指定不同的 `conditions`、`external` 等
+- **独立的 HMR 通道**:当一个环境里的模块更新,只影响这个环境的 HMR
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    // client 环境(浏览器)
+    client: {
+      /* ... */
+    },
+
+    // ssr 环境(Node.js 服务端)
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+      },
+    },
+
+    // 自定义环境:RSC、Edge Worker、Service Worker...
+    rsc: {
+      resolve: {
+        conditions: ["react-server", "node"],
+      },
+    },
+  },
+})
+```
+
+## 受益于 Environment API 的框架
+
+Environment API 是为框架作者设计的底层 API,而不是普通应用开发者日常会直接用到的 API。以下框架可以基于它构建更好的开发体验:
+
+| 框架/场景                      | 需要的环境数量           |
+| ------------------------------ | ------------------------ |
+| 传统 SSR(Next.js Pages Router) | 2(client + ssr)          |
+| React Server Components        | 3(client + ssr + rsc)    |
+| 多 Worker 应用(Cloudflare)     | 2+(client + 多个 worker) |
+| Micro-frontends                | 多个 client 环境         |
+
+<V7Note title="Vite 7:如何处理多环境">
+  在 Vite 7 中,RSC 框架(如 Next.js 的 App Router)需要在 Vite 之外自己管理 server component 的模块加载——通常是起一个独立的 Node.js 进程或使用私有的内部 Vite API。
+
+Environment API 把这个能力标准化,让框架作者不需要 hack Vite 内部实现。
+
+</V7Note>
+
+## 自测题
+
+1. Vite 旧 SSR 模型的核心假设是什么?这个假设为什么在现代框架时代变得不够用?
+2. "两个环境共用同一个模块图谱"会导致什么具体问题?举一个 HMR 相关的例子。
+3. React Server Components 为什么需要一个"第三个环境"?它与普通 SSR 环境有什么本质区别?
+4. Environment API 是给应用开发者用的还是框架作者用的?为什么?
+
+```ts filename="练习"
+// 阅读以下 Vite 7 的 SSR 配置,分析它有哪些潜在问题
+// 然后用 Environment API 的思维重新描述这个场景应该怎么处理
+
+// server.js (Vite 7 风格)
+const vite = await createServer({ server: { middlewareMode: true } })
+
+app.use("*", async (req, res) => {
+  // 这里有什么问题?
+  const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+  const appHtml = await render(req.url)
+
+  // 如果 entry-server.tsx 里 import 了只能在 server 运行的模块
+  // 而 client 也 import 了同一个 utils.ts
+  // 会发生什么?
+})
+
+// 问题 1:ssrLoadModule 如何区分 server 和 client 版本的 utils.ts?
+// 问题 2:如果要加一个 RSC 环境,旧 API 能做到吗?
+// 问题 3:Environment API 会如何改变上面的代码结构?
+```

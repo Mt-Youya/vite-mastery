@@ -1,0 +1,239 @@
+---
+title: 实战项目 7:手写 SSR(用 Environment API)
+description: 不用任何 SSR 框架,从零用 Vite + Node.js 实现一个完整的 SSR 应用——理解 SSR 的每个环节,并使用 Environment API 实现更干净的架构。
+order: 2
+part: 08-ssr-ssg
+chapter: "8.2"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 从零实现 SSR:不依赖 Next.js / Nuxt 等框架 - dev 模式:Vite 中间件 + ssrLoadModule - production 模式:预构建产物 + 直接
+  import - HMR:SSR 代码变化时自动刷新 - 配套实战项目:`examples/ssr-with-env-api`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Vite 8 时代的 SSR API」(8.1 节) - 了解 React renderToString / hydrateRoot - 了解 Node.js HTTP server 基础
+</Callout>
+
+## 项目结构
+
+```text
+examples/ssr-with-env-api/
+├── package.json
+├── vite.config.ts
+├── server.js          ← HTTP server(dev + prod 两用)
+├── index.html         ← HTML 模板
+└── src/
+    ├── main.tsx       ← client 入口(hydration)
+    ├── App.tsx        ← 共享组件
+    └── entry-server.tsx  ← server 入口(renderToString)
+```
+
+## Vite 配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+  environments: {
+    client: {},
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+  },
+})
+```
+
+## 共享组件
+
+```tsx filename="src/App.tsx"
+interface AppProps {
+  url?: string
+  data?: { message: string }
+}
+
+export function App({ url = "/", data }: AppProps) {
+  return (
+    <div>
+      <h1>Vite SSR 演示</h1>
+      <p>当前路径: {url}</p>
+      {data && <p>服务端数据: {data.message}</p>}
+      <button onClick={() => alert("client 侧交互正常!")}>测试 Hydration</button>
+    </div>
+  )
+}
+```
+
+## 服务端入口
+
+```tsx filename="src/entry-server.tsx"
+import { renderToString } from "react-dom/server"
+import { App } from "./App"
+
+export async function render(url: string): Promise<{ html: string; data: unknown }> {
+  // 在这里可以做服务端数据获取
+  const data = {
+    message: `在服务端获取的数据 (${new Date().toISOString()})`,
+  }
+
+  const html = renderToString(<App url={url} data={data} />)
+
+  return { html, data }
+}
+```
+
+## 客户端入口
+
+```tsx filename="src/main.tsx"
+import { hydrateRoot } from "react-dom/client"
+import { App } from "./App"
+
+// 从 window.__SSR_DATA__ 获取服务端注入的数据
+const data = (window as { __SSR_DATA__?: unknown }).__SSR_DATA__
+
+hydrateRoot(document.getElementById("root")!, <App url={window.location.pathname} data={data as { message: string }} />)
+```
+
+## HTML 模板
+
+```html filename="index.html"
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite SSR</title>
+  </head>
+  <body>
+    <div id="root"><!--ssr-outlet--></div>
+    <script>
+      window.__SSR_DATA__ = <!--ssr-data-->;
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+## 开发服务器
+
+```js filename="server.js"
+import { createServer as createViteServer } from "vite"
+import { createServer as createHttpServer } from "node:http"
+import { readFileSync } from "node:fs"
+
+const isProd = process.argv.includes("--prod")
+
+async function startServer() {
+  let vite
+  let template
+
+  if (!isProd) {
+    // 开发模式:启动 Vite dev server
+    vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "custom",
+    })
+  } else {
+    // 生产模式:读取预构建产物
+    template = readFileSync("dist/client/index.html", "utf-8")
+  }
+
+  const server = createHttpServer(async (req, res) => {
+    const url = req.url ?? "/"
+
+    // 开发模式:让 Vite 处理静态资源
+    if (!isProd && vite) {
+      // 检查是否是 Vite 的请求(/@vite/ 开头等)
+      await new Promise((resolve) => {
+        vite.middlewares(req, res, resolve)
+      })
+      if (res.writableEnded) return
+    }
+
+    try {
+      let html: string
+      let appHtml: string
+      let data: unknown
+
+      if (!isProd && vite) {
+        // 开发模式:用 ssrLoadModule 执行服务端入口
+        const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+        ;({ html: appHtml, data } = await render(url))
+
+        const rawTemplate = readFileSync("index.html", "utf-8")
+        html = await vite.transformIndexHtml(url, rawTemplate)
+      } else {
+        // 生产模式:直接 require 预构建产物
+        const { render } = await import("./dist/server/entry-server.js")
+        ;({ html: appHtml, data } = await render(url))
+        html = template!
+      }
+
+      // 注入渲染结果
+      html = html
+        .replace("<!--ssr-outlet-->", appHtml)
+        .replace("<!--ssr-data-->", JSON.stringify(data))
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8")
+      res.end(html)
+    } catch (e) {
+      if (vite) vite.ssrFixStacktrace(e)
+      console.error(e)
+      res.statusCode = 500
+      res.end(String(e))
+    }
+  })
+
+  const port = 3000
+  server.listen(port, () => {
+    console.log(`SSR server: http://localhost:${port}`)
+    if (!isProd) console.log("  开发模式:HMR 已启用")
+  })
+}
+
+startServer()
+```
+
+## 运行项目
+
+```bash
+cd examples/ssr-with-env-api
+pnpm install
+
+# 开发模式(支持 HMR)
+pnpm dev
+
+# 生产模式
+pnpm build   # 构建 client + server
+node server.js --prod
+```
+
+访问 `http://localhost:3000`,查看页面源码应看到完整 HTML(不是空 div),说明 SSR 正常工作。
+
+## 自测题
+
+1. 如何在页面源码里验证 SSR 正常工作(而不是纯 client 渲染)?
+2. 为什么 `entry-server.tsx` 要返回 `data`,并且要注入 `window.__SSR_DATA__`?
+3. 开发模式和生产模式的主要区别是什么?为什么生产模式不用 `ssrLoadModule`?
+4. 如果 `renderToString` 结果和 `hydrateRoot` 接收的 React 树不匹配,会发生什么?
+
+```ts filename="练习"
+// 扩展这个 SSR 实现:
+// 1. 添加基于文件路径的路由(/)→ Home、/about → About 页面)
+// 2. 每个页面有独立的 server-side data fetching
+// 3. 页面 title 在 SSR 时正确设置
+
+// 提示:
+// - vite.transformIndexHtml 的第二个参数可以传入处理后的 HTML
+// - 可以用 useEffect(client) 和初始数据(server)两阶段处理 title
+```

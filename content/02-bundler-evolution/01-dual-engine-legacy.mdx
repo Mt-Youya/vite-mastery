@@ -1,0 +1,144 @@
+---
+title: 双引擎遗产:esbuild + Rollup 的历史选择
+description: Vite 为什么当初选择 esbuild 做 dev、Rollup 做 build?这个"好设计"带来了哪些结构性问题?理解历史才能理解 Rolldown 的必然性。
+order: 1
+part: 02-bundler-evolution
+chapter: "2.1"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 最初为什么选择 esbuild + Rollup 双引擎设计 - 双引擎带来了哪些结构性矛盾(dev/build 行为不一致) -
+  这些矛盾如何推动 Rolldown 的诞生 - Vite 8 如何从根本上解决这些问题
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 Vite 基本用法(Part 0) - 知道什么是 bundler(Webpack / Rollup / esbuild 任意一个)
+</Callout>
+
+<Callout type="tip">
+  本章的 `<V7Note>` 与其他章节含义**相反**:这里的 `<V7Note>` 展示的是 Vite 7 的"正常工作方式"——因为本章本身就是在讲 Vite 7 的设计决策与遗留问题。折叠块里是历史,正文是 Vite 8 带来的变化。
+</Callout>
+
+## 2019 年:esbuild 横空出世
+
+Vite 诞生于 2020 年,彼时 JS 工具链的性能瓶颈是公开的秘密:
+
+- Webpack 5 冷启动动辄十几秒
+- Babel 的序列化 / 反序列化开销巨大
+- HMR 在大项目里慢到毫无体验
+
+就在这时,esbuild 发布了。esbuild 用 Go 重写了 JS 的 transform 和 bundle 流程,在某些场景下比 Webpack 快 **10~100 倍**([esbuild 官方 benchmark](https://esbuild.github.io/))。
+
+Vite 的作者 Evan You 看到了机会:**如果 dev 阶段不 bundle,只做 transform,esbuild 的速度完全够用**。于是 Vite 的核心设计诞生了:
+
+- **Dev 阶段**:esbuild 负责单文件 transform(TypeScript / JSX 编译),浏览器原生 ESM 负责模块加载
+- **Build 阶段**:Rollup 负责完整的 bundling、tree-shaking、代码分割
+
+<V7Note title="Vite 7:双引擎架构是什么样的">
+  在 Vite 7 中,dev server 启动后:
+
+1. **esbuild 预构建依赖**:`pnpm dev` 时 Vite 把 `node_modules` 里的 CommonJS 包用 esbuild 转换为 ESM,缓存在 `.vite/deps/`
+2. **esbuild transform 源码**:浏览器每请求一个 `.tsx` 文件,Vite 用 esbuild 把它 transform 成浏览器可执行的 JS,再返回
+3. **Rollup 构建产物**:`pnpm build` 时切换到 Rollup,进行完整的静态分析打包
+
+这两个阶段用的是**完全不同的代码路径**,由两个独立的 npm 包驱动。
+
+</V7Note>
+
+## 双引擎的结构性矛盾
+
+双引擎设计在 Vite 2 时是正确的工程决策——当时别无选择。但随着项目规模增大和插件生态成熟,它的结构性矛盾逐渐暴露。
+
+### 矛盾 1:插件只能在 build 阶段运行
+
+Rollup 的完整插件系统(tree-shaking、`generateBundle`、代码分割)只在 build 阶段可用。一个需要访问 Rollup bundle 信息的插件,在 dev 下根本无法工作:
+
+```ts
+// 这个插件在 dev 下是废的
+// 因为 dev 走 esbuild transform,不走 Rollup 的 generateBundle
+function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    generateBundle(_, bundle) {
+      // dev 阶段永远不会执行这里
+      analyzeBundle(bundle)
+    },
+  }
+}
+```
+
+### 矛盾 2:dev 和 build 的 resolve 行为不一致
+
+esbuild 的 resolve 逻辑与 Rollup 的 `resolveId` hook 不完全等价。某些情况下,在 dev 下能 import 成功的路径,在 build 下却 resolve 失败——或者反过来。
+
+这类 bug 难以复现,因为你必须同时有 dev 和 build 两个环境才能观察到差异。
+
+### 矛盾 3:transform pipeline 两套 API
+
+esbuild 的 transform 是直接调用 Go native 函数,没有插件 API。Rollup 的 transform 走 `transform(code, id)` hook 链。
+
+插件作者如果想在 dev 阶段也有效,必须同时适配两种机制——esbuild 的 `onTransform` API 和 Rollup 的 `transform` hook——或者干脆只支持 build。
+
+### 矛盾 4:Source Map 的接力问题
+
+dev 阶段的 source map 由 esbuild 生成。build 阶段的 source map 由 Rollup 生成。两者的格式和精度不完全一样,导致同一段代码在 dev DevTools 和 build 产物的 source map 里定位可能不一致。
+
+## 为什么当时没有更好的选择
+
+既然双引擎有这么多问题,为什么不用一个引擎统一两个阶段?
+
+答案是 **2020 年时没有这样的工具**:
+
+- esbuild 性能极好,但**不支持完整的 Rollup 插件 API**,也没有成熟的 code splitting
+- Rollup 功能完整,但**纯 JavaScript 实现太慢**,无法满足 dev 按需 transform 的性能要求
+- Webpack 同时支持 dev 和 build,但**太重、配置复杂**,与 Vite 的设计理念冲突
+
+Vite 的双引擎是当时约束条件下的最优解。**这不是设计缺陷,而是历史局限性。**
+
+## Vite 8 的根本解法
+
+2024 年,Rolldown 项目成熟。Rolldown 用 Rust 实现,性能接近 esbuild,同时提供**完整的 Rollup 插件 API 兼容层**。
+
+Vite 8 的核心变化:**用 Rolldown 替换 esbuild + Rollup 的双引擎**:
+
+<BundlerCompare />
+
+这意味着:
+
+- Dev 阶段:Rolldown 负责 transform(性能与 esbuild 相当)
+- Build 阶段:Rolldown 负责完整 bundle(与 Rollup 插件 API 兼容)
+- 两个阶段**共用同一套 transform pipeline**,dev/build 行为一致性从根本上得到保证
+
+> **参考资料**:Vite 团队关于 Rolldown 整合的官方说明见 [Vite 官方博客](https://vitejs.dev/blog/)。本节的技术细节均基于 Vite 8.1.x 发布时的公开文档。
+
+## 自测题
+
+1. Vite 最初为什么不直接用 Rollup 做 dev 阶段的 transform?
+2. 双引擎架构下,一个 Rollup 插件里的 `generateBundle` hook 在 dev 阶段会被调用吗?为什么?
+3. "dev/build 行为不一致"具体体现在哪几个层面?各举一个例子。
+4. Rolldown 与 esbuild 的核心区别是什么?Rolldown 解决了 esbuild 的哪个致命缺陷?
+
+```ts filename="练习"
+// 下面这个插件在 Vite 7(双引擎)环境下有什么问题?
+// 在 Vite 8(Rolldown 统一)下这个问题还存在吗?
+function analysisPlugin(): Plugin {
+  return {
+    name: "vite-plugin-analysis",
+    generateBundle(_, bundle) {
+      const sizes = Object.entries(bundle).map(([name, chunk]) => ({
+        name,
+        size: chunk.type === "chunk" ? chunk.code.length : 0,
+      }))
+      console.table(sizes)
+    },
+  }
+}
+
+// 问题:如果在 vite.config.ts 里配置这个插件,pnpm dev 时会有什么行为?
+// 回答并解释原因:
+```

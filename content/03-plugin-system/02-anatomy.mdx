@@ -1,0 +1,230 @@
+---
+title: 插件解剖:一个插件对象里有什么
+description: 从 TypeScript 类型出发,把 Vite 插件的每个字段都翻清楚:name / enforce / apply / hooks——写第一个插件之前必须理解这些。
+order: 2
+part: 03-plugin-system
+chapter: "3.2"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 插件对象的完整结构(TypeScript 类型) - `name` / `enforce` / `apply` 三个控制字段的含义 - Hook 的两大分类:构建
+  hook 与 Vite 专有 hook - Hook 函数的三种调用约定:parallel / sequential / first
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读完「Vite 插件 vs Rollup 插件」(3.1 节) - 了解 TypeScript 接口基础语法
+</Callout>
+
+## 插件就是一个普通对象
+
+Vite 插件的本质是**一个函数,返回一个普通 JavaScript 对象**:
+
+```ts filename="my-plugin.ts"
+import type { Plugin } from "vite"
+
+function myPlugin(): Plugin {
+  return {
+    name: "vite-plugin-my", // 必填
+    enforce: "pre", // 可选:执行顺序
+    apply: "build", // 可选:仅在 build 阶段运行
+
+    // 以下是 hook 函数
+    buildStart() {
+      console.log("构建开始了!")
+    },
+
+    transform(code, id) {
+      if (!id.endsWith(".ts")) return null
+      return code.replace("__VERSION__", "8.1.0")
+    },
+  }
+}
+```
+
+为什么是函数返回对象而不是直接导出对象?**为了接收配置参数**:
+
+```ts filename="my-plugin.ts"
+interface MyPluginOptions {
+  version: string
+  verbose?: boolean
+}
+
+function myPlugin(options: MyPluginOptions): Plugin {
+  const { version, verbose = false } = options
+  return {
+    name: "vite-plugin-my",
+    transform(code, id) {
+      if (verbose) console.log("processing", id)
+      return code.replace("__VERSION__", version)
+    },
+  }
+}
+```
+
+## `name` — 插件名称
+
+`name` 是唯一的必填字段。约定格式:`vite-plugin-xxx`(Vite 专属)或 `rollup-plugin-xxx`(Rollup 兼容)。
+
+Vite 用 `name` 做错误追踪——当某个 hook 报错,堆栈里会显示是哪个插件的问题。名字不规范会让 debug 变痛苦。
+
+## `enforce` — 执行顺序控制
+
+Vite 插件按三段排列执行:
+
+```text
+enforce: "pre"    →   Vite 内置别名插件    →   用户插件(无 enforce)   →   Vite 内置核心插件   →   enforce: "post"
+```
+
+| 值       | 含义                 | 典型使用场景               |
+| -------- | -------------------- | -------------------------- |
+| `"pre"`  | 在大多数内置插件之前 | 自定义路径解析、源码预处理 |
+| _(不填)_ | 普通顺序             | 大多数插件                 |
+| `"post"` | 在大多数内置插件之后 | 分析产物、注入 polyfill    |
+
+<Callout type="warning">
+  `enforce` 只控制**用户插件**之间的相对顺序,不能让用户插件跑到 Vite
+  所有内置插件之前。`vite:resolve`、`vite:load-fallback` 等核心插件有自己的优先级保证。
+</Callout>
+
+<V7Note title="Vite 7 与 Vite 8 的 enforce 行为一致">`enforce` 字段的语义从 Vite 2 沿用至今,Vite 8 未做修改。</V7Note>
+
+## `apply` — 运行阶段限制
+
+`apply` 控制插件在哪个阶段运行:
+
+```ts
+// 仅 dev server 阶段运行
+apply: "serve"
+
+// 仅 build 阶段运行
+apply: "build"
+
+// 自定义条件(最灵活)
+apply(config, { command }) {
+  // 只在 build 的 production 模式下运行
+  return command === "build" && config.mode === "production"
+}
+```
+
+不填 `apply` 表示 dev 和 build 都运行。
+
+典型场景:图片优化插件通常只在 `build` 时运行(dev 下直接返回原图更快):
+
+```ts filename="image-optimizer.ts"
+import type { Plugin } from "vite"
+
+export function imageOptimizer(): Plugin {
+  return {
+    name: "vite-plugin-image-optimizer",
+    apply: "build", // dev server 完全不执行这个插件
+    async generateBundle(_, bundle) {
+      // 压缩逻辑...
+    },
+  }
+}
+```
+
+## Hook 的两大分类
+
+### 构建 Hook(Rollup 兼容)
+
+这些 hook 来自 Rollup API,Rolldown 向后兼容,可以在独立的 Rollup 项目里复用:
+
+| Hook             | 触发时机               |
+| ---------------- | ---------------------- |
+| `buildStart`     | 构建开始前             |
+| `resolveId`      | 解析每个 `import` 路径 |
+| `load`           | 读取模块内容           |
+| `transform`      | 转换模块源码           |
+| `moduleParsed`   | 模块 AST 解析完毕      |
+| `buildEnd`       | 构建结束               |
+| `renderChunk`    | 每个输出 chunk 渲染时  |
+| `generateBundle` | 所有 chunk 生成后      |
+| `writeBundle`    | chunk 写入磁盘后       |
+| `closeBundle`    | 构建流程完全关闭       |
+
+### Vite 专有 Hook
+
+这些 hook 只在 Vite 环境下有效:
+
+| Hook                     | 触发时机                       |
+| ------------------------ | ------------------------------ |
+| `config`                 | 读取配置前,可修改配置          |
+| `configResolved`         | 配置最终确定后,只读            |
+| `configureServer`        | dev server 创建后,可添加中间件 |
+| `configurePreviewServer` | preview server 创建后          |
+| `transformIndexHtml`     | 处理 index.html                |
+| `handleHotUpdate`        | HMR 热更新触发时               |
+
+点击下面的 HookExplorer 查看各 hook 的完整签名:
+
+<HookExplorer
+  filter={[
+    "config",
+    "configResolved",
+    "configureServer",
+    "buildStart",
+    "resolveId",
+    "load",
+    "transform",
+    "buildEnd",
+    "generateBundle",
+  ]}
+/>
+
+## Hook 的三种调用约定
+
+Vite/Rolldown 对不同 hook 采用不同的并发策略:
+
+### Parallel(并行)
+
+多个插件的同名 hook **同时执行**,不等互相。
+
+适用于:不依赖其他插件输出的操作,如 `buildStart`、`buildEnd`。
+
+```ts
+// 这三个插件的 buildStart 会并发执行
+plugins: [pluginA(), pluginB(), pluginC()]
+```
+
+### Sequential(顺序)
+
+按插件数组顺序**依次执行**,前一个完成才运行下一个。
+
+适用于:有副作用、需要确定执行顺序的 hook,如 `transform`。
+
+### First(竞争)
+
+按顺序执行,**第一个返回非 null 的插件获胜**,后面的插件不再执行。
+
+适用于:`resolveId`、`load`——路径解析一旦命中就不需要继续查找。
+
+```ts
+// pluginA.resolveId 返回了一个 ID
+// → pluginB.resolveId 不会被调用
+plugins: [pluginA(), pluginB()]
+```
+
+## 自测题
+
+1. 为什么 Vite 插件通常是一个**函数**返回对象,而不是直接导出对象?
+2. `enforce: "pre"` 能保证你的插件跑在 `vite:resolve` 之前吗?为什么?
+3. 一个图片压缩插件应该用哪个 `apply` 值?理由是什么?
+4. `resolveId` 使用哪种调用约定?这个设计有什么好处?
+
+```ts filename="练习"
+// 实现一个插件,满足以下需求:
+// 1. 只在 build production 模式运行
+// 2. 在构建开始时打印当前时间
+// 3. 在所有 chunk 生成后,统计并打印总 chunk 数量
+import type { Plugin } from "vite"
+
+export function buildReporter(): Plugin {
+  // TODO
+}
+```

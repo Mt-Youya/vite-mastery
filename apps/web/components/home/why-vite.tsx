@@ -5,11 +5,9 @@
 export function WhyVite() {
   return (
     <section className="border-y border-border bg-bg-subtle/30">
-      <div className="mx-auto grid max-w-(--container-doc) gap-12 px-6 py-20 md:grid-cols-[1fr_2fr] md:gap-16 md:py-28">
+      <div className="mx-auto grid max-w-doc gap-10 px-4 py-14 sm:px-6 sm:py-20 md:grid-cols-[1fr_2fr] md:gap-16 md:py-28">
         <header>
-          <p className="text-xs font-medium tracking-wider text-fg-subtle uppercase">
-            为什么读这本书
-          </p>
+          <p className="text-xs font-medium tracking-wider text-fg-subtle uppercase">为什么读这本书</p>
           <h2 className="mt-3 font-display text-3xl font-semibold tracking-tight text-balance md:text-4xl">
             「会用」和「懂为什么」之间,差着这本书。
           </h2>
@@ -28,7 +26,7 @@ export function WhyVite() {
         </ul>
       </div>
     </section>
-  );
+  )
 }
 
 const QUESTIONS = [
@@ -52,4 +50,4 @@ const QUESTIONS = [
     q: "为什么 build 用 Rollup 而不是 esbuild?",
     a: "双引擎架构 · Part 1",
   },
-] as const;
+] as const

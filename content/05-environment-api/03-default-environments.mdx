@@ -1,0 +1,264 @@
+---
+title: 默认环境:client 与 ssr
+description: Vite 内置的两个默认环境是如何配置的?它们的默认行为有何不同?如何自定义这两个环境的 resolve 规则?
+order: 3
+part: 05-environment-api
+chapter: "5.3"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。本章基于 Vite
+  8.1.x。生产项目使用前请确认对应 Vite 版本的官方文档。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - Vite 内置的 `client` 和 `ssr` 两个默认环境的默认配置 - 两个环境在 resolve 条件上的核心差异 - 如何自定义这两个环境 -
+  什么情况下必须显式配置 `environments` 字段
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「核心概念」(5.2 节) - 了解 package.json 的 `exports` 字段和 `conditions` 概念
+</Callout>
+
+## 两个默认环境
+
+即使你不配置任何 `environments`,Vite 也会内置两个默认环境:
+
+```ts
+// Vite 内部等效配置(简化)
+export default defineConfig({
+  environments: {
+    client: {
+      // 浏览器环境
+      resolve: {
+        conditions: ["browser", "module", "import"],
+      },
+    },
+    ssr: {
+      // Node.js 服务端环境
+      resolve: {
+        conditions: ["node", "module", "import", "require"],
+        noExternal: [], // 默认不 bundle 任何 node_modules
+      },
+    },
+  },
+})
+```
+
+这两个环境覆盖了传统 SSR 应用的需求。如果你的项目是标准的 client + ssr 架构,不需要显式配置 `environments`。
+
+## client 环境
+
+`client` 环境对应浏览器执行上下文。
+
+### Resolve 条件
+
+`client` 环境的 resolve 使用 `browser` condition:
+
+```ts
+// 当 import "some-pkg" 时
+// Vite 会优先读取 package.json 里的:
+// "exports": {
+//   "browser": "./dist/browser.js",  ← 优先
+//   "import": "./dist/index.js",
+//   "require": "./dist/index.cjs"
+// }
+```
+
+这确保了 client bundle 使用的是包的浏览器专属版本(例如不带 Node.js 专有 API 的版本)。
+
+### HMR 支持
+
+`client` 环境内置完整的 HMR 支持:
+
+- 通过 WebSocket 与浏览器建立连接
+- 模块更新时自动通知 `import.meta.hot` 回调
+- 支持 `accept`、`dispose`、`invalidate` 等 HMR API
+
+### 产物目标
+
+在 build 模式下,`client` 环境产生面向浏览器的 JavaScript bundle。
+
+## ssr 环境
+
+`ssr` 环境对应 Node.js 服务端执行上下文。
+
+### Resolve 条件
+
+`ssr` 环境使用 `node` condition:
+
+```ts
+// 当 import "some-pkg" 时
+// Vite SSR 会优先读取:
+// "exports": {
+//   "node": "./dist/node.js",    ← 优先
+//   "import": "./dist/index.js",
+// }
+```
+
+这允许同一个包为浏览器和 Node.js 提供不同的实现(例如 `crypto` 模块在 Node 里有原生实现,在浏览器里需要 polyfill)。
+
+### External 行为
+
+`ssr` 环境默认将所有 `node_modules` 包视为 external——即不打包进 SSR bundle,而是在运行时由 Node.js 直接 `require`:
+
+```ts
+// 想 bundle 某些包进 SSR 产物(例如 ESM-only 的包)
+ssr: {
+  resolve: {
+    noExternal: ["some-esm-only-package"],
+  },
+}
+```
+
+这与 build 模式的 client 环境行为相反:client 会把所有 `import` 都打包进去。
+
+### HMR 支持
+
+`ssr` 环境的 HMR 通过服务端消息机制实现(不是 WebSocket)。当 server 端模块更新时,`ModuleRunner` 的模块缓存会被标记为失效,下次 `runner.import` 会重新加载最新版本。
+
+## client vs ssr 环境对比
+
+<EnvironmentExplorer />
+
+| 维度            | client                     | ssr                  |
+| --------------- | -------------------------- | -------------------- |
+| 执行目标        | 浏览器                     | Node.js              |
+| 主要 condition  | `browser`                  | `node`               |
+| node_modules    | 全部打包                   | 默认 external        |
+| HMR 通道        | WebSocket                  | 服务端消息           |
+| import.meta.env | `VITE_*` + `DEV/PROD/MODE` | 同 client + SSR 专有 |
+| 产物格式        | ESM(浏览器)                | ESM/CJS(Node.js)     |
+
+## 自定义两个默认环境
+
+虽然不需要显式配置 `environments`,但以下情况需要覆盖默认值:
+
+### 场景 1:SSR 需要 bundle 特定包
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  environments: {
+    ssr: {
+      resolve: {
+        // 某些 ESM-only 包在 Node.js 运行时无法被直接 require,需要 bundle
+        noExternal: ["marked", "shiki", "@some/esm-package"],
+      },
+    },
+  },
+})
+```
+
+### 场景 2:client 需要额外的 resolve conditions
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  environments: {
+    client: {
+      resolve: {
+        // 为支持特定的包格式,追加 condition
+        conditions: ["browser", "module", "import", "custom-condition"],
+      },
+    },
+  },
+})
+```
+
+### 场景 3:为 ssr 环境添加专属插件
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  environments: {
+    ssr: {
+      plugins: [
+        // 只在 ssr 环境里运行的插件
+        ssrOnlyPlugin(),
+      ],
+    },
+  },
+})
+```
+
+## 迁移:从旧 SSR API 到 Environment API
+
+如果你有基于 Vite 7 `ssrLoadModule` 实现的 SSR,迁移到 Environment API 的基本思路:
+
+<V7Note title="Vite 7 的 SSR 用法">
+  在 Vite 7 中,SSR 通过 `server.ssrLoadModule()` 实现:
+
+```ts
+// Vite 7
+const vite = await createServer({ server: { middlewareMode: true } })
+const module = await vite.ssrLoadModule("/src/entry-server.tsx")
+```
+
+这个 API 在 Vite 8 里仍然可用(向后兼容),但它内部会映射到 `ssr` Environment。官方推荐在新代码里直接用 Environment API。
+
+</V7Note>
+
+迁移后的写法:
+
+```ts
+// Vite 8 推荐写法(概念示意,以官方文档 API 为准)
+const vite = await createServer({
+  server: { middlewareMode: true },
+})
+
+// 使用 ssr Environment 的 ModuleRunner
+const runner = createModuleRunner(vite.environments.ssr)
+
+app.use("*", async (req, res) => {
+  const { render } = await runner.import("/src/entry-server.tsx")
+  const html = await render(req.url)
+  res.send(html)
+})
+```
+
+<Callout type="warning">
+  `createModuleRunner` 的具体 API 签名在 RC 阶段仍在确认中。请以 Vite 8.1.x
+  官方文档为准。上面的代码仅展示迁移的概念方向。
+</Callout>
+
+## 自测题
+
+1. 为什么 `client` 环境优先使用 `browser` condition 而不是 `node` condition?举一个实际例子说明差异。
+2. `ssr` 环境默认 external 所有 node_modules 的原因是什么?什么情况下应该用 `noExternal` 打破这个默认？
+3. 如果一个包的 `package.json` 里同时有 `browser`、`node`、`import` 三个 exports condition,在 `client` 和 `ssr` 环境里分别会用哪个?
+4. Vite 7 的 `ssrLoadModule` 与 Vite 8 Environment API 的 `ModuleRunner` 在 HMR 行为上有什么区别?
+
+```ts filename="练习"
+// 下面这个包的 package.json 有以下 exports 配置:
+// {
+//   "exports": {
+//     ".": {
+//       "browser": "./dist/browser.esm.js",
+//       "node": "./dist/node.cjs.js",
+//       "import": "./dist/index.esm.js",
+//       "require": "./dist/index.cjs.js"
+//     }
+//   }
+// }
+
+// Q1: 在 client 环境里 import 这个包,Vite 会用哪个文件?
+// Q2: 在 ssr 环境里 import,会用哪个文件?
+// Q3: 如果在 ssr 环境配置了 noExternal: ["this-package"],
+//     那么 ssr bundle 里这个包是 inline 的还是 require 引用的?
+// Q4: 如果你要添加一个 Cloudflare Worker 环境,
+//     应该用哪些 conditions?为什么?
+export default defineConfig({
+  environments: {
+    worker: {
+      resolve: {
+        conditions: [
+          /* TODO */
+        ],
+      },
+    },
+  },
+})
+```

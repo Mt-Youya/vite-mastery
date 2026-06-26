@@ -1,0 +1,123 @@
+/* —— Prose 排版心智色系统 ——
+   规则:品牌琥珀 = Vite 技术/章节锚点;绿 = 稳定/成功;蓝 = 注意/元信息
+   覆盖 @tailwindcss/typography 的默认 .prose 样式。 */
+
+@layer components {
+  /* pre:交给 CodeBlock 组件,typography 不得干预 */
+  .prose :where(pre):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    background-color: transparent;
+    padding: 0;
+    border-radius: 0;
+    color: inherit;
+  }
+
+  /* 行内 code:极淡琥珀底,让代码片段有温度但不抢眼 */
+  .prose code:not(.shiki *) {
+    background-color: var(--color-brand-50) !important;
+    border: 1px solid var(--color-brand-100) !important;
+    border-radius: var(--radius-xs) !important;
+    padding: 0.1em 0.4em !important;
+    font-size: 0.875em !important;
+    font-weight: 500 !important;
+    color: var(--color-fg) !important;
+  }
+  .dark .prose code:not(.shiki *) {
+    background-color: color-mix(in oklch, var(--color-brand-400) 9%, transparent) !important;
+    border-color: color-mix(in oklch, var(--color-brand-400) 22%, transparent) !important;
+    color: var(--color-fg) !important;
+  }
+  .prose code:not(.shiki *)::before,
+  .prose code:not(.shiki *)::after {
+    content: none !important;
+  }
+
+  /* 链接:品牌琥珀 + 半透明下划线,hover 收紧 */
+  .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):not(.heading-anchor) {
+    color: var(--color-brand-600) !important;
+    text-decoration: underline !important;
+    text-decoration-color: color-mix(in oklch, var(--color-brand-500) 35%, transparent) !important;
+    text-underline-offset: 3px !important;
+    transition:
+      color var(--duration-fast),
+      text-decoration-color var(--duration-fast) !important;
+  }
+  .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):not(.heading-anchor):hover {
+    color: var(--color-brand-700) !important;
+    text-decoration-color: var(--color-brand-500) !important;
+  }
+  .dark .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):not(.heading-anchor) {
+    color: var(--color-brand-400) !important;
+    text-decoration-color: color-mix(in oklch, var(--color-brand-400) 35%, transparent) !important;
+  }
+  .dark .prose :where(a):not(:where([class~="not-prose"], [class~="not-prose"] *)):not(.heading-anchor):hover {
+    color: var(--color-brand-300) !important;
+    text-decoration-color: var(--color-brand-400) !important;
+  }
+
+  /* Bold/Strong:提升到 fg,强调内容更刺眼 */
+  .prose :where(strong):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    color: var(--color-fg) !important;
+    font-weight: 700 !important;
+  }
+
+  /* Blockquote:品牌色左边框 + 极淡暖底 */
+  .prose :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    border-left-color: var(--color-brand-400) !important;
+    background-color: var(--color-brand-50) !important;
+    padding: 0.75rem 1rem !important;
+    border-radius: var(--radius-md) !important;
+    color: var(--color-fg-muted) !important;
+    font-style: normal !important;
+  }
+  .dark .prose :where(blockquote):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    background-color: color-mix(in oklch, var(--color-brand-400) 6%, transparent) !important;
+    border-left-color: var(--color-brand-500) !important;
+  }
+
+  /* 标题心智色:h2 品牌主色 / h3 次级 */
+  .prose {
+    --tw-prose-headings: var(--color-brand-700);
+    --tw-prose-invert-headings: var(--color-brand-300);
+  }
+  .prose h2 > a {
+    color: var(--color-brand-700) !important;
+    text-decoration: none !important;
+  }
+  .prose h3 > a {
+    color: var(--color-brand-600) !important;
+    text-decoration: none !important;
+  }
+  .dark .prose h2 > a,
+  .dark .prose h3 > a {
+    color: var(--color-brand-300) !important;
+    text-decoration: none !important;
+  }
+
+  /* 标题锚点 hover */
+  .prose :is(h2, h3) > a.heading-anchor::after {
+    content: " #";
+    font-weight: 400;
+    color: transparent;
+    transition: color var(--duration-fast);
+    user-select: none;
+  }
+  .prose :is(h2, h3):hover > a.heading-anchor::after {
+    color: var(--color-brand-500);
+  }
+  .dark .prose :is(h2, h3):hover > a.heading-anchor::after {
+    color: var(--color-brand-400);
+  }
+
+  /* HR:极淡品牌渐变,比纯灰更有温度 */
+  .prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    border-color: var(--color-brand-100) !important;
+  }
+  .dark .prose :where(hr):not(:where([class~="not-prose"], [class~="not-prose"] *)) {
+    border-color: color-mix(in oklch, var(--color-brand-400) 15%, transparent) !important;
+  }
+}
+
+/* 标题锚点定位:给 sticky header 留出固定缓冲。在 @layer 外确保优先级。 */
+.prose :is(h2, h3)[id] {
+  scroll-margin-top: calc(5rem + env(safe-area-inset-top));
+}

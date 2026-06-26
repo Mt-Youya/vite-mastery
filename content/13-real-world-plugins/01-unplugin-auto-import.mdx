@@ -1,0 +1,199 @@
+---
+title: "`unplugin-auto-import` 源码导读"
+description: 每个 Vue 项目都在用的 auto-import 插件——它是怎么实现的?resolveId 如何拦截,transform 如何注入 import,为什么它用 unplugin 而不是 vite-plugin?
+order: 1
+part: 13-real-world-plugins
+chapter: "13.1"
+difficulty: 4
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `unplugin-auto-import` 的核心实现思路 - unplugin 框架:一次实现,多 bundler 使用 - 自动 import 的 transform 逻辑 -
+  `.d.ts` 类型声明的自动生成
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 完成前三节插件系统的学习(3.1~3.4) - 理解 transform hook 和 resolveId hook
+</Callout>
+
+## 功能回顾
+
+`unplugin-auto-import` 让你可以这样写代码:
+
+```ts
+// 不需要 import!
+const count = ref(0)
+const doubled = computed(() => count.value * 2)
+```
+
+插件自动在文件顶部注入:
+
+```ts
+import { ref, computed } from "vue"
+```
+
+## unplugin:跨 bundler 插件框架
+
+`auto-import` 使用 `unplugin` 框架,让一套代码能在 Vite / Webpack / Rollup / esbuild 上运行:
+
+```ts
+// 源码结构(简化)
+import { createUnplugin } from "unplugin"
+
+const AutoImport = createUnplugin((options) => {
+  return {
+    name: "unplugin-auto-import",
+    transform(code, id) {
+      /* ... */
+    },
+    // ...
+  }
+})
+
+// 导出各 bundler 的版本
+export const vitePlugin = AutoImport.vite
+export const webpackPlugin = AutoImport.webpack
+export const rollupPlugin = AutoImport.rollup
+```
+
+`unplugin` 在内部把这个统一的 hook 格式适配到各 bundler 的 API。
+
+## 核心逻辑:静态 import 检测
+
+```ts
+// 简化的核心 transform 实现
+function transform(code: string, id: string): string | null {
+  // 1. 跳过不需要处理的文件
+  if (!filterFile(id)) return null
+
+  // 2. 解析代码,找出哪些标识符没有 import
+  const usedIdentifiers = scanUsedIdentifiers(code)
+  const existingImports = parseExistingImports(code)
+
+  // 3. 找出需要自动注入的 import
+  const toInject: Record<string, string[]> = {}
+  for (const identifier of usedIdentifiers) {
+    if (existingImports.has(identifier)) continue // 已经 import 了
+    const source = lookupSource(identifier, options.imports)
+    if (!source) continue // 不在配置的 preset 里
+
+    toInject[source] ??= []
+    toInject[source].push(identifier)
+  }
+
+  if (Object.keys(toInject).length === 0) return null
+
+  // 4. 生成 import 语句
+  const importStatements = Object.entries(toInject)
+    .map(([source, names]) => `import { ${names.join(", ")} } from "${source}"`)
+    .join("\n")
+
+  return `${importStatements}\n${code}`
+}
+```
+
+## 标识符扫描的实现
+
+标识符扫描是关键挑战:如何知道 `ref` 是用到了,还是只是一个变量名?
+
+简单实现(正则):
+
+```ts
+function scanUsedIdentifiers(code: string): Set<string> {
+  const identifiers = new Set<string>()
+  const IDENTIFIER_RE = /\b([a-zA-Z_$][a-zA-Z0-9_$]*)\b/g
+
+  let match: RegExpExecArray | null
+  while ((match = IDENTIFIER_RE.exec(code)) !== null) {
+    identifiers.add(match[1])
+  }
+
+  return identifiers
+}
+```
+
+更准确的实现(AST):unplugin-auto-import 实际使用 AST 来精确检测标识符使用,而不是简单的正则。
+
+## .d.ts 自动生成
+
+插件在 `buildEnd` 里生成全局类型声明:
+
+```ts
+buildEnd() {
+  if (!options.dts) return
+
+  const declarations = generateDtsContent(resolvedImports)
+  writeFileSync(resolve(options.dts), declarations)
+},
+
+function generateDtsContent(imports: ImportMap): string {
+  const lines = ["// 自动生成,勿手动修改"]
+  lines.push("export {}")
+  lines.push("declare global {")
+
+  for (const [identifier, source] of imports) {
+    lines.push(
+      `  const ${identifier}: typeof import("${source}")["${identifier}"]`
+    )
+  }
+
+  lines.push("}")
+  return lines.join("\n")
+}
+```
+
+## ESLint 集成
+
+为了让 ESLint 不报 "no-undef" 错误,插件可以生成 ESLint 配置:
+
+```ts
+// auto-import.d.ts 里可以包含 ESLint globals
+```
+
+## 自测题
+
+1. 为什么 `unplugin-auto-import` 选择用 `transform` 而不是 `load` hook 注入 import?
+2. 正则扫描标识符有什么问题?为什么生产环境的插件用 AST?
+3. 如果项目里手动 import 了 `ref`,插件会重复注入吗?如何避免?
+4. `.d.ts` 声明文件生成在 `buildEnd` 而不是 `generateBundle`,为什么?
+
+```ts filename="练习"
+// 实现一个简化的 auto-import 插件:
+// 支持 { "vue": ["ref", "computed", "watch"] } 格式的配置
+// 不需要 AST,用正则即可
+
+import type { Plugin } from "vite"
+
+interface AutoImportConfig {
+  imports: Record<string, string[]>
+}
+
+export function simpleAutoImport(config: AutoImportConfig): Plugin {
+  // 构建反向查找表: identifier → source
+  const lookup = new Map<string, string>()
+  for (const [source, identifiers] of Object.entries(config.imports)) {
+    for (const id of identifiers) {
+      lookup.set(id, source)
+    }
+  }
+
+  return {
+    name: "simple-auto-import",
+    transform(code, id) {
+      if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return null
+
+      // TODO:
+      // 1. 检查已有的 import(避免重复)
+      // 2. 扫描代码里出现的标识符
+      // 3. 找出需要注入的 import
+      // 4. 在代码顶部注入 import 语句
+
+      return null
+    },
+  }
+}
+```

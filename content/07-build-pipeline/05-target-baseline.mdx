@@ -1,0 +1,130 @@
+---
+title: 默认 target:baseline-widely-available
+description: Vite 7+ 引入的 baseline-widely-available 目标——什么是 Baseline?它如何决定编译输出?为什么它比手写 browserlist 更好?
+order: 5
+part: 07-build-pipeline
+chapter: "7.5"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `baseline-widely-available` 是什么意思 - Baseline 项目与 W3C / MDN 的关系 - 如何根据项目需要调整 target - 与
+  browserslist 的对比
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解浏览器兼容性的基本概念
+</Callout>
+
+## 什么是 Baseline
+
+**Baseline**(基准线)是由 Google、Mozilla、Apple、Microsoft 联合建立的 Web 平台兼容性标准。
+
+一个 Web API 或 CSS 特性被标记为 `Baseline Widely Available`,意味着:
+
+- 它已经在 Chrome、Firefox、Safari、Edge 里**稳定支持超过 2.5 年**
+- 可以放心在生产环境使用,无需 polyfill 或降级
+
+Vite 7 开始把 `baseline-widely-available` 作为默认构建目标:
+
+```ts filename="vite.config.ts"
+// 这是 Vite 7+ 的默认值,不用显式写
+export default defineConfig({
+  build: {
+    target: "baseline-widely-available",
+  },
+})
+```
+
+## 它具体代表哪些浏览器
+
+"Widely Available"(广泛可用)意味着主流浏览器的**稳定版和前两个版本**都支持。2026 年时大致等效于:
+
+- Chrome 95+
+- Firefox 95+
+- Safari 15+
+- Edge 95+
+
+这覆盖了全球约 95%+ 的浏览器用户。
+
+## 与手动 target 的对比
+
+```ts filename="vite.config.ts"
+// 方式一:Baseline(推荐,自动跟上时间)
+export default defineConfig({
+  build: {
+    target: "baseline-widely-available",
+  },
+})
+
+// 方式二:具体浏览器版本(需要手动维护)
+export default defineConfig({
+  build: {
+    target: ["chrome95", "firefox95", "safari15", "edge95"],
+  },
+})
+
+// 方式三:ECMAScript 版本
+export default defineConfig({
+  build: {
+    target: "es2022", // 构建产物使用 ES2022 语法特性
+  },
+})
+```
+
+Baseline 的优势:随着时间推移,它自动代表"当前主流浏览器支持的特性",不需要手动更新。
+
+## 如何支持更老的浏览器
+
+如果你的用户群需要支持 IE11 或老版本 Safari:
+
+```bash
+pnpm add -D @vitejs/plugin-legacy
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import legacy from "@vitejs/plugin-legacy"
+
+export default defineConfig({
+  plugins: [
+    legacy({
+      targets: ["defaults", "not IE 11"], // browserslist 格式
+    }),
+  ],
+})
+```
+
+`@vitejs/plugin-legacy` 会:
+
+1. 构建现代 ES Module 版本(给新浏览器)
+2. 同时构建传统 SystemJS 格式(给旧浏览器)
+3. 在 HTML 里用 `<script type="module">` 和 `<script nomodule>` 区分
+
+## 自测题
+
+1. `baseline-widely-available` 与 `es2022` 作为 target 有什么区别?
+2. 为什么 Baseline 比手动维护 browserslist 更方便?
+3. 如果项目需要支持 iOS 13 的 Safari,应该怎么配置?
+4. `@vitejs/plugin-legacy` 的作用是什么?它输出几套产物?
+
+```ts filename="练习"
+// 以下场景应该用什么 build.target?给出配置和理由:
+
+// 场景 A:一个 ToC 工具应用,目标用户是 Chrome 最新版的开发者
+// 场景 B:一个政府信息门户,需要支持 IE 11
+// 场景 C:一个企业内网应用,用户全部使用公司发放的 Chrome 100
+// 场景 D:一个公开的营销落地页,需要覆盖尽可能多的用户
+
+// 对每个场景,写出推荐的配置:
+import { defineConfig } from "vite"
+
+// 场景 A:
+const configA = defineConfig({
+  build: { target: /* TODO */ }
+})
+```

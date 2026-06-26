@@ -80,26 +80,24 @@
 
   /* —— 字体栈 —— */
   --font-sans:
-    "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system,
-    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", sans-serif;
   --font-display: var(--font-sans);
-  --font-mono:
-    "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular,
-    "Menlo", "Consolas", monospace;
+  --font-mono: "Geist Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, "Menlo", "Consolas", monospace;
   --font-zh-quote: "Source Han Serif SC", "Songti SC", serif;
 
   /* —— 字号节奏(modular scale ≈ 1.125 minor third) —— */
   --text-2xs: 0.6875rem; /* 11 */
-  --text-xs: 0.75rem;    /* 12 */
-  --text-sm: 0.875rem;   /* 14 */
-  --text-base: 1rem;     /* 16 */
-  --text-lg: 1.125rem;   /* 18 */
-  --text-xl: 1.25rem;    /* 20 */
-  --text-2xl: 1.5rem;    /* 24 */
-  --text-3xl: 1.875rem;  /* 30 */
-  --text-4xl: 2.25rem;   /* 36 */
-  --text-5xl: 3rem;      /* 48 */
-  --text-6xl: 3.75rem;   /* 60 */
+  --text-xs: 0.75rem; /* 12 */
+  --text-sm: 0.875rem; /* 14 */
+  --text-base: 1rem; /* 16 */
+  --text-lg: 1.125rem; /* 18 */
+  --text-xl: 1.25rem; /* 20 */
+  --text-2xl: 1.5rem; /* 24 */
+  --text-3xl: 1.875rem; /* 30 */
+  --text-4xl: 2.25rem; /* 36 */
+  --text-5xl: 3rem; /* 48 */
+  --text-6xl: 3.75rem; /* 60 */
 
   /* —— 圆角 —— */
   --radius-xs: 0.25rem;

@@ -1,0 +1,252 @@
+---
+title: Vue + Vite 8
+description: Vue 3 单文件组件(SFC)在 Vite 8 里的编译流程——@vitejs/plugin-vue、Vue Macros、CSS v-bind、`<script setup>` 的底层原理。
+order: 2
+part: 09-framework-integration
+chapter: "9.2"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `@vitejs/plugin-vue` 的工作原理
+  - Vue SFC 的编译流程(template / script / style 三分离)
+  - `<script setup>` 的底层编译产物
+  - CSS v-bind 实现原理
+  - Vue 3 + TypeScript 的推荐配置
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 Vue 3 的基本用法 - 理解 Vue SFC(单文件组件)的结构
+</Callout>
+
+## @vitejs/plugin-vue 的角色
+
+Vue SFC(`.vue` 文件)不是标准 JavaScript,浏览器无法直接执行。`@vitejs/plugin-vue` 在 `transform` hook 里把 `.vue` 文件编译成 JavaScript:
+
+```vue
+<!-- Button.vue -->
+<template>
+  <button :class="classes" :style="{ color }">{{ label }}</button>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue"
+const props = defineProps<{ label: string; variant?: "primary" | "secondary" }>()
+const classes = computed(() => `btn btn-${props.variant ?? "primary"}`)
+const color = ref("blue")
+</script>
+
+<style scoped>
+.btn {
+  padding: 8px 16px;
+}
+</style>
+```
+
+编译后(简化):
+
+```ts
+// Button.vue 的编译产物
+import { computed, ref } from "vue"
+
+// script setup 的内容被提取为 setup() 函数
+const __sfc__ = {
+  __name: "Button",
+  props: { label: String, variant: String },
+  setup(props) {
+    const classes = computed(() => `btn btn-${props.variant ?? "primary"}`)
+    const color = ref("blue")
+    return { classes, color }
+  },
+  render: /* template 编译后的 render 函数 */
+}
+
+// scoped styles 注入(hash ID 防冲突)
+__sfc__.__scopeId = "data-v-HASH"
+
+export default __sfc__
+```
+
+## SFC 的三块分别如何处理
+
+### `<template>` — 编译为 render 函数
+
+```vue
+<template>
+  <div v-if="show">{{ message }}</div>
+</template>
+```
+
+编译后:
+
+```ts
+import {
+  createElementVNode as _createElementVNode,
+  openBlock as _openBlock,
+  createElementBlock as _createElementBlock,
+  createCommentVNode as _createCommentVNode,
+} from "vue"
+
+function render({ show, message }) {
+  return show ? (_openBlock(), _createElementBlock("div", null, message)) : _createCommentVNode("v-if", true)
+}
+```
+
+### `<script setup>` — 编译为 setup() 函数
+
+`<script setup>` 是 Vue 3.2+ 的语法糖,编译后:
+
+```vue
+<script setup>
+import { ref } from "vue"
+const count = ref(0)
+defineProps<{ title: string }>()
+</script>
+```
+
+等价于:
+
+```ts
+import { ref } from "vue"
+
+export default {
+  props: { title: String },
+  setup(props) {
+    const count = ref(0)
+    return { count }
+  },
+}
+```
+
+### `<style scoped>` — Hash + 属性选择器
+
+```vue
+<style scoped>
+.button {
+  color: red;
+}
+</style>
+```
+
+编译后:
+
+```css
+/* 每个 SFC 有唯一 hash */
+.button[data-v-1a2b3c4d] {
+  color: red;
+}
+```
+
+同时给组件的根元素注入 `data-v-1a2b3c4d` 属性。
+
+## CSS `v-bind` 原理
+
+```vue
+<script setup>
+const color = ref("blue")
+</script>
+
+<style scoped>
+.button {
+  color: v-bind(color);  /* 动态绑定 color 变量 */
+}
+```
+
+编译后:
+
+```ts
+// 把 v-bind 的 CSS 变量注入到组件根元素
+import { useCssVars } from "vue"
+
+useCssVars((ctx) => ({
+  "1a2b3c4d-color": ctx.color,
+}))
+```
+
+```css
+.button[data-v-1a2b3c4d] {
+  color: var(--1a2b3c4d-color); /* 引用 CSS 变量 */
+}
+```
+
+## 推荐配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import vue from "@vitejs/plugin-vue"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [
+    vue({
+      // 自定义块处理(如 <i18n> 块)
+      customElement: false, // 不把 SFC 编译为 Custom Element
+    }),
+  ],
+  resolve: {
+    alias: {
+      "@": resolve("src"),
+    },
+  },
+})
+```
+
+## TypeScript 推荐配置
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
+}
+```
+
+## 自测题
+
+1. Vue SFC 里的 `<template>` 是如何被 Vite 处理的?最终变成什么?
+2. `<style scoped>` 如何实现样式隔离?它有什么局限?
+3. CSS `v-bind(color)` 在 DOM 里是怎么工作的?改变 `color` 的值时,CSS 是如何响应的?
+4. `<script setup>` 相比 Options API 的 `setup()` 函数有什么优势?
+
+```vue filename="练习">
+<!-- 手写以下 SFC 的"编译产物"(JavaScript 版本): -->
+
+<template>
+  <div class="card" :class="{ 'card--dark': dark }">
+    <h2 v-if="title">{{ title }}</h2>
+    <slot />
+  </div>
+</template>
+
+<script setup lang="ts">
+withDefaults(
+  defineProps<{
+    title?: string
+    dark?: boolean
+  }>(),
+  { dark: false }
+)
+</script>
+
+<style scoped>
+.card {
+  padding: 16px;
+}
+.card--dark {
+  background: #1a1a1a;
+  color: white;
+}
+</style>
+
+<!-- 写出对应的 Options API 版本,然后写出编译产物的大致结构 -->
+```

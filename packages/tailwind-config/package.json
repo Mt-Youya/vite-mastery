@@ -1,7 +1,7 @@
 {
   "name": "@vite-mastery/tailwind-config",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "description": "Tailwind v4 CSS-first 共享主题(@theme tokens + base reset)",
   "files": [
     "theme.css",

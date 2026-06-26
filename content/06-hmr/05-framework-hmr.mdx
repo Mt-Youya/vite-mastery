@@ -1,0 +1,229 @@
+---
+title: 框架的 HMR 怎么做
+description: React Fast Refresh(OXC 实现)和 Vue HMR 的源码级别原理——框架如何利用 Vite 的 HMR API 实现组件级热更新且不丢失状态。
+order: 5
+part: 06-hmr
+chapter: "6.5"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - React Fast Refresh 在 Vite 8 中的实现(OXC 版本) - Vue HMR 如何保留组件状态 - 框架 HMR 与 Vite HMR 的职责分工 -
+  为什么有时候 HMR 会导致状态丢失(及如何避免)
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「import.meta.hot API」(6.2 节) - 了解 React 或 Vue 的组件基础
+</Callout>
+
+## 职责分工
+
+Vite 的 HMR 只负责**传输**:检测文件改变、确定受影响的模块、通知浏览器重新加载。
+
+**框架的 HMR** 负责**应用**:拿到新的组件代码后,如何在不卸载整个组件树的情况下,把新代码应用到运行中的 UI 上。
+
+```text
+文件改变
+    │
+    ▼
+Vite: 确定受影响模块,发送 WebSocket 消息
+    │
+    ▼
+框架的 HMR runtime: 接收消息,执行组件热替换
+    │
+    ├── React: Fast Refresh → 更新组件函数,保留 state
+    └── Vue: HMR API → 重新渲染 SFC,保留 data/setup state
+```
+
+## React Fast Refresh:OXC 实现
+
+Vite 8 的 `@vitejs/plugin-react` v6 用 OXC 实现了 React Fast Refresh(告别了 Babel):
+
+### 插件做了什么
+
+```ts
+// @vitejs/plugin-react v6 对 Button.tsx 的处理(简化)
+
+// 你写的:
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  return <button onClick={() => setCount(c => c+1)}>{label} {count}</button>
+}
+
+// 插件注入后(简化):
+import RefreshRuntime from "/@react-refresh"
+
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  return <button onClick={() => setCount(c => c+1)}>{label} {count}</button>
+}
+
+// 注册这个组件用于 Fast Refresh
+RefreshRuntime.register(Button, "Button")
+
+if (import.meta.hot) {
+  // 模块自接受
+  import.meta.hot.accept(() => {
+    RefreshRuntime.performReactRefresh()
+  })
+}
+```
+
+### Fast Refresh 的规则
+
+Fast Refresh 并非万能。它能保留状态的条件:
+
+```ts
+// ✅ 可以保留 state:只修改了渲染逻辑
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  return <button style={{ color: "red" }}>{label} {count}</button>
+  //            ↑ 修改了颜色,但 state 会保留
+}
+
+// ❌ 会丢失 state:修改了 hooks 的顺序或数量
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  const [extra, setExtra] = useState("")  // ← 新增 hook,state 会重置
+  return <button>{label}</button>
+}
+
+// ❌ 会丢失 state:文件导出了非组件内容
+export const API_URL = "https://..."  // ← 有非组件导出,整个模块会刷新
+export function Button() { /* ... */ }
+```
+
+**实用规则**:React 组件文件里不要混入非组件代码。如果文件既有组件又有常量,抽离到不同文件。
+
+### v6 和 v5 的区别
+
+```text
+v5(@vitejs/plugin-react):
+  - 用 Babel 做 transform
+  - babel-plugin-react-refresh 注入 HMR 代码
+  - 需要安装 Babel 相关包
+
+v6(@vitejs/plugin-react):
+  - 用 OXC(Rust)做 transform
+  - OXC 内置 React refresh transform
+  - 不需要 Babel,启动更快
+  - API 与 v5 完全相同(vite.config.ts 写法不变)
+```
+
+<V7Note title="Vite 7:使用 @vitejs/plugin-react v5">
+  Vite 7 生态中,`@vitejs/plugin-react` v5 仍然是主流。v5 使用 Babel 实现 Fast Refresh。
+
+迁移到 v6(配合 Vite 8):直接升级包版本即可,无需修改配置:
+
+```bash
+pnpm update @vitejs/plugin-react
+```
+
+如果你的项目有自定义 Babel 配置(用来支持一些特殊语法),v6 需要单独配置 Rolldown + Babel 集成。
+
+</V7Note>
+
+## Vue HMR:SFC 的热更新
+
+Vue SFC(Single File Component)的 HMR 由 `@vitejs/plugin-vue` 实现:
+
+```vue
+<!-- Button.vue -->
+<template>
+  <button :style="{ color }">{{ count }}</button>
+</template>
+
+<script setup>
+import { ref } from "vue"
+const count = ref(0)
+const color = ref("red")
+</script>
+```
+
+编译后,plugin-vue 注入 HMR 代码:
+
+```ts
+// 编译产物(简化)
+import { defineComponent, ref } from "vue"
+import { createHotContext } from "/@vite/client"
+
+const __hmrId__ = "Button.vue"
+const __hot__ = createHotContext(__hmrId__)
+
+// 组件选项
+const Button = defineComponent({
+  setup() {
+    const count = ref(0)
+    const color = ref("red")
+    return { count, color }
+  },
+  // ...
+})
+
+// Vue HMR API
+if (__hot__) {
+  __hot__.accept((newModule) => {
+    // 热更新:重新注册组件
+    if (newModule) {
+      __hot__.data.Button = newModule.default
+    }
+  })
+}
+```
+
+Vue 的 HMR runtime 能保留 `ref` 和 `reactive` 的值——只要组件结构没有发生破坏性变化。
+
+## 什么情况会导致整页刷新
+
+即使框架实现了 HMR,某些情况下仍然会整页刷新:
+
+| 原因               | 发生条件                                   |
+| ------------------ | ------------------------------------------ |
+| 无 HMR 边界        | 文件一路向上找不到 accept()                |
+| 路由配置改变       | 路由文件修改,不能热更只能刷新              |
+| 修改了 main entry  | `src/main.tsx` 改变                        |
+| 破坏性组件结构变更 | hooks 数量/顺序变化(React)                 |
+| 插件主动触发       | `server.hot.send({ type: "full-reload" })` |
+
+## 自测题
+
+1. React Fast Refresh 如何在不丢失 state 的情况下更新组件代码?
+2. 为什么在 React 组件文件里定义非组件常量会导致 HMR 失效?如何解决?
+3. `@vitejs/plugin-react` v6 和 v5 的核心区别是什么?对开发者有什么影响?
+4. Vue SFC 的 `<style>` 部分改变会触发完整的组件 HMR 还是只更新 CSS?
+
+```ts filename="练习"
+// 下面有一个 React 文件,分析它在以下修改场景下的 HMR 行为:
+
+// src/counter.tsx
+const THRESHOLD = 100  // ← 常量
+export const formatCount = (n: number) => `${n}次`  // ← 工具函数
+
+export function Counter() {
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState("default")  // ← 第二个 state
+
+  return (
+    <div>
+      <p>{formatCount(count)}</p>
+      <button onClick={() => setCount(c => c + 1)}>+1</button>
+    </div>
+  )
+}
+
+// 分析以下修改各自的 HMR 行为:
+// A: 修改 <p> 里的文字格式("次" → "个")
+// B: 删除 `const [name, setName] = useState("default")`
+// C: 修改 THRESHOLD 的值
+// D: 删除 formatCount 函数并把它移到另一个文件
+// E: 给 Counter 添加第三个 useState
+
+// 对于每种情况:
+// 1. HMR 能成功吗?
+// 2. count 的值会被保留吗?
+// 3. 如果不能 HMR,会发生什么?
+```

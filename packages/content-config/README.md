@@ -6,17 +6,17 @@
 
 ```ts
 // apps/web/content-collections.ts
-import { defineContentConfig } from "@vite-mastery/content-config";
+import { defineContentConfig } from "@vite-mastery/content-config"
 
-export default defineContentConfig();
+export default defineContentConfig()
 ```
 
 ## 两个 collection
 
-| 名称 | 来源 | frontmatter | 用途 |
-|---|---|---|---|
-| `docs` | `content/**/*.mdx` | 见 [schemas.ts](src/schemas.ts) | 教程正文 |
-| `examples` | `examples/*/README.mdx` | 同上 | 实战项目卡片 |
+| 名称       | 来源                    | frontmatter                     | 用途         |
+| ---------- | ----------------------- | ------------------------------- | ------------ |
+| `docs`     | `content/**/*.mdx`      | 见 [schemas.ts](src/schemas.ts) | 教程正文     |
+| `examples` | `examples/*/README.mdx` | 同上                            | 实战项目卡片 |
 
 ## 为什么是 content-collections 而不是 Contentlayer
 

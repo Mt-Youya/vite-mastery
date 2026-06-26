@@ -6,11 +6,13 @@
  * 避免和这里的命名空间冲突。
  */
 
-export { Callout, type CalloutType } from "./callout.tsx";
-export { CodeBlock } from "./code-block.tsx";
-export { CodeCopyButton } from "./code-copy-button.tsx";
-export { CodeGroup } from "./code-group.tsx";
-export { Detail } from "./detail.tsx";
-export { Diff } from "./diff.tsx";
-export { Steps } from "./steps.tsx";
-export { Tabs } from "./tabs.tsx";
+export * from "./components/callout"
+export * from "./components/code-block"
+export * from "./components/code-copy-button"
+export * from "./components/code-group"
+export * from "./components/detail"
+export * from "./components/diff"
+export * from "./components/steps"
+export * from "./components/tabs"
+export * from "./components/v7-note"
+export * from "./components/use-mdx-components"

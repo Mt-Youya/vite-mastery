@@ -1,0 +1,14 @@
+/**
+ * @vite-mastery/ui 的样式入口。
+ *
+ * `@import "tailwindcss"` 给 Tailwind 处理器建立上下文,
+ * 让 `@source` 指令能被识别和执行。不带这行 @source 会被忽略。
+ *
+ * 重复 import 问题:`@layer` 同层同特异性规则浏览器自动后者覆盖,
+ * 无视觉错误,仅多约 20 行 base reset,可接受。
+ *
+ * 路径以本文件为基准:`..` = packages/ui/src
+ */
+@import "tailwindcss";
+
+@source "../**/*.{ts,tsx}";

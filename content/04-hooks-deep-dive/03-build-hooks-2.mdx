@@ -1,0 +1,306 @@
+---
+title: 构建期通用 Hooks(下):transform / buildEnd / generateBundle / writeBundle
+description: 插件系统最核心的 transform 管道,以及构建收尾阶段的四个 hook。理解 transform 链如何传递 code,以及如何在产物生成后做最后的处理。
+order: 3
+part: 04-hooks-deep-dive
+chapter: "4.3"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `transform` hook 的 sequential 调用链机制 - Source map 的合并与传递 - `buildEnd` / `generateBundle` / `writeBundle`
+  的区别和用途 - 如何在产物里注入文件或分析 bundle
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「构建期通用 Hooks(上)」(4.2 节) - 了解 source map 的基本概念
+</Callout>
+
+## `transform` hook
+
+**触发时机**:每个模块加载后,在模块图里记录前。
+
+**调用约定**:sequential(顺序——每个插件按顺序处理,前一个的输出是下一个的输入)
+
+**参数**:
+
+```ts
+transform(
+  code: string,       // 模块源代码(上一个插件处理后的结果)
+  id: string,         // 模块路径(resolveId 返回的)
+  options?: {
+    ssr?: boolean     // 是否在 SSR 环境中
+  }
+): TransformResult | null
+```
+
+**返回值**:
+
+```ts
+type TransformResult =
+  | string // 只修改 code,不提供 map
+  | null // 不修改,传给下一个插件
+  | { code: string; map?: SourceMap } // 修改 code 并提供 source map
+```
+
+### 最简单的 transform:字符串替换
+
+```ts
+transform(code, id) {
+  if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return null
+
+  // 替换环境变量占位符
+  const result = code.replace(/__APP_VERSION__/g, JSON.stringify("1.2.3"))
+  return { code: result, map: null }
+},
+```
+
+`map: null` 表示不提供精确的 source map,调试时行号可能有偏差。
+
+### 使用 MagicString 提供精确 source map
+
+对于生产质量的 transform,应该使用 `magic-string` 库来追踪代码修改:
+
+```ts
+import MagicString from "magic-string"
+import type { Plugin } from "vite"
+
+export function replacePlugin(replacements: Record<string, string>): Plugin {
+  return {
+    name: "vite-plugin-replace",
+    transform(code, id) {
+      if (!Object.keys(replacements).some((key) => code.includes(key))) {
+        return null // 快速路径:无需处理
+      }
+
+      const ms = new MagicString(code)
+
+      for (const [from, to] of Object.entries(replacements)) {
+        let index = code.indexOf(from)
+        while (index !== -1) {
+          ms.overwrite(index, index + from.length, to)
+          index = code.indexOf(from, index + 1)
+        }
+      }
+
+      return {
+        code: ms.toString(),
+        // generateMap 生成与原始代码精确对应的 source map
+        map: ms.generateMap({ hires: true }),
+      }
+    },
+  }
+}
+```
+
+### Transform 链的数据流
+
+```text
+原始代码: src/App.tsx
+         │
+         ▼
+[pre] vite-plugin-define.transform  → 替换 import.meta.env.*
+         │ (修改后的 code)
+         ▼
+[normal] @vitejs/plugin-react.transform → JSX → JS
+         │
+         ▼
+[normal] vite:esbuild.transform     → TS 类型擦除
+         │
+         ▼
+[post] 无 post transform
+         │
+         ▼
+最终 JS 代码 + source map 链
+```
+
+每个插件都能读到**前一个插件修改后**的 code。这意味着插件的执行顺序很关键。
+
+### 文件过滤的最佳实践
+
+```ts
+transform(code, id) {
+  // 1. 过滤文件类型(先过滤,后处理——避免不必要的处理)
+  if (!/\.(ts|tsx|js|jsx)$/.test(id)) return null
+
+  // 2. 过滤 node_modules(通常不需要处理)
+  if (id.includes("node_modules")) return null
+
+  // 3. 过滤特定路径
+  if (id.includes("__tests__")) return null
+
+  // 4. 快速路径:如果 code 里没有要处理的内容
+  if (!code.includes("__REPLACE_ME__")) return null
+
+  // 5. 实际处理
+  return { code: code.replace("__REPLACE_ME__", "replaced"), map: null }
+},
+```
+
+## `buildEnd` hook
+
+**触发时机**:所有模块构建完成后(构建阶段),或构建出错时。
+
+**调用约定**:parallel
+
+**用途**:清理临时文件、输出统计信息、构建出错时做清理。
+
+```ts
+buildEnd(error) {
+  if (error) {
+    console.error("[my-plugin] 构建失败:", error.message)
+    cleanup()
+    return
+  }
+  console.log("[my-plugin] 构建完成,共处理", processedCount, "个模块")
+},
+```
+
+**注意**:`buildEnd` 在 dev server 里不触发(dev 没有"构建结束"的概念)。初始化逻辑应该放在 `buildStart`,清理应该放在 `closeBundle`。
+
+## `generateBundle` hook
+
+**触发时机**:所有 chunk 生成后,但还未写入磁盘。
+
+**调用约定**:sequential
+
+**参数**:
+
+```ts
+generateBundle(
+  options: OutputOptions,
+  bundle: OutputBundle,     // 所有输出文件(chunk + asset)
+  isWrite: boolean          // 是否会写入磁盘(generate 时为 false)
+): void
+```
+
+**`bundle` 对象的结构**:
+
+```ts
+bundle = {
+  "assets/logo-HASH.png": {
+    type: "asset",
+    fileName: "assets/logo-HASH.png",
+    source: Buffer,
+  },
+  "index.js": {
+    type: "chunk",
+    fileName: "index.js",
+    code: "...",           // 最终 JS 代码
+    modules: {...},        // 模块信息
+    imports: [...],        // 依赖的其他 chunk
+    exports: [...],        // 导出的名称
+    isEntry: true,
+    facadeModuleId: "...", // 对应的入口文件
+  },
+}
+```
+
+### 典型用法:分析 bundle 大小
+
+```ts
+generateBundle(_, bundle) {
+  const sizes: { name: string; size: number }[] = []
+
+  for (const [fileName, output] of Object.entries(bundle)) {
+    if (output.type === "chunk") {
+      sizes.push({
+        name: fileName,
+        size: Buffer.byteLength(output.code, "utf-8"),
+      })
+    }
+  }
+
+  sizes.sort((a, b) => b.size - a.size)
+  console.log("\nBundle 大小分析:")
+  sizes.forEach(({ name, size }) => {
+    console.log(`  ${name}: ${(size / 1024).toFixed(1)} KB`)
+  })
+},
+```
+
+### 用 `this.emitFile` 注入产物文件
+
+```ts
+generateBundle(options, bundle) {
+  // 在 bundle 里注入一个新文件
+  this.emitFile({
+    type: "asset",
+    fileName: "bundle-stats.json",
+    source: JSON.stringify({
+      chunks: Object.keys(bundle).filter(k => bundle[k].type === "chunk"),
+      assets: Object.keys(bundle).filter(k => bundle[k].type === "asset"),
+      timestamp: new Date().toISOString(),
+    }, null, 2),
+  })
+},
+```
+
+### 删除 bundle 中的文件
+
+```ts
+generateBundle(_, bundle) {
+  // 从产物里移除 sourcemap 文件(如果不需要发布)
+  for (const fileName of Object.keys(bundle)) {
+    if (fileName.endsWith(".map")) {
+      delete bundle[fileName]
+    }
+  }
+},
+```
+
+## `writeBundle` hook
+
+**触发时机**:所有 chunk 写入磁盘后。
+
+**调用约定**:parallel
+
+**与 generateBundle 的区别**:
+
+- `generateBundle`:文件还在内存里,可以修改
+- `writeBundle`:文件已经写到磁盘,只适合读取和后续处理
+
+```ts
+writeBundle(options, bundle) {
+  console.log(`产物已写入 ${options.dir}`)
+
+  // 适合:写完后触发通知、上传 CDN、发送 Slack 消息等
+  Object.keys(bundle).forEach(fileName => {
+    console.log(`  ✓ ${fileName}`)
+  })
+},
+```
+
+## 自测题
+
+1. `transform` 链中,如果插件 A 返回 `null`,插件 B 拿到的 `code` 是什么?
+2. `generateBundle` 和 `writeBundle` 在时机上有什么区别?如果要修改产物内容,应该用哪个?
+3. 使用 `this.emitFile` 能在 `transform` 阶段调用吗?还是只能在特定 hook 里用?
+4. 为什么 `buildEnd` 里要处理 `error` 参数?不处理有什么风险?
+
+```ts filename="练习"
+// 实现一个 bundle 分析插件,在 build 完成后:
+// 1. 打印每个 chunk 的大小(KB)
+// 2. 标记超过 200KB 的 chunk(⚠️ 警告)
+// 3. 在 dist/ 目录下生成 bundle-report.json 文件
+
+import type { Plugin } from "vite"
+
+export function bundleReporter(): Plugin {
+  return {
+    name: "vite-plugin-bundle-reporter",
+    apply: "build",
+    generateBundle(options, bundle) {
+      // TODO:
+      // 1. 遍历 bundle 里的所有 chunk
+      // 2. 计算每个 chunk 的大小
+      // 3. 打印报告
+      // 4. 用 this.emitFile 生成 bundle-report.json
+    },
+  }
+}
+```

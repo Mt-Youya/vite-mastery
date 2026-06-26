@@ -1,0 +1,169 @@
+---
+title: Meta 框架对比
+description: Next.js / Nuxt / SvelteKit / SolidStart 都基于 Vite——它们各自在 Vite 之上封装了什么?选框架时如何决策?
+order: 5
+part: 09-framework-integration
+chapter: "9.5"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 主流 meta 框架在 Vite 之上提供了什么 - Next.js / Nuxt / SvelteKit / SolidStart 的核心差异 - 选框架的决策框架 - Vite
+  升级对 meta 框架用户的影响
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解至少一个 meta 框架的基本用法
+</Callout>
+
+## 什么是 Meta 框架
+
+Meta 框架(元框架)是在 UI 框架基础上封装了**生产就绪能力**的完整解决方案:
+
+```text
+原始 Vite + React:
+  路由:自己配 React Router
+  SSR:自己写 server.js
+  数据获取:自己写 loader
+  文件路由:不支持
+  优化:自己配
+
+Next.js = Vite + React + 以上所有开箱即用
+```
+
+Meta 框架的核心价值:**惯例大于配置**,减少决策成本。
+
+## 四大 Meta 框架对比
+
+| 维度      | Next.js        | Nuxt            | SvelteKit    | SolidStart |
+| --------- | -------------- | --------------- | ------------ | ---------- |
+| UI 框架   | React          | Vue             | Svelte       | Solid      |
+| 路由方式  | 文件路由       | 文件路由        | 文件路由     | 文件路由   |
+| SSR 支持  | ✅ 成熟        | ✅ 成熟         | ✅ 成熟      | ✅ 成熟    |
+| RSC 支持  | ✅(App Router) | 🔄 Nuxt Islands | ❌           | 🔄 开发中  |
+| Edge 支持 | ✅ Middleware  | ✅ Nitro        | ✅ Adapter   | ✅         |
+| 部署平台  | Vercel 优先    | 通用(Nitro)     | Adapter 体系 | 通用       |
+| Vite 版本 | 8.x            | 8.x             | 8.x          | 8.x        |
+
+## Next.js 15+(App Router)
+
+Next.js 的 App Router 是最激进的 RSC 采用者:
+
+```ts
+// Next.js App Router 路由结构
+app/
+  layout.tsx        ← 根布局(Server Component)
+  page.tsx          ← / 路由(Server Component)
+  blog/
+    page.tsx        ← /blog
+    [slug]/
+      page.tsx      ← /blog/:slug
+```
+
+数据获取:
+
+```tsx
+// Server Component:直接 async/await,不需要 useEffect
+export default async function BlogPost({ params }: { params: { slug: string } }) {
+  const post = await db.post.findUnique({ where: { slug: params.slug } })
+  return <article>{post.content}</article>
+}
+```
+
+## Nuxt 3
+
+Nuxt 的特色:Nitro 服务器引擎,支持部署到任意平台:
+
+```ts
+// Nuxt 路由
+pages/
+  index.vue          ← /
+  blog/
+    index.vue        ← /blog
+    [slug].vue       ← /blog/:slug
+
+// Nuxt 数据获取
+const { data: post } = await useFetch(`/api/posts/${slug}`)
+```
+
+Nuxt 的 Islands 架构:页面默认 SSR,通过 `<ClientOnly>` 或 `<NuxtIsland>` 混合 client 端组件。
+
+## SvelteKit
+
+SvelteKit 的 server-only 文件系统设计很优雅:
+
+```ts
+// routes/blog/[slug]/
++page.svelte       ← 前端组件
++page.server.ts    ← server-only 数据加载(不打包进 client)
++page.ts           ← 同构数据加载
+
+// +page.server.ts
+export async function load({ params }) {
+  const post = await db.post.findUnique({ where: { slug: params.slug } })
+  return { post }
+}
+```
+
+SvelteKit 的 Adapter 系统让一套代码能部署到不同平台:
+
+```ts
+import adapter from "@sveltejs/adapter-cloudflare"
+// 或
+import adapter from "@sveltejs/adapter-node"
+// 或
+import adapter from "@sveltejs/adapter-vercel"
+```
+
+## 选框架的决策树
+
+```text
+团队熟悉 React?
+  ├── 是 → 需要 RSC 或 Edge 功能?
+  │         ├── 是 → Next.js(App Router)
+  │         └── 否 → React Router v7 或 Vite + React
+  │
+团队熟悉 Vue?
+  └── 是 → Nuxt 3
+         (需要 Vite.js 最大兼容性和多平台部署)
+
+Svelte 爱好者 → SvelteKit
+
+追求极致性能 → SolidStart
+
+完全控制,不要黑盒 → 自己用 Vite 组装(本站的做法!)
+```
+
+## Vite 8 升级对 Meta 框架用户的影响
+
+对于使用 Next.js / Nuxt / SvelteKit 的开发者:
+
+- **Vite 升级对你透明**:框架会处理 Vite 版本适配
+- **不需要修改应用代码**:框架的 Vite 插件已适配
+- **构建速度提升**:受益于 Rolldown 的性能改进
+- **关注框架的 release notes**:了解他们如何使用新的 Vite 8 特性
+
+## 自测题
+
+1. Meta 框架在 Vite 基础上主要提供了哪些能力?
+2. Next.js App Router 和 Pages Router 的主要区别是什么?
+3. SvelteKit 的 Adapter 系统解决了什么问题?
+4. 如果一个项目需要频繁更新数据并支持用户登录,应该用 SSR 还是 SSG?
+
+```ts filename="练习"
+// 设计一个场景:公司需要建一个内部知识库系统
+// 需求:
+// - 文档由 Markdown 写作
+// - 支持全文搜索
+// - 员工需要登录才能查看
+// - 部署在公司自有服务器
+
+// 问题 1:这个场景适合 SSR 还是 SSG?为什么?
+// 问题 2:应该选哪个 Meta 框架(假设团队会 React)?
+// 问题 3:如果不用 Meta 框架,用本站(vite-mastery)的方式自己实现,
+//         需要额外解决哪些问题?
+```

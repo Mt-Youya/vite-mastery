@@ -1,0 +1,155 @@
+---
+title: Vite 项目解剖
+description: 深入 Vite 项目的每个文件——为什么 index.html 在根目录?vite.config.ts 能做什么?dev 和 build 的内部差异是什么?
+order: 3
+part: 00-getting-started
+chapter: "0.3"
+difficulty: 1
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 为什么 `index.html` 是 Vite 的入口而不是某个 JS 文件 - `vite.config.ts` 的结构与常用字段含义 - Vite 8 dev
+  模式(Rolldown transform)和 build 模式(Rolldown bundle)的区别 - Module Graph(模块图谱)是什么,为什么它让 HMR 这么快
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 完成上一节「五分钟跑通第一个 Vite 项目」 - 了解 ES Module 的基本概念(`import` / `export`)
+</Callout>
+
+## `index.html` 为什么在根目录
+
+拿到一个新 Vite 项目,第一个让人困惑的地方往往是:
+
+```text
+my-app/
+├── index.html    ← 在根目录!不是 src/,不是 public/
+├── vite.config.ts
+└── src/
+    └── main.tsx
+```
+
+Webpack 时代的直觉是:HTML 是"壳",JS 才是应用入口。你会配置一个 `entry: './src/main.js'`,由打包工具把所有依赖图谱算好,再注入到 HTML 模板里。
+
+Vite 反过来:**`index.html` 才是入口**。Vite 的 dev server 收到对 `/` 的请求,会读取 `index.html`,找到 `<script type="module" src="/src/main.tsx">` 这一行,从这里出发构建模块图谱——而不是从某个 JS 文件出发。
+
+这意味着:
+
+- 多个 HTML 文件就是多个入口(`vite.config.ts` 里用 `rollupOptions.input` 配置)
+- HTML 里写的路径就是 URL 路径,不需要额外的 publicPath 配置
+- `public/` 里的文件**不经过 Vite 处理**,直接原样复制到产物目录
+
+<V7Note title="Vite 7 与 Vite 8 行为一致">
+  `index.html` 作为入口这个设计从 Vite 2 就确定了,Vite 8 未做改变。本节不涉及差异。
+</V7Note>
+
+## `vite.config.ts` 的结构
+
+一份最小可用的 Vite 8 配置:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+`defineConfig` 只是提供 TypeScript 类型推断的工具函数,不做任何运行时处理。它接受一个配置对象,也接受一个返回配置对象的函数(用于读取 `mode` 等环境变量):
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig(({ command, mode }) => {
+  // command: "serve"(dev) 或 "build"
+  // mode: "development" / "production" / 自定义
+  return {
+    base: command === "build" ? "/prod/" : "/",
+  }
+})
+```
+
+常用字段速查:
+
+| 字段              | 作用            | 典型值                                |
+| ----------------- | --------------- | ------------------------------------- |
+| `plugins`         | 插件列表        | `[react(), myPlugin()]`               |
+| `base`            | 部署基路径      | `"/"` / `"/app/"`                     |
+| `root`            | 项目根目录      | `"."` (默认)                          |
+| `build.outDir`    | 产物目录        | `"dist"`                              |
+| `build.sourcemap` | 产物 source map | `false` / `true` / `"inline"`         |
+| `resolve.alias`   | 路径别名        | `{ "@": "/src" }`                     |
+| `server.port`     | dev server 端口 | `5173`                                |
+| `server.proxy`    | 代理规则        | `{ "/api": "http://localhost:3000" }` |
+
+## Dev 模式 vs Build 模式
+
+这是 Vite 设计里最核心的一个分裂——同一份配置,dev 和 build 的内部执行路径**完全不同**。
+
+### Dev 模式:按需 transform
+
+Vite dev server 启动时**不预先打包任何业务代码**。当浏览器请求 `/src/main.tsx`,Vite 才:
+
+1. 读取 `src/main.tsx` 文件
+2. 通过 Rolldown transform 管道(Vite 8)进行 TypeScript / JSX 编译
+3. 把编译结果作为 ES Module 返回给浏览器
+
+浏览器解析到 `import { useState } from "react"`,发起新请求,Vite 再处理 `react`……如此递归。
+
+**冷启动极快**的原因就在这里:Vite 不需要提前把整个应用图谱全部编译一遍。
+
+<V7Note title="Vite 7:dev 用 esbuild transform">
+  Vite 7 的 dev server 使用 esbuild(Go 编写)做单文件 transform。Vite 8 切换到 Rolldown(Rust)——接口相同,但 transform
+  性能进一步提升,且与 build 阶段共用同一套管道,减少了 dev/build 行为不一致的问题。
+</V7Note>
+
+### Build 模式:Rolldown 完整打包
+
+`pnpm build` 时,Vite 8 调用 **Rolldown** 做完整的静态分析和打包:
+
+- **Tree-shaking** — 删除未使用的 export
+- **Code splitting** — 按动态 import 自动分割 chunk
+- **Minification** — 使用内置压缩器(Rolldown 内置 OXC minifier)
+- **Asset handling** — 图片、字体、CSS 的 hash 指纹 + 复制
+
+产物放在 `dist/`(默认),是可以直接部署的静态文件。
+
+## Module Graph 是什么
+
+Module Graph(模块图谱)是 Vite 在内存里维护的一张**有向图**:节点是模块文件,边是 `import` 关系。
+
+```text
+main.tsx  →  App.tsx  →  Button.tsx  →  styles.css
+              ↓
+            store.ts  →  utils.ts
+```
+
+HMR(Hot Module Replacement,热模块替换)依赖这张图工作:当 `Button.tsx` 被修改,Vite 顺着图反向找到所有 importer,确定最小的更新边界,只把受影响的模块推送给浏览器。
+
+这就是为什么 Vite HMR 不管项目多大都很快——它不重新编译整个应用,只精确更新 diff 出来的部分。
+
+你可以在浏览器 DevTools 的 Network 面板里直接看到模块图谱的请求:每一个 `?t=xxxxxx` query 就是 HMR 系统给这个模块打的 timestamp,用来强制浏览器刷新缓存。
+
+## 自测题
+
+1. 为什么 `public/` 目录里的文件不能用 `import` 导入?
+2. 同一份 `vite.config.ts`,dev 和 build 时有哪两个明显不同的内部路径?
+3. 修改 `utils.ts`,Vite 怎么知道需要通知浏览器更新 `App.tsx`?
+4. `build.sourcemap: "inline"` 与 `build.sourcemap: true` 有什么区别?
+
+```ts filename="练习"
+// 配置一个 Vite 项目,满足以下要求:
+// 1. 部署基路径为 /my-app/
+// 2. dev server 端口为 4000
+// 3. 把 @ 别名到 src/
+// 4. 产物目录改为 output/
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  // TODO
+})
+```

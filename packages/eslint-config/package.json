@@ -1,7 +1,7 @@
 {
   "name": "@vite-mastery/eslint-config",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "description": "oxlint 共享预设:base / react / nextjs",
   "files": [
     "base.json",

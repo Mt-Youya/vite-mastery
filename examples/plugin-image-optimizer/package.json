@@ -1,0 +1,15 @@
+{
+  "name": "plugin-image-optimizer",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "sharp": "^0.35.2",
+    "vite": "^8.1.0"
+  }
+}

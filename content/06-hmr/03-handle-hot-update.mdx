@@ -1,0 +1,227 @@
+---
+title: "`handleHotUpdate` Hook"
+description: 服务端的 HMR hook——当文件改变时,你可以拦截并自定义 HMR 更新逻辑。为自定义文件类型实现精准热更,不再只有"整页刷新"一个选项。
+order: 3
+part: 06-hmr
+chapter: "6.3"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `handleHotUpdate` hook 的完整参数 - 如何过滤不需要 HMR 的文件 - 为自定义文件类型(YAML / CSV / 配置文件)实现 HMR -
+  发送自定义 HMR 事件给浏览器
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「HMR 协议」(6.1 节) - 阅读「虚拟模块插件」(3.4 节)——因为自定义 HMR 通常配合虚拟模块
+</Callout>
+
+## `handleHotUpdate` 参数详解
+
+```ts
+handleHotUpdate(ctx: HmrContext): Array<ModuleNode> | void | Promise<...>
+
+interface HmrContext {
+  file: string                    // 变化的文件绝对路径
+  timestamp: number               // 变化时间戳(毫秒)
+  modules: Array<ModuleNode>      // Vite 推断的受影响模块列表
+  read(): Promise<string>         // 异步读取文件新内容
+  server: ViteDevServer           // dev server 实例
+}
+```
+
+**返回值**:
+
+- `ModuleNode[]` — 覆盖 Vite 的默认判断,只更新这些模块
+- `[]` — 空数组,不触发任何 HMR(但也不整页刷新)
+- `void` — 使用 Vite 的默认行为
+
+## 案例一:为 YAML 文件实现 HMR
+
+假设你有一个 YAML 加载插件,让 `.yaml` 文件作为 ES Module 使用:
+
+```ts filename="yaml-plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+
+function parseYaml(content: string): unknown {
+  // 假设你已经有 yaml 解析器
+  return {} // 占位
+}
+
+export function yamlPlugin(): Plugin {
+  return {
+    name: "vite-plugin-yaml",
+
+    load(id) {
+      if (!id.endsWith(".yaml")) return null
+      const content = readFileSync(id, "utf-8")
+      const data = parseYaml(content)
+      return `export default ${JSON.stringify(data)}`
+    },
+
+    handleHotUpdate({ file, modules, server }) {
+      if (!file.endsWith(".yaml")) return
+
+      // Vite 默认会把 .yaml 文件的变化传给 modules
+      // 直接返回 modules 即可触发这些模块的 HMR
+      console.log(`[yaml-plugin] 热更新: ${file}`)
+      return modules
+    },
+  }
+}
+```
+
+## 案例二:配置文件变化,发送自定义事件
+
+当配置文件改变时,不做模块级 HMR,而是向浏览器发送自定义事件:
+
+```ts filename="config-plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+export function configPlugin(): Plugin {
+  const configPath = resolve("app.config.json")
+
+  return {
+    name: "vite-plugin-config",
+
+    load(id) {
+      if (id !== "\0virtual:config") return null
+      this.addWatchFile(configPath)
+      return `export default ${readFileSync(configPath, "utf-8")}`
+    },
+
+    resolveId(id) {
+      if (id === "virtual:config") return "\0virtual:config"
+      return null
+    },
+
+    handleHotUpdate({ file, server }) {
+      if (file !== configPath) return
+
+      // 配置变化:通知浏览器,让它自己决定如何响应
+      server.hot.send({
+        type: "custom",
+        event: "config-update",
+        data: {
+          timestamp: Date.now(),
+          file: file.replace(process.cwd(), ""),
+        },
+      })
+
+      // 同时让虚拟配置模块失效
+      const module = server.moduleGraph.getModuleById("\0virtual:config")
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+
+      return []
+    },
+  }
+}
+```
+
+浏览器端:
+
+```ts
+// src/main.ts
+import config from "virtual:config"
+
+if (import.meta.hot) {
+  import.meta.hot.on("config-update", async () => {
+    // 重新动态 import 最新配置
+    const newConfig = await import("virtual:config")
+    applyConfig(newConfig.default)
+    console.log("[HMR] 配置已热更新")
+  })
+}
+```
+
+## 案例三:批量文件变化的防抖
+
+某些场景下(比如 `pnpm install` 更新了大量文件),HMR 可能被触发几百次。防抖处理:
+
+```ts
+import type { Plugin } from "vite"
+
+export function debouncedHmrPlugin(): Plugin {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let pendingModules: Set<string> = new Set()
+
+  return {
+    name: "debounced-hmr",
+    handleHotUpdate({ file, modules, server }) {
+      pendingModules.add(file)
+
+      if (timer) clearTimeout(timer)
+
+      timer = setTimeout(() => {
+        // 统一处理所有待更新的文件
+        console.log(`[hmr] 批量更新 ${pendingModules.size} 个文件`)
+        pendingModules.clear()
+        timer = null
+        // 触发页面刷新
+        server.hot.send({ type: "full-reload" })
+      }, 300)
+
+      return [] // 阻止立即 HMR,等待防抖完成
+    },
+  }
+}
+```
+
+## 案例四:测试文件不触发 HMR
+
+```ts
+handleHotUpdate({ file, modules }) {
+  // 测试文件改变,不触发任何更新
+  if (
+    file.includes("__tests__") ||
+    file.includes(".spec.") ||
+    file.includes(".test.")
+  ) {
+    console.log(`[hmr] 跳过测试文件: ${file.split("/").pop()}`)
+    return []
+  }
+},
+```
+
+## 自测题
+
+1. `handleHotUpdate` 返回 `[]` 和 `void` 有什么区别?各自会发生什么?
+2. 如果多个插件都实现了 `handleHotUpdate`,执行顺序是什么?如果第一个插件返回了 `[]`,后续插件还会执行吗?
+3. `ctx.modules` 是 Vite 自动计算的还是需要你手动提供?
+4. `server.hot.send({ type: "custom", event: "..." })` 和 `server.hot.send({ type: "full-reload" })` 分别适合什么场景?
+
+```ts filename="练习"
+// 实现一个翻译文件热更新插件:
+// 当 locales/*.json 任意文件改变时:
+// 1. 打印改变的文件名
+// 2. 向浏览器发送 "i18n:update" 事件,携带改变的 locale 名
+// 3. 让所有 import 了该语言包的模块失效
+//
+// 例如:locales/zh.json 改变 → 发送 { locale: "zh" }
+
+import type { Plugin } from "vite"
+import { basename } from "node:path"
+
+export function i18nHmrPlugin(): Plugin {
+  return {
+    name: "vite-plugin-i18n-hmr",
+    handleHotUpdate({ file, server }) {
+      // TODO:
+      // 1. 判断 file 是否在 locales/ 目录下且是 .json 文件
+      // 2. 提取 locale 名称(如 "zh" from "locales/zh.json")
+      // 3. 发送自定义 HMR 事件
+      // 4. 使对应虚拟模块失效并返回
+    },
+  }
+}
+```

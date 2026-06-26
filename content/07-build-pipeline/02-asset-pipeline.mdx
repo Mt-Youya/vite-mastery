@@ -1,0 +1,178 @@
+---
+title: Asset Pipeline
+description: 图片、字体、JSON、WASM——Vite 对静态资源的处理方式。`?url` `?raw` `?inline` 后缀的含义,以及 Rolldown 接管后的变化。
+order: 2
+part: 07-build-pipeline
+chapter: "7.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 静态资源的默认处理方式(小文件 inline vs 大文件 hash) - `?url` `?raw` `?inline` 三个后缀修饰符的用途 -
+  `assetsInlineLimit` 配置:控制 inline 阈值 - 如何导入 JSON、WASM 等特殊资源
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 Vite 基本用法(Part 0)
+</Callout>
+
+## 资源的默认处理
+
+### 图片 / 字体 / 视频
+
+```ts
+// 大文件(> 4KB):复制到 dist/assets/,返回带 hash 的 URL
+import logo from "./logo.png"
+// logo 是字符串:"/assets/logo-HASH.png"
+
+// 小文件(≤ 4KB):直接 inline 为 base64 data URL
+import icon from "./small-icon.svg"
+// icon 是字符串:"data:image/svg+xml;base64,..."
+```
+
+阈值 4KB 由 `build.assetsInlineLimit` 控制:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    assetsInlineLimit: 8192, // 改为 8KB
+    // 设为 0 则所有资源都不 inline(全部复制到 assets/)
+  },
+})
+```
+
+## 后缀修饰符
+
+### `?url` — 强制返回 URL
+
+无论文件大小,始终返回 URL 字符串(不 inline):
+
+```ts
+import logoUrl from "./logo.png?url"
+// logoUrl === "/assets/logo-HASH.png"(即使文件很小)
+
+// 适合:想控制文件大小,或者需要字符串 URL 的场景
+const img = new Image()
+img.src = logoUrl
+```
+
+### `?raw` — 返回文件原始内容(字符串)
+
+```ts
+import svgContent from "./icon.svg?raw"
+// svgContent === "<svg xmlns='...'><path .../></svg>"
+
+// 适合:需要直接操作 SVG XML、读取文本文件内容
+document.querySelector("#icon").innerHTML = svgContent
+```
+
+### `?inline` — 强制 inline 为 base64
+
+无论文件大小,始终 inline:
+
+```ts
+import logoDataUrl from "./logo.png?inline"
+// logoDataUrl === "data:image/png;base64,iVBOR..."
+
+// 适合:需要 data URL 且不想依赖网络请求的场景
+css: `background-image: url(${logoDataUrl})`
+```
+
+## JSON 导入
+
+JSON 文件可以直接 import,Vite 自动解析:
+
+```ts
+import pkg from "./package.json"
+console.log(pkg.version) // "1.0.0"
+
+// 按字段 import(tree-shaking 友好)
+import { version, name } from "./package.json"
+```
+
+## TypeScript / JSON 类型
+
+```ts
+// JSON 文件有自动类型推断
+import data from "./data.json"
+// data 的类型是从 JSON 结构推断的
+
+// 如果需要更精确的类型,用断言
+import config from "./config.json" assert { type: "json" }
+```
+
+## WASM 导入
+
+```ts
+// 标准导入
+import init, { add } from "./math.wasm"
+await init()
+console.log(add(1, 2)) // 3
+
+// 显式 URL 导入(用于手动实例化)
+import wasmUrl from "./math.wasm?url"
+const response = await fetch(wasmUrl)
+const wasm = await WebAssembly.instantiate(await response.arrayBuffer())
+```
+
+## Worker 导入
+
+```ts
+// 主线程启动 Web Worker
+import MyWorker from "./worker.ts?worker"
+const worker = new MyWorker()
+
+// 内联 Worker(打成 blob URL,不需要单独文件)
+import InlineWorker from "./worker.ts?worker&inline"
+
+// Shared Worker
+import SharedWorker from "./shared.ts?sharedworker"
+```
+
+## `public/` 目录
+
+`public/` 里的文件**不经过 Vite 处理**:
+
+- 直接复制到 `dist/` 根目录
+- 不做 hash 重命名
+- 不能用 `import` 引用(要用 URL 字符串访问)
+
+```text
+public/
+  favicon.ico    → dist/favicon.ico
+  robots.txt     → dist/robots.txt
+  manifest.json  → dist/manifest.json
+```
+
+适合:浏览器直接请求的特殊文件(favicon、manifest、sitemap 等)。
+
+## 自测题
+
+1. 一个 3KB 的 SVG 文件,默认情况下 Vite 会 inline 还是复制?如何强制让它保持文件形式?
+2. `?raw` 和 `?url` 有什么区别?各自返回什么类型的值?
+3. `public/` 目录里的文件和 `src/assets/` 里的文件,构建产物有什么不同?
+4. 如果你需要在 CSS 里用一个 PNG 图片的 base64 data URL,应该用哪个修饰符?
+
+```ts filename="练习"
+// 以下场景选择合适的导入方式:
+
+// 场景 A:把一个 SVG 图标嵌入到页面 HTML 里(内联 SVG)
+// 场景 B:获取一个图片文件的 URL 用于 <img src>
+// 场景 C:读取一个 HTML 模板文件的内容
+// 场景 D:加载 WASM 模块并手动实例化
+// 场景 E:在打包时把一个大 PNG 图片强制 base64 内联
+
+// 对每个场景:
+// 1. 选择导入方式(import ... from "...?XXX")
+// 2. 解释理由
+
+// 示例:
+// 场景 A:import svgContent from "./icon.svg?raw"
+//   理由:需要 SVG XML 字符串直接插入到 innerHTML
+
+// TODO:完成 B / C / D / E
+```

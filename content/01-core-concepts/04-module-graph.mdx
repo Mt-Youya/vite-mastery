@@ -1,0 +1,255 @@
+---
+title: Module Graph 模块图
+description: Vite 在内存里维护着一张完整的模块依赖图——它是 HMR 的基础,也是 Environment API 的核心。读懂 Module Graph 才能真正理解 Vite。
+order: 4
+part: 01-core-concepts
+chapter: "1.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Module Graph 是什么数据结构 - Vite 如何构建和维护模块图 - 模块图与 HMR 的关系 - Vite 8 Environment API
+  下的"分环境模块图"
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Native ESM」(1.1 节) - 阅读「Vite 8 统一架构」(1.2 节) - 了解图论基础:节点、边、有向图(不需要数学细节)
+</Callout>
+
+## 什么是 Module Graph
+
+Vite 的 dev server 在内存里维护一张**有向图**:每个节点是一个模块文件,每条有向边表示"A 文件 import 了 B 文件"。
+
+```text
+(简化示例)
+
+main.tsx ──import──▶ App.tsx ──import──▶ Button.tsx
+                        │                    │
+                        └──import──▶ store.ts◀──import── utils.ts
+                                         │
+                                         └──import──▶ zustand
+```
+
+这张图有个学名:**Module Graph**(或 Module Dependency Graph,模块依赖图)。
+
+## 为什么 Vite 需要 Module Graph
+
+### 用途一:HMR 精确更新
+
+当你修改了 `Button.tsx`,Vite 需要知道:
+
+1. 谁 import 了 `Button.tsx`?(App.tsx)
+2. App.tsx 的 importer 是谁?(main.tsx)
+3. 最小更新边界在哪里?
+
+如果没有 Module Graph,Vite 就不知道要通知哪些模块更新,只能刷新整个页面。
+
+```text
+修改 Button.tsx
+      │
+      ▼
+Vite 查模块图:Button.tsx 的 importers = [App.tsx]
+      │
+      ▼
+App.tsx 的 importers = [main.tsx]
+      │
+      ▼
+main.tsx 是入口,没有 importer
+      │
+      ▼
+HMR 更新边界确定:通知浏览器更新 Button.tsx 的模块
+(如果 Button.tsx 导出了 accept 回调,只更新它;否则冒泡到 App.tsx)
+```
+
+### 用途二:按需 transform
+
+每次浏览器请求一个模块,Vite 先查 Module Graph:
+
+- **命中缓存**:模块已在图里且未失效 → 直接返回缓存的 transform 结果
+- **未命中**:执行 resolve + load + transform → 加入图 → 返回结果
+
+Module Graph 就是 Vite dev server 的"构建缓存"。
+
+### 用途三:循环依赖检测
+
+Module Graph 可以检测循环依赖:
+
+```text
+A → B → C → A  (循环!)
+```
+
+虽然 ESM 支持循环依赖(有特定的处理规则),但循环依赖往往是 bug 的根源。Vite 可以通过模块图给出警告。
+
+## ModuleNode:图中的一个节点
+
+Vite 内部用 `ModuleNode` 对象表示图里的每个模块。一个 `ModuleNode` 大致包含:
+
+```ts
+interface ModuleNode {
+  // 模块唯一标识
+  id: string // 文件路径,如 "/src/App.tsx"
+  url: string // 请求 URL,如 "/src/App.tsx"
+  file: string | null // 磁盘路径
+
+  // 图的结构信息
+  importers: Set<ModuleNode> // 谁 import 了我
+  importedModules: Set<ModuleNode> // 我 import 了谁
+
+  // transform 缓存
+  transformResult: TransformResult | null
+  ssrTransformResult: TransformResult | null
+
+  // 时间戳(用于 HMR 缓存失效)
+  lastHMRTimestamp: number
+  lastInvalidationTimestamp: number
+}
+```
+
+## 如何访问 Module Graph
+
+在插件里,可以通过 `configureServer` hook 访问模块图:
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite"
+
+export function inspectPlugin(): Plugin {
+  return {
+    name: "vite-plugin-inspect",
+    configureServer(server) {
+      // 获取某个模块的节点
+      const node = server.moduleGraph.getModuleByUrl("/src/App.tsx")
+      if (node) {
+        console.log(
+          "App.tsx 被谁 import 了:",
+          [...node.importers].map((m) => m.id)
+        )
+        console.log(
+          "App.tsx import 了谁:",
+          [...node.importedModules].map((m) => m.id)
+        )
+      }
+
+      // 使某个模块的缓存失效
+      server.moduleGraph.invalidateModule(node!)
+    },
+  }
+}
+```
+
+也可以在 `handleHotUpdate` 里操作模块图:
+
+```ts
+handleHotUpdate({ file, modules, server }) {
+  // modules 是受这次文件变更影响的 ModuleNode 列表
+  // 可以手动控制哪些模块需要更新
+  return modules.filter(m => !m.url.includes("__tests__"))
+},
+```
+
+## Vite 8 的分环境模块图
+
+Vite 7 及更早版本只有一张全局模块图,client 代码和 ssr 代码共享同一张图。
+
+Vite 8 的 Environment API 为每个环境维护**独立的模块图**:
+
+```text
+Vite 8 Dev Server
+  │
+  ├── client Environment
+  │     └── ModuleGraph (client)
+  │           ├── /src/main.tsx
+  │           ├── /src/App.tsx     ← client 版本
+  │           └── ...
+  │
+  └── ssr Environment
+        └── ModuleGraph (ssr)
+              ├── /src/entry-server.tsx
+              ├── /src/App.tsx     ← ssr 版本(独立节点!)
+              └── ...
+```
+
+`/src/App.tsx` 在两个模块图里各有一个独立节点。这意味着:
+
+- client 版本的 App.tsx 用 `browser` conditions 解析
+- ssr 版本的 App.tsx 用 `node` conditions 解析
+- 两者互不干扰
+
+<V7Note title="Vite 7:单一模块图的局限">
+  在 Vite 7 中,所有模块(包括 ssr 模块)共享同一张图。这导致:
+
+- `ssrLoadModule` 加载的模块会污染 client 模块图
+- ssr 模块变化可能错误触发 client HMR
+- 无法为同一个文件在不同环境维护不同的 transform 结果
+
+Environment API(Vite 8)从根本上解决了这个问题。
+
+</V7Note>
+
+## 用 DepGraph 组件可视化
+
+本站的 `<DepGraph>` 交互组件可以展示一个简化的模块图:
+
+<DepGraph />
+
+点击节点查看它的 importer(被谁 import)和 importedModules(import 了谁)。
+
+## 模块图失效机制
+
+当文件改变时,Vite 不是立即重新 transform——而是**标记对应的 ModuleNode 为失效**:
+
+```text
+文件改变: /src/utils.ts
+      │
+      ▼
+将 utils.ts 的 ModuleNode.transformResult 置为 null
+      │
+      ▼
+向上遍历 importers,将受影响的节点也标记为失效
+      │
+      ▼
+通知浏览器(通过 WebSocket)哪些模块需要更新
+      │
+      ▼
+浏览器重新请求需要更新的模块
+      │
+      ▼
+Vite 发现缓存为 null → 重新 transform → 更新缓存
+```
+
+这个"懒失效"机制确保了:未被实际请求的模块即使被标记为失效,也不会浪费资源重新 transform。
+
+## 自测题
+
+1. Module Graph 里的"边"表示什么关系?是有向边还是无向边?方向是什么?
+2. 为什么 HMR 需要 Module Graph 才能工作?没有模块图会怎样?
+3. 在 Vite 7 的单一模块图下,ssr 和 client 共用同一个 `/src/App.tsx` 节点有什么潜在问题?
+4. "模块失效(invalidate)"和"模块删除"有什么区别?
+
+```ts filename="练习"
+// 写一个插件,在 dev 模式下监听文件变化
+// 如果 /src/config.json 改变,使所有 import 了它的模块失效
+// 并触发浏览器 HMR
+
+import type { Plugin } from "vite"
+
+export function configWatcher(): Plugin {
+  return {
+    name: "vite-plugin-config-watcher",
+    configureServer(server) {
+      // TODO:
+      // 1. 监听 /src/config.json 的变化
+      // 2. 找到所有 import 了它的模块
+      // 3. 使这些模块失效
+      // 4. 触发 HMR 更新
+      //
+      // 提示:server.watcher 是 chokidar 实例
+      // server.moduleGraph 可以查找模块节点
+      // server.hot.send() 可以发送 HMR 消息
+    },
+  }
+}
+```

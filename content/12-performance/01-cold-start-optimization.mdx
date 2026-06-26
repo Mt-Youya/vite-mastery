@@ -1,0 +1,154 @@
+---
+title: 冷启动优化
+description: Vite dev server 的冷启动为什么有时会变慢?optimizeDeps 调优、预构建策略、Rolldown 的加速效果——让项目从首次 pnpm dev 就很快。
+order: 1
+part: 12-performance
+chapter: "12.1"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 冷启动慢的常见原因分析 - `optimizeDeps` 调优技巧 - 通过预声明依赖避免二次重启 - Vite 8 Rolldown 对冷启动的改善
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 理解依赖预构建(1.3 节)
+</Callout>
+
+## 冷启动的时间组成
+
+```text
+pnpm dev 耗时 =
+  Node.js 进程启动  (固定开销,~200ms)
+  + 读取 vite.config.ts  (~50ms)
+  + 依赖预构建  (首次:几秒~几十秒;缓存命中:<100ms)
+  + 开启 HTTP server  (~50ms)
+  + 等待第一个请求  (懒加载,不计入)
+```
+
+**最大变量**:依赖预构建的时间。
+
+## 为什么预构建会很慢
+
+1. **依赖太多**:项目用了大量 npm 包
+2. **CJS 包需要转换**:CommonJS → ESM 需要扫描代码
+3. **嵌套依赖**:深层依赖也需要预构建
+4. **首次没有缓存**:`.vite/deps/` 不存在
+
+## 加速技巧一:预声明所有依赖
+
+Vite 默认通过扫描源码自动检测依赖。但如果代码里有动态 import,Vite 可能遗漏一些包——导致启动后第一次请求时才预构建,触发页面刷新。
+
+主动声明让 Vite 一次预构建完所有:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    include: [
+      // 显式列出所有重要依赖(包括动态 import 的)
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "axios",
+      "lodash-es",
+      // 某些包的子路径
+      "lodash-es/debounce",
+      "lodash-es/throttle",
+    ],
+  },
+})
+```
+
+## 加速技巧二:排除不需要预构建的包
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    exclude: [
+      // 已经是 ESM 且单文件的包不需要预构建
+      "@vite-mastery/ui", // workspace 本地包
+      "some-pure-esm-package", // 现代 ESM 包
+    ],
+  },
+})
+```
+
+## 加速技巧三:monorepo 里跳过本地包
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    exclude: [
+      // 所有 workspace 包不预构建
+      "@myorg/ui",
+      "@myorg/utils",
+      "@myorg/hooks",
+    ],
+  },
+  resolve: {
+    // 直接 alias 到源码,省去 resolve 步骤
+    alias: {
+      "@myorg/ui": resolve("../../packages/ui/src"),
+    },
+  },
+})
+```
+
+## Vite 8 Rolldown 的改善
+
+Vite 8 用 Rolldown 做依赖预构建,相比 Vite 7 的 esbuild:
+
+- **更快的 CommonJS 转换**:OXC Parser 比 esbuild 在某些场景更快
+- **更好的缓存利用率**:Rolldown 的 transform 管道与 build 共用,减少重复工作
+- **增量预构建**:只重建真正变化的依赖
+
+实际感受:大型项目首次冷启动可能快 20~50%。
+
+## 调试慢启动
+
+```bash
+# 查看 Vite 的内部日志,找慢在哪
+DEBUG=vite:deps pnpm dev
+
+# 或者用 --debug 标志
+pnpm vite --debug deps
+```
+
+输出示例:
+
+```text
+vite:deps Optimizing dependencies...
+vite:deps  react     +312ms
+vite:deps  react-dom +1234ms  ← 最慢的包
+vite:deps  lodash-es +89ms
+```
+
+## 自测题
+
+1. Vite 冷启动时间主要花在哪里?
+2. 为什么有时候启动后页面会突然刷新?如何避免?
+3. `optimizeDeps.exclude` 适合哪类包?不适合哪类?
+4. Vite 8 的预构建比 Vite 7 快的原因是什么?
+
+```ts filename="练习"
+// 分析以下项目的冷启动配置并优化:
+// - 项目有 50+ npm 依赖
+// - 用了动态 import('./heavy-chart-lib') 按需加载图表库
+// - monorepo,有 3 个本地 workspace 包
+// - 第一次启动后,浏览器会有一次意外刷新
+
+// 原配置(没有任何 optimizeDeps 配置):
+export default defineConfig({ plugins: [react()] })
+
+// TODO:写出优化后的配置
+export default defineConfig({
+  plugins: [react()],
+  optimizeDeps: {
+    // TODO
+  },
+})
+```

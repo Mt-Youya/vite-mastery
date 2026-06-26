@@ -1,0 +1,271 @@
+---
+title: 实战:为自定义文件类型实现 HMR
+description: 把前几节学到的所有 HMR 知识综合起来——为 .yaml 配置文件实现完整的热更新支持,包括 handleHotUpdate 服务端逻辑和 import.meta.hot 客户端接收。
+order: 6
+part: 06-hmr
+chapter: "6.6"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 完整的自定义文件类型 HMR 实现流程 - 服务端 `handleHotUpdate` 和客户端 `import.meta.hot.accept` 如何配合 - 为 YAML
+  配置文件实现精准热更新 - 错误处理:配置文件格式错误时如何优雅降级
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「handleHotUpdate hook」(6.3 节) - 阅读「import.meta.hot API」(6.2 节) - 理解虚拟模块(3.4 节)
+</Callout>
+
+## 目标:YAML 配置热更新
+
+把 YAML 配置文件做成可热更新的模块:
+
+```ts filename="src/main.ts"
+import config from "virtual:app-config"
+
+// 初始化时使用配置
+initApp(config)
+
+if (import.meta.hot) {
+  // 配置文件热更新时:自动重新应用配置
+  import.meta.hot.accept("virtual:app-config", (newConfig) => {
+    if (newConfig) {
+      updateApp(newConfig.default)
+      console.log("[HMR] 配置已更新:", newConfig.default)
+    }
+  })
+}
+```
+
+修改 `app.config.yaml`,浏览器自动应用新配置,不刷新页面,不丢失应用状态。
+
+## 完整实现
+
+### 步骤一:YAML 加载插件骨架
+
+```ts filename="src/yaml-config-plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+// 简单 YAML 解析(生产环境用成熟的 yaml 包)
+function parseSimpleYaml(content: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const line of content.split("\n")) {
+    const colonIdx = line.indexOf(":")
+    if (colonIdx === -1 || line.trim().startsWith("#")) continue
+    const key = line.slice(0, colonIdx).trim()
+    const value = line
+      .slice(colonIdx + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "")
+    if (key) result[key] = value
+  }
+  return result
+}
+
+const VIRTUAL_ID = "virtual:app-config"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function yamlConfigPlugin(configFile = "app.config.yaml"): Plugin {
+  const configPath = resolve(configFile)
+
+  function loadConfig(): Record<string, unknown> {
+    if (!existsSync(configPath)) {
+      console.warn(`[yaml-config] 配置文件不存在: ${configPath}`)
+      return {}
+    }
+    try {
+      const content = readFileSync(configPath, "utf-8")
+      return parseSimpleYaml(content)
+    } catch (e) {
+      console.error(`[yaml-config] 解析失败:`, e)
+      return {}
+    }
+  }
+
+  return {
+    name: "vite-plugin-yaml-config",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // 监听配置文件变化
+      this.addWatchFile(configPath)
+
+      const config = loadConfig()
+      return `export default ${JSON.stringify(config)}`
+    },
+
+    handleHotUpdate({ file, server }) {
+      if (file !== configPath) return
+
+      console.log(`[yaml-config] 配置文件已更新: ${configFile}`)
+
+      // 使虚拟模块失效
+      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+
+      return []
+    },
+  }
+}
+```
+
+### 步骤二:使用插件
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { yamlConfigPlugin } from "./src/yaml-config-plugin"
+
+export default defineConfig({
+  plugins: [yamlConfigPlugin("app.config.yaml")],
+})
+```
+
+### 步骤三:创建配置文件
+
+```yaml filename="app.config.yaml"
+apiUrl: https://api.example.com
+theme: dark
+language: zh
+featureFlags: experimentalFeature,newUI
+```
+
+### 步骤四:类型声明
+
+```ts filename="src/virtual-config.d.ts"
+declare module "virtual:app-config" {
+  const config: {
+    apiUrl: string
+    theme: string
+    language: string
+    featureFlags: string
+    [key: string]: string
+  }
+  export default config
+}
+```
+
+### 步骤五:在应用里使用
+
+```ts filename="src/main.ts"
+import config from "virtual:app-config"
+
+// 初始化应用
+const app = createApp(config)
+
+if (import.meta.hot) {
+  // 接受 virtual:app-config 的更新
+  import.meta.hot.accept("virtual:app-config", (newModule) => {
+    if (!newModule) return
+
+    const newConfig = newModule.default
+    console.log("[HMR] 应用配置热更新:", newConfig)
+
+    // 重新应用配置
+    app.updateConfig(newConfig)
+
+    // 如果某些配置变化需要完整刷新,使用 invalidate
+    if (newConfig.theme !== config.theme) {
+      console.log("[HMR] 主题改变,可能需要刷新")
+      // import.meta.hot!.invalidate()  // 如果需要刷新取消注释
+    }
+  })
+}
+```
+
+## 错误处理:格式错误时的优雅降级
+
+```ts filename="src/yaml-config-plugin.ts"
+// 在 load hook 里添加错误处理
+load(id) {
+  if (id !== RESOLVED_ID) return null
+
+  this.addWatchFile(configPath)
+
+  let config: Record<string, unknown>
+  try {
+    config = loadConfig()
+  } catch (e) {
+    // 配置文件有语法错误时,返回上次成功的配置
+    // 并在浏览器显示错误覆盖层
+    this.error(`YAML 配置文件解析失败: ${e instanceof Error ? e.message : e}`)
+    return null  // this.error 会抛出异常,这行不会执行
+  }
+
+  return `export default ${JSON.stringify(config)}`
+},
+```
+
+## 浏览器端:完整的 HMR 接收逻辑
+
+```ts filename="src/config-manager.ts"
+import config from "virtual:app-config"
+
+type Config = typeof config
+
+let currentConfig: Config = config
+
+export function getConfig(): Config {
+  return currentConfig
+}
+
+export function onConfigUpdate(callback: (config: Config) => void) {
+  if (import.meta.hot) {
+    import.meta.hot.accept("virtual:app-config", (newModule) => {
+      if (!newModule) return
+      currentConfig = newModule.default
+      callback(currentConfig)
+    })
+  }
+}
+```
+
+## 自测题
+
+1. 为什么要在 `load` hook 里调用 `this.addWatchFile()` 而不是在 `handleHotUpdate` 里?
+2. 如果配置文件有 YAML 语法错误,`this.error()` 会发生什么?浏览器会显示什么?
+3. 在客户端的 `accept()` 回调里,`newModule` 有时候可能是 `undefined`,什么情况下会这样?
+4. 为什么用 `accept("virtual:app-config", callback)` 而不是 `accept(callback)`?两者有什么区别?
+
+```ts filename="练习"
+// 扩展 yamlConfigPlugin:
+// 1. 支持监听一个目录下的所有 .yaml 文件
+//    例如 configs/ 目录下有 database.yaml / redis.yaml / app.yaml
+// 2. 每个文件对应一个虚拟模块:virtual:config/database、virtual:config/redis 等
+// 3. 任意文件改变时只更新对应的虚拟模块,不影响其他
+
+import type { Plugin } from "vite"
+import { readdirSync } from "node:fs"
+import { resolve, basename } from "node:path"
+
+export function multiYamlPlugin(configDir: string): Plugin {
+  const dir = resolve(configDir)
+
+  return {
+    name: "vite-plugin-multi-yaml",
+    resolveId(id) {
+      // TODO:处理 virtual:config/<name> 格式的 ID
+    },
+    load(id) {
+      // TODO:根据 ID 找到对应的 yaml 文件并加载
+    },
+    handleHotUpdate({ file, server }) {
+      // TODO:当 configDir 下的 yaml 文件改变时,只更新对应虚拟模块
+    },
+  }
+}
+```

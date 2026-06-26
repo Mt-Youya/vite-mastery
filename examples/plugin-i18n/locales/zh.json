@@ -1,0 +1,6 @@
+{
+  "hello": "你好",
+  "welcome": "欢迎使用 Vite",
+  "description": "通过插件自动注入 i18n 翻译",
+  "buildTime": "构建时间"
+}

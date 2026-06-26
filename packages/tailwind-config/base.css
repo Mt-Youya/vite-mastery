@@ -16,7 +16,11 @@
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
     tab-size: 4;
-    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1, "ss03" 1;
+    font-feature-settings:
+      "rlig" 1,
+      "calt" 1,
+      "ss01" 1,
+      "ss03" 1;
   }
 
   body {
@@ -59,7 +63,9 @@
   /* 代码字体 */
   :where(code, kbd, samp, pre) {
     font-family: var(--font-mono);
-    font-feature-settings: "calt" 1, "ss03" 1;
+    font-feature-settings:
+      "calt" 1,
+      "ss03" 1;
   }
 
   :where(kbd) {

@@ -1,0 +1,245 @@
+---
+title: CSS 处理
+description: Vite 8 的 CSS 处理全链路:lightningcss 压缩、PostCSS 管道、CSS Modules、CSS in JS 的配合。lightningcss 替代 esbuild 后有什么新能力?
+order: 3
+part: 07-build-pipeline
+chapter: "7.3"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 8 的 CSS 处理管道(PostCSS → lightningcss) - lightningcss 带来的新能力:嵌套、color-mix 等 - CSS Modules 配置 -
+  全局 CSS 导入与 scoped 样式的区别
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 CSS 基础 - 了解 PostCSS 的概念(可选)
+</Callout>
+
+## Vite 8 的 CSS 处理管道
+
+```text
+.css / .scss / .less / .styl 文件
+         │
+         ▼
+预处理器(如果配置了 sass/less)
+         │
+         ▼
+PostCSS(如果配置了)
+         │
+         ▼
+lightningcss(压缩 + 前缀,Vite 8 默认)
+         │
+         ▼
+产物 CSS
+```
+
+Vite 8 把 CSS 压缩和前缀处理统一交给 **lightningcss**(用 Rust 实现),替代了之前的 esbuild CSS 处理。
+
+## lightningcss 的新能力
+
+lightningcss 支持现代 CSS 特性,并能自动降级到旧浏览器格式:
+
+```css
+/* 你写的 */
+.button {
+  /* CSS 嵌套 */
+  color: blue;
+  &:hover {
+    color: darkblue;
+  }
+
+  /* CSS color-mix */
+  background: color-mix(in oklch, blue 30%, white);
+
+  /* CSS 层叠层 */
+  @layer components {
+    padding: 8px 16px;
+  }
+}
+
+/* lightningcss 降级输出(旧浏览器) */
+.button {
+  color: blue;
+  background: /* 降级为 rgba(...) */;
+  padding: 8px 16px;
+}
+.button:hover {
+  color: darkblue;
+}
+```
+
+配置 lightningcss:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  css: {
+    lightningcss: {
+      // 指定浏览器目标(决定需要降级哪些特性)
+      targets: {
+        chrome: 95,
+        firefox: 95,
+        safari: 15,
+      },
+    },
+  },
+  build: {
+    cssMinify: "lightningcss", // 默认值
+  },
+})
+```
+
+## PostCSS 配置
+
+如果你的项目使用 PostCSS(常见于 Tailwind CSS 等):
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  css: {
+    postcss: {
+      plugins: [require("tailwindcss"), require("autoprefixer")],
+    },
+  },
+})
+```
+
+或者用项目根目录的 `postcss.config.js`(Vite 会自动读取):
+
+```js filename="postcss.config.js"
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+```
+
+## CSS Modules
+
+文件名带 `.module.css` 后缀会自动启用 CSS Modules:
+
+```css filename="Button.module.css"
+.button {
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+
+.primary {
+  background: blue;
+  color: white;
+}
+```
+
+```tsx filename="Button.tsx"
+import styles from "./Button.module.css"
+
+export function Button({ primary, children }) {
+  return <button className={`${styles.button} ${primary ? styles.primary : ""}`}>{children}</button>
+}
+```
+
+构建后 class 名会被 hash:`.button` → `button_HASH`。
+
+### CSS Modules 配置
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  css: {
+    modules: {
+      // 生成的 class 名格式
+      generateScopedName: "[name]__[local]___[hash:base64:5]",
+      // 例如:Button__button___abc12
+
+      // 局部类名(默认):只有显式 import 的 class 才有 scope
+      localsConvention: "camelCase", // 把 .my-button 变成 myButton
+
+      // 全局类 :global(.global-class) 不会被 scope
+    },
+  },
+})
+```
+
+## CSS 预处理器
+
+需要安装对应的包,Vite 自动识别:
+
+```bash
+# SCSS
+pnpm add -D sass
+
+# Less
+pnpm add -D less
+
+# Stylus
+pnpm add -D stylus
+```
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // 全局注入 SCSS 变量
+        additionalData: `@use "./src/styles/variables" as *;`,
+      },
+    },
+  },
+})
+```
+
+## CSS 文件的 HMR
+
+CSS 变更是 Vite HMR 里速度最快的:
+
+- **Scoped CSS**(`<style scoped>` in Vue / CSS Modules):精确替换对应的 `<style>` 标签
+- **全局 CSS**(`import "./global.css"`):替换整个样式表
+- 两者都不刷新页面,不丢失应用状态
+
+## 自测题
+
+1. Vite 8 中 CSS 压缩的默认工具是什么?与 Vite 7 有什么区别?
+2. CSS Modules 和普通 CSS 的区别是什么?什么时候应该用 CSS Modules?
+3. `lightningcss.targets` 配置有什么作用?
+4. 如果项目同时用 PostCSS 和 lightningcss,它们的执行顺序是什么?
+
+```css filename="练习"
+/* 以下 CSS 用了哪些现代特性? */
+/* lightningcss 能处理这些特性的浏览器降级吗? */
+
+.card {
+  /* 1. CSS 嵌套 */
+  padding: 16px;
+
+  & .title {
+    font-size: 1.5rem;
+    color: oklch(0.4 0.2 250);
+  }
+
+  /* 2. CSS 自定义属性范围 */
+  @scope {
+    :scope {
+      --bg: white;
+    }
+  }
+
+  /* 3. color-mix */
+  background: color-mix(in srgb, var(--brand-color) 20%, white);
+
+  /* 4. container queries */
+  container-type: inline-size;
+}
+
+@container (min-width: 400px) {
+  .card .title {
+    font-size: 2rem;
+  }
+}
+```

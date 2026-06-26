@@ -1,0 +1,236 @@
+---
+title: Hook 在 Rolldown vs Rollup 的行为差异
+description: 从 Vite 7(Rollup)到 Vite 8(Rolldown),哪些 hook 行为完全一致?哪些有细微变化?如何写出对两者都友好的插件?
+order: 7
+part: 04-hooks-deep-dive
+chapter: "4.7"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Rolldown 兼容 Rollup hook 的整体策略 - 哪些 hook 在两者之间行为一致(安全迁移) - 哪些 hook 有细微差异需要注意 - 写跨
+  bundler 兼容插件的实用模式
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「插件 API 兼容层」(2.4 节) - 了解 Rolldown 架构(2.3 节)
+</Callout>
+
+## 整体兼容策略回顾
+
+Rolldown 对 Rollup 插件 API 的兼容目标是:**让 Rollup 插件无需修改即可在 Rolldown 上运行**。
+
+这个目标在核心 hook 上基本达到了,但"基本"不等于"完全"。
+
+## 完全兼容的 Hook
+
+以下 hook 在 Rolldown 和 Rollup 上行为**完全一致**,放心使用:
+
+| Hook             | 安全性      |
+| ---------------- | ----------- |
+| `buildStart`     | ✅ 完全一致 |
+| `resolveId`      | ✅ 完全一致 |
+| `load`           | ✅ 完全一致 |
+| `transform`      | ✅ 完全一致 |
+| `buildEnd`       | ✅ 完全一致 |
+| `generateBundle` | ✅ 完全一致 |
+| `writeBundle`    | ✅ 完全一致 |
+| `closeBundle`    | ✅ 完全一致 |
+
+这些 hook 覆盖了 90% 的插件使用场景。如果你的插件只用这些 hook,迁移到 Vite 8 几乎不需要任何修改。
+
+## 需要注意的差异
+
+### 差异 1:`buildStart` 在 dev 下的触发
+
+**Rollup**:没有 dev server,`buildStart` 只在 build 开始时触发。
+
+**Vite 7(Rollup)**:`buildStart` 在 dev 模式下**不触发**。
+
+**Vite 8(Rolldown)**:`buildStart` 在 dev server 启动时**也触发**。
+
+```ts
+buildStart() {
+  // ✅ 在 Vite 8 dev 下会执行
+  // ⚠️ 在 Vite 7 dev 下不执行(只在 build 执行)
+  initializeCache()
+}
+```
+
+**影响范围**:如果插件在 `buildStart` 里做了有副作用的初始化,需要检查是否能容忍在 dev 每次热重载时也被触发。
+
+### 差异 2:AST 格式
+
+**Rollup**:使用 Acorn 解析 JS,`this.parse()` 和 `moduleParsed` 中的 AST 是 Acorn/ESTree 格式。
+
+**Rolldown**:使用 OXC 解析,AST 格式基于 ESTree 但有扩展和差异。
+
+```ts
+moduleParsed(info) {
+  // ⚠️ 直接操作 AST 的代码可能在两者间有差异
+  const ast = info.ast
+  // ast.type, ast.body 等基础字段通常一致
+  // 但某些节点的子属性可能不同
+}
+```
+
+**建议**:避免直接依赖 AST 的具体字段,优先使用 `transform` hook 做字符串级别的代码修改。
+
+### 差异 3:`renderChunk` 的 chunk 对象扩展
+
+Rolldown 的 `renderChunk` 收到的 chunk 对象在启用 Environment API 时有额外字段:
+
+```ts
+renderChunk(code, chunk) {
+  // Rollup:chunk 只有标准字段
+  // Rolldown(Env API):chunk 可能有额外字段如 environmentName
+
+  // ✅ 安全:只用标准 Rollup 字段
+  console.log(chunk.fileName, chunk.isEntry, chunk.exports)
+
+  // ⚠️ 谨慎:Rolldown 扩展字段
+  // const env = chunk.environmentName  // Rollup 下不存在
+}
+```
+
+### 差异 4:`this.resolve()` 的高级选项
+
+两者都支持 `this.resolve(id, importer, options)`,但 `options` 的支持范围略有不同:
+
+```ts
+// ✅ 基础用法,两者都支持
+const result = await this.resolve("some-module", "/path/to/importer.ts")
+
+// ⚠️ 高级选项(Rollup 支持,Rolldown 可能有差异)
+const result = await this.resolve("some-module", importer, {
+  skipSelf: true,        // 通常支持
+  custom: { ... },       // 可能有差异
+})
+```
+
+## 实用的兼容写法
+
+### 运行时检测 bundler
+
+```ts
+import type { Plugin } from "vite"
+
+export function compatPlugin(): Plugin {
+  return {
+    name: "compat-plugin",
+    renderChunk(code, chunk) {
+      // 安全地检测 Rolldown 扩展字段
+      const isRolldown = "environmentName" in chunk
+      const envName = isRolldown ? (chunk as typeof chunk & { environmentName?: string }).environmentName : "unknown"
+
+      if (isRolldown && envName === "ssr") {
+        // Rolldown + SSR 环境的特殊处理
+        return { code: `/* ssr */ ${code}`, map: null }
+      }
+
+      return null
+    },
+  }
+}
+```
+
+### 安全的 AST 操作
+
+```ts
+transform(code, id) {
+  // ✅ 优先用字符串操作,不依赖 AST 格式
+  if (!code.includes("import.meta.DEBUG")) return null
+
+  return {
+    code: code.replace(/import\.meta\.DEBUG/g, JSON.stringify(process.env.DEBUG ?? false)),
+    map: null,
+  }
+}
+```
+
+### 只用公共 API
+
+写一个给力的通用检查:
+
+```ts
+// ✅ 这些用法在 Rollup 和 Rolldown 下完全一致
+const SAFE_PATTERN = {
+  resolveId: true, // ✅
+  load: true, // ✅
+  transform: true, // ✅
+  generateBundle: true, // ✅
+
+  // 只在 build 模式用(两者都支持)
+  renderChunk: true,
+  writeBundle: true,
+
+  // 谨慎使用
+  moduleParsed: "careful", // AST 格式差异
+  this_parse: "careful", // 同上
+  this_resolve_advanced: "careful", // options 差异
+}
+```
+
+## 迁移 Vite 7 插件的检查清单
+
+```text
+迁移到 Vite 8 检查:
+
+□ buildStart 在 dev 下会被调用——检查是否有副作用
+□ 插件使用了 this.parse() 或 moduleParsed AST——测试 OXC 格式兼容性
+□ renderChunk 里访问了 chunk 对象的字段——只用标准 Rollup 字段
+□ 使用了 this.resolve() 的 custom 选项——验证行为一致
+□ 插件执行顺序依赖假设——用 enforce 显式控制
+```
+
+## 自测题
+
+1. 你的插件只用了 `resolveId` / `load` / `transform` 三个 hook,从 Vite 7 升级到 Vite 8 需要改代码吗?
+2. 为什么 `buildStart` 在 Vite 8 dev 下也触发是一个潜在的破坏性变更?举个具体例子。
+3. 如果你的插件需要操作 JS AST,如何写才能最大化兼容 Rollup 和 Rolldown?
+4. `renderChunk` 中如何安全地使用 Rolldown 的扩展字段(如 `environmentName`)而不让 Rollup 报错?
+
+```ts filename="练习"
+// 审查以下插件,指出哪些地方可能在从 Vite 7 迁移到 Vite 8 时有问题
+// 然后提出修复方案
+
+import type { Plugin } from "vite"
+
+export function problemPlugin(): Plugin {
+  let initialized = false
+
+  return {
+    name: "problem-plugin",
+
+    // A: buildStart 做全局初始化
+    buildStart() {
+      if (initialized) return // ← 问题:Vite 8 dev 下首次触发后,initialized 变 true
+      initialized = true
+      expensiveInit()
+    },
+
+    // B: 依赖 Acorn AST 格式
+    moduleParsed(info) {
+      const exports = info.ast.body
+        .filter((node: any) => node.type === "ExportNamedDeclaration")
+        .flatMap((node: any) => node.specifiers.map((s: any) => s.exported.name))
+      console.log("exports:", exports)
+    },
+
+    // C: renderChunk 使用扩展字段
+    renderChunk(code, chunk) {
+      // @ts-ignore
+      if (chunk.environmentName === "ssr") {
+        return { code: `"use server";\n${code}`, map: null }
+      }
+      return null
+    },
+  }
+}
+
+function expensiveInit() {}
+```

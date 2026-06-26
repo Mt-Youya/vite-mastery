@@ -1,0 +1,179 @@
+---
+title: "`@vitejs/plugin-react` v6 源码导读"
+description: Vite 官方 React 插件从 Babel 迁移到 OXC 的全过程——transform hook 做了什么、Fast Refresh runtime 如何注入、为什么能做到向后兼容。
+order: 3
+part: 13-real-world-plugins
+chapter: "13.3"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `@vitejs/plugin-react` v6 的核心 transform 逻辑 - OXC 如何替代 Babel 处理 JSX 和 Fast Refresh - `/@react-refresh`
+  虚拟模块的作用 - HMR runtime 的注入机制
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 理解 transform hook 的工作原理(4.3 节) - 了解 React Fast Refresh 的基本原理(6.5 节)
+</Callout>
+
+## 插件结构概览
+
+```ts
+// @vitejs/plugin-react v6 的核心结构(简化)
+export default function pluginReact(options?: Options): Plugin[] {
+  return [
+    // 插件 1:注入 Fast Refresh runtime 到入口 HTML
+    {
+      name: "vite:react-refresh-preamble",
+      enforce: "pre",
+      transformIndexHtml: injectRefreshRuntime,
+    },
+
+    // 插件 2:Transform JSX + 注入 Fast Refresh HMR 代码
+    {
+      name: "vite:react-transform",
+      enforce: "pre",
+      transform: transformReact,
+    },
+  ]
+}
+```
+
+## 核心 transform 流程
+
+```ts
+async function transformReact(code: string, id: string) {
+  // 1. 过滤:只处理 React 文件
+  if (!id.match(/\.(jsx?|tsx?)$/)) return null
+  if (id.includes("node_modules")) return null
+
+  // 2. 判断是否包含 JSX(快速路径:没有 JSX 就跳过)
+  const hasJSX = code.includes("<") || code.includes("React.createElement")
+  if (!hasJSX && !code.includes("import React")) return null
+
+  // 3. 调用 OXC 做 JSX transform + TypeScript 类型擦除
+  const transformed = await oxcTransform(code, {
+    // JSX 转换配置(对应 React 17+ 的新 JSX transform)
+    jsx: "react-jsx",
+    jsxImportSource: "react",
+    // TypeScript 支持
+    typescript: true,
+  })
+
+  // 4. 注入 React Fast Refresh 代码
+  if (shouldInjectRefresh(transformed.code)) {
+    return injectFastRefresh(transformed)
+  }
+
+  return transformed
+}
+```
+
+## Fast Refresh 注入
+
+```ts
+function injectFastRefresh(result: TransformResult): TransformResult {
+  const { code, map } = result
+
+  // 检测文件里有哪些 React 组件
+  const components = detectComponents(code)
+
+  if (components.length === 0) return result
+
+  // 注入 Fast Refresh 代码
+  const refreshCode = `
+import RefreshRuntime from "/@react-refresh"
+
+// 注册每个组件
+${components.map((c) => `RefreshRuntime.register(${c.name}, ${JSON.stringify(c.name)})`).join("\n")}
+
+// 接受 HMR 更新
+if (import.meta.hot) {
+  import.meta.hot.accept()
+  // 通知 React 做 Fast Refresh
+  if (!window.$RefreshReg$) {
+    import.meta.hot.invalidate()
+  } else {
+    RefreshRuntime.performReactRefresh()
+  }
+}
+`
+
+  return {
+    code: code + "\n\n" + refreshCode,
+    map: mergeSourceMaps(map, refreshCode),
+  }
+}
+```
+
+## `/@react-refresh` 虚拟模块
+
+这是 Fast Refresh runtime 的宿主:
+
+```ts
+// 在 transformIndexHtml 里注入 preamble
+function injectRefreshRuntime(html: string): string {
+  return html.replace(
+    "<head>",
+    `<head>
+<script type="module">
+import RefreshRuntime from "/@react-refresh"
+RefreshRuntime.injectIntoGlobalHook(window)
+window.$RefreshReg$ = () => {}
+window.$RefreshSig$ = () => (type) => type
+window.__vite_plugin_react_preamble_installed__ = true
+</script>`,
+  )
+}
+
+// /@react-refresh 虚拟模块的内容
+// 实际上是 react-refresh/runtime 的包装
+resolveId(id) {
+  if (id === "/@react-refresh") return "\0@react-refresh"
+  return null
+},
+load(id) {
+  if (id !== "\0@react-refresh") return null
+  return `
+export * from "react-refresh/runtime"
+import * as runtime from "react-refresh/runtime"
+export default runtime
+`
+},
+```
+
+## 向后兼容的关键
+
+v6 保持向后兼容的设计:
+
+1. **配置 API 不变**:`react({ ... })` 的选项签名与 v5 基本一致
+2. **行为不变**:注入的 Fast Refresh 代码格式相同
+3. **可降级到 Babel**:如果用了 `babel: { plugins: [...] }`,自动使用 Babel 处理
+
+## 自测题
+
+1. `@vitejs/plugin-react` v6 为什么要注入 `/@react-refresh` 虚拟模块而不是直接 import react-refresh?
+2. 组件检测(`detectComponents`)需要知道哪些信息?为什么需要 AST 而不是正则?
+3. `transformIndexHtml` 里注入的 preamble 脚本做了什么?为什么需要在 `<head>` 最早执行?
+4. 如果一个文件里有 TypeScript 泛型用到了尖括号 `<T>`,OXC 会误识别为 JSX 吗?
+
+```ts filename="练习"
+// 实现一个简化的 React Fast Refresh 注入器:
+// - 检测文件里的 React 函数组件(首字母大写,返回 JSX)
+// - 为每个组件注入 register 调用
+// - 在文件末尾注入 accept 代码
+
+function injectFastRefreshSimple(code: string, id: string): string {
+  // TODO:
+  // 1. 用正则找出所有形如 export function/const Upper... 的组件
+  // 2. 生成 register 语句
+  // 3. 在末尾添加 accept + performReactRefresh
+
+  // 注意:这是简化实现,生产环境需要 AST
+  return code
+}
+```

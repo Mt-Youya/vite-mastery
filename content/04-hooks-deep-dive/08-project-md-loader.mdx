@@ -1,0 +1,340 @@
+---
+title: 实战项目 2:Markdown 加载器
+description: 用 load + transform 把 .md 文件变成可热更新的 React 组件。从零实现 vite-plugin-md,理解 transform 管道的完整链路。
+order: 8
+part: 04-hooks-deep-dive
+chapter: "4.8"
+difficulty: 2
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 用 `load` hook 读取非标准文件内容 - 用 `transform` hook 把 Markdown 转换成 React 组件代码 - 为自定义文件类型添加
+  TypeScript 类型声明 - 用 `handleHotUpdate` 让 .md 文件支持 HMR - 配套实战项目:`examples/plugin-md-loader`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 完成「虚拟模块插件」实战(3.4 节) - 阅读「构建期通用 Hooks(下)」(4.3 节)中的 transform 部分
+</Callout>
+
+## 目标:让 .md 文件像组件一样 import
+
+```tsx filename="src/App.tsx"
+import Post from "./posts/hello.md"
+import Guide from "./docs/guide.md"
+
+export function App() {
+  return (
+    <div>
+      <Post /> {/* 直接当 React 组件用 */}
+      <Guide />
+    </div>
+  )
+}
+```
+
+这是很多内容驱动应用的需求:内容写在 `.md` 文件里,代码里直接 import 和渲染。
+
+## 插件设计
+
+整体流程:
+
+```text
+import Post from "./posts/hello.md"
+              │
+              ▼
+resolveId("./posts/hello.md") → 解析为文件绝对路径
+              │
+              ▼
+load("/abs/posts/hello.md")   → 读取 .md 文件内容
+              │
+              ▼
+transform(markdownCode, id)   → 把 Markdown 转换为 React 组件代码
+              │
+              ▼
+浏览器收到的是:
+  import { jsx as _jsx } from "react/jsx-runtime"
+  export default function MarkdownComponent() {
+    return _jsx("div", { dangerouslySetInnerHTML: { __html: "..." } })
+  }
+```
+
+## 步骤一:最小骨架
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    // 只拦截 .md 文件的 load
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const content = readFileSync(id, "utf-8")
+      // 先返回原始 markdown 字符串,步骤二再转换
+      return `export default ${JSON.stringify(content)}`
+    },
+  }
+}
+```
+
+此时 `import Post from "./hello.md"` 会给你一个字符串,而不是组件。
+
+## 步骤二:把 Markdown 转为 HTML
+
+安装 `marked`(Markdown 解析器,已在 package.json 里):
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const markdown = readFileSync(id, "utf-8")
+      // 把 Markdown 转换为 HTML 字符串
+      const html = marked(markdown) as string
+
+      // 临时:直接返回 HTML 字符串(还不是组件)
+      return `export default ${JSON.stringify(html)}`
+    },
+  }
+}
+```
+
+## 步骤三:包装成 React 组件
+
+把 HTML 字符串包装成 React 组件:
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const markdown = readFileSync(id, "utf-8")
+      const html = marked(markdown) as string
+
+      // 生成合法的 React 组件代码
+      return `
+import { createElement } from "react"
+
+export default function MarkdownComponent() {
+  return createElement("div", {
+    className: "markdown-body",
+    dangerouslySetInnerHTML: { __html: ${JSON.stringify(html)} },
+  })
+}
+`
+    },
+  }
+}
+```
+
+在 `vite.config.ts` 里使用:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { mdLoader } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [react(), mdLoader()],
+})
+```
+
+## 步骤四:添加 TypeScript 类型声明
+
+直接 `import Post from "./hello.md"` 会让 TypeScript 报错。需要声明模块类型:
+
+```ts filename="src/md.d.ts"
+declare module "*.md" {
+  import type { ComponentType } from "react"
+  const Component: ComponentType
+  export default Component
+}
+```
+
+把这个文件加入 `tsconfig.json` 的 `include` 路径即可。
+
+## 步骤五:添加 HMR 支持
+
+修改 `.md` 文件后,如果没有 HMR,需要手动刷新页面。实现自动热更新:
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const markdown = readFileSync(id, "utf-8")
+      const html = marked(markdown) as string
+
+      return `
+import { createElement } from "react"
+
+export default function MarkdownComponent() {
+  return createElement("div", {
+    className: "markdown-body",
+    dangerouslySetInnerHTML: { __html: ${JSON.stringify(html)} },
+  })
+}
+`
+    },
+
+    // 让 .md 文件支持 HMR
+    handleHotUpdate({ file, modules, server }) {
+      if (!file.endsWith(".md")) return
+
+      // Vite 已经自动把受影响的 ModuleNode 放在 modules 里
+      // 直接返回即可触发这些模块的 HMR
+      // (Vite 会发送 { type: "update" } 消息给浏览器)
+      return modules
+    },
+  }
+}
+```
+
+## 进阶:Frontmatter 支持
+
+很多 .md 文件有 frontmatter(YAML 头部):
+
+```markdown filename="hello.md"
+---
+title: 你好世界
+date: 2026-06-26
+tags: [vite, plugin]
+---
+
+# 正文内容
+
+...
+```
+
+扩展插件支持导出 frontmatter:
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+function parseFrontmatter(content: string): { data: Record<string, unknown>; body: string } {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
+  if (!match) return { data: {}, body: content }
+
+  // 简单 YAML 解析(仅处理 key: value 格式)
+  const data: Record<string, unknown> = {}
+  for (const line of match[1].split("\n")) {
+    const colonIdx = line.indexOf(":")
+    if (colonIdx === -1) continue
+    const key = line.slice(0, colonIdx).trim()
+    const val = line
+      .slice(colonIdx + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "")
+    data[key] = val
+  }
+
+  return { data, body: match[2] }
+}
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const content = readFileSync(id, "utf-8")
+      const { data: frontmatter, body } = parseFrontmatter(content)
+      const html = marked(body) as string
+
+      return `
+import { createElement } from "react"
+
+export const frontmatter = ${JSON.stringify(frontmatter)}
+
+export default function MarkdownComponent() {
+  return createElement("div", {
+    className: "markdown-body",
+    dangerouslySetInnerHTML: { __html: ${JSON.stringify(html)} },
+  })
+}
+`
+    },
+    handleHotUpdate({ file, modules }) {
+      if (!file.endsWith(".md")) return
+      return modules
+    },
+  }
+}
+```
+
+使用:
+
+```tsx
+import Post, { frontmatter } from "./posts/hello.md"
+
+console.log(frontmatter.title)  // "你好世界"
+<Post />
+```
+
+## 运行实战项目
+
+```bash
+cd examples/plugin-md-loader
+pnpm install
+pnpm dev
+```
+
+查看 `src/posts/hello.md`,修改内容,浏览器会自动热更新。
+
+## 自测题
+
+1. 为什么这个插件用 `load` 而不是 `transform`?两者都能工作,区别是什么?
+2. 返回的代码字符串为什么必须是合法的 ES Module 格式?
+3. `handleHotUpdate` 里的 `modules` 参数是 Vite 自动计算的还是需要你手动提供?
+4. 如果你想支持 `.mdx` 文件(同时有 JSX),需要改哪里?
+
+```ts filename="练习"
+// 扩展 mdLoader 插件:
+// 1. 支持代码块语法高亮(用 Shiki)
+// 2. 支持 .mdx 文件扩展名
+// 3. 在生成的组件里自动添加 className="prose"
+
+// 提示:
+// - 语法高亮:在调用 marked 之前,配置 marked 使用自定义 highlight 函数
+// - .mdx 扩展名:修改文件过滤条件
+// - className:修改 createElement 的第二个参数
+
+import type { Plugin } from "vite"
+
+export function enhancedMdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md-enhanced",
+    // TODO
+  }
+}
+```

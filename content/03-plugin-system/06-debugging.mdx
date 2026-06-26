@@ -1,0 +1,239 @@
+---
+title: 调试 Vite 插件
+description: 插件不生效?Hook 没触发?用 Vite Devtools、DEBUG 模式、插件 Inspector 三种工具快速定位问题。
+order: 6
+part: 03-plugin-system
+chapter: "3.6"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 8 内置 Devtools 的用法 - `DEBUG=vite:*` 环境变量能看到什么 - `vite-plugin-inspect` 插件的核心功能 - 调试 hook
+  不触发的系统排查步骤
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 完成「插件结构剖析」和「插件执行顺序」章节 - 了解基本的 Chrome DevTools 用法
+</Callout>
+
+## 最常见的插件问题
+
+插件开发过程中,最高频的两类问题:
+
+1. **Hook 没有被调用** — 插件配置了 `transform`,但运行时根本没执行
+2. **Hook 执行了但结果不对** — 代码执行了,但 transform 后的内容不符合预期
+
+调试这两类问题有三层工具:从最简单到最强大。
+
+## 第一层:console.log(最直接)
+
+调试 hook 是否触发,最快的方式就是在关键位置加日志:
+
+```ts filename="my-plugin.ts"
+import type { Plugin } from "vite"
+
+export function myPlugin(): Plugin {
+  return {
+    name: "vite-plugin-my",
+
+    configResolved(config) {
+      console.log("[my-plugin] configResolved,模式:", config.mode)
+    },
+
+    transform(code, id) {
+      if (!id.endsWith(".tsx")) return null
+
+      console.log("[my-plugin] transform:", id.split("/").slice(-2).join("/"))
+
+      const result = doTransform(code)
+      return { code: result, map: null }
+    },
+
+    generateBundle(_, bundle) {
+      console.log("[my-plugin] generateBundle,共", Object.keys(bundle).length, "个 chunk")
+    },
+  }
+}
+
+function doTransform(code: string) {
+  return code
+}
+```
+
+**技巧**:用 `[插件名]` 前缀区分不同插件的日志,避免混淆。
+
+## 第二层:DEBUG 环境变量
+
+Vite 内部有详细的调试日志,默认不显示。通过环境变量开启:
+
+```bash
+# 显示所有 Vite 内部日志
+DEBUG=vite:* pnpm dev
+
+# 只看特定模块的日志
+DEBUG=vite:resolve pnpm dev     # 模块解析
+DEBUG=vite:transform pnpm dev   # transform 管道
+DEBUG=vite:hmr pnpm dev         # HMR 相关
+DEBUG=vite:deps pnpm dev        # 依赖预构建
+```
+
+`DEBUG=vite:resolve` 的输出示例:
+
+```text
+  vite:resolve resolve: react → /node_modules/.vite/deps/react.js +2ms
+  vite:resolve resolve: ./App.tsx → /src/App.tsx +0ms
+  vite:resolve resolve: ./Button.tsx → /src/Button.tsx +1ms
+```
+
+如果你的插件返回了一个 ID 但后续 load 没有被调用,`DEBUG=vite:resolve` 可以帮助看到 resolve 链路。
+
+## 第三层:vite-plugin-inspect
+
+`vite-plugin-inspect` 是插件调试的"杀手级"工具。它记录每个模块经过每个插件处理后的状态:
+
+```bash
+pnpm add -D vite-plugin-inspect
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import Inspect from "vite-plugin-inspect"
+
+export default defineConfig({
+  plugins: [
+    Inspect(), // 仅 dev 模式生效
+    myPlugin(),
+  ],
+})
+```
+
+启动 dev server 后访问 `http://localhost:5173/__inspect`:
+
+```text
+┌─────────────────────────────────────────┐
+│  vite-plugin-inspect                    │
+│                                         │
+│  Modules: 42 processed                  │
+│                                         │
+│  src/App.tsx                            │
+│    ├── vite:resolve       0ms           │
+│    ├── my-plugin          2ms  [modified]│
+│    ├── @vitejs/plugin-react 5ms [modified]│
+│    └── vite:esbuild       1ms  [modified]│
+│                                         │
+│  Click any row to see the diff →        │
+└─────────────────────────────────────────┘
+```
+
+每个模块的 transform 链路都可以展开查看,包括每个插件的处理前后 diff。
+
+## Vite 8 内置 Devtools
+
+Vite 8 在 `vite.config.ts` 里提供了 `devtools` 选项:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  devtools: {
+    // 在 dev server 里暴露调试信息
+    // 具体选项以 Vite 8.1.x 官方文档为准
+  },
+})
+```
+
+<Callout type="warning">
+  Vite 8 Devtools 的具体 API 在 8.1.x 版本中处于完善阶段,建议以官方文档
+  [vitejs.dev/config/devtools](https://vitejs.dev/config/) 为准。本章重点介绍已稳定的调试工具。
+</Callout>
+
+## 系统排查步骤
+
+当一个 hook 不工作时,按下面的顺序排查:
+
+### 步骤 1:确认插件被注册了
+
+```ts
+// 错误:忘记调用插件工厂函数
+plugins: [myPlugin] // ❌ myPlugin 是函数,不是插件对象
+
+// 正确:
+plugins: [myPlugin()] // ✅
+```
+
+### 步骤 2:确认 `apply` 条件满足
+
+```ts
+{
+  name: "my-plugin",
+  apply: "build",  // ← 只在 build 时运行
+  transform(code, id) {
+    // dev 模式下永远不执行!
+  },
+}
+```
+
+如果你在 `pnpm dev` 里看不到日志,检查 `apply` 是否设置了 `"build"`。
+
+### 步骤 3:确认文件过滤条件正确
+
+```ts
+transform(code, id) {
+  // 常见错误:扩展名判断遗漏了变体
+  if (!id.endsWith(".ts")) return null  // ❌ 漏掉了 .tsx
+
+  // 正确:
+  if (!/\.(ts|tsx)$/.test(id)) return null  // ✅
+
+  // 另一个常见错误:忘记过滤 node_modules
+  if (id.includes("node_modules")) return null  // 加上这个
+}
+```
+
+### 步骤 4:确认 hook 调用约定
+
+`resolveId` 使用 **first(竞争)**调用约定:第一个返回非 null 的插件获胜。如果另一个高优先级的插件先返回了结果,你的 `resolveId` 可能根本没机会执行。
+
+```ts
+// 检查:你的虚拟模块 ID 是否被另一个插件先拦截了?
+resolveId(id) {
+  console.log("resolveId called:", id)  // 先确认它被调用了
+  if (id === "virtual:my-module") return "\0virtual:my-module"
+  return null
+},
+```
+
+### 步骤 5:用 vite-plugin-inspect 看 transform 链路
+
+如果上面步骤都没问题,用 `vite-plugin-inspect` 查看这个文件的完整 transform 链路,确认你的插件出现在链路里以及处理结果是否符合预期。
+
+## 自测题
+
+1. `DEBUG=vite:resolve` 和 `DEBUG=vite:transform` 分别适合调试什么问题?
+2. 设置了 `apply: "serve"` 的插件,在 `pnpm build` 时 hook 会被调用吗?
+3. `resolveId` 用的是竞争(first)调用约定,这对调试有什么影响?
+4. 以下代码有什么 bug?如何调试发现它?
+
+```ts
+export function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    transform(code, id) {
+      if (id.endsWith(".vue")) return null // 不处理 .vue
+      if (!id.endsWith(".ts")) return null // 只处理 .ts
+
+      return {
+        code: code.replace("__BUILD_TIME__", new Date().toISOString()),
+        map: null,
+      }
+    },
+  }
+}
+
+// 问题:项目里有 App.tsx 文件,但这个插件从来不处理它
+// 为什么?如何修复?
+```

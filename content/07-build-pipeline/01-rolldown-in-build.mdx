@@ -1,0 +1,188 @@
+---
+title: Rolldown 在 Vite 8 构建中的角色
+description: 生产构建从 Rollup 切换到 Rolldown 之后,构建配置有什么变化?已有的 rollupOptions 还能用吗?Rolldown 专属配置怎么写?
+order: 1
+part: 07-build-pipeline
+chapter: "7.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 8 构建使用 Rolldown 的具体变化 - `rollupOptions` 在 Vite 8 中还有效吗 - Rolldown 专属配置项 - 从 Vite 7 迁移
+  build 配置的注意事项
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Rolldown 是什么」(2.2 节) - 了解基本的 `vite build` 流程
+</Callout>
+
+## build.rollupOptions 还有效吗
+
+是的,**完全有效**。这是 Vite 8 设计的核心承诺之一——`rollupOptions` 向后兼容:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  build: {
+    // ✅ 这些配置在 Vite 8 Rolldown 下全部有效
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        admin: "admin.html",
+      },
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          utils: ["lodash-es", "date-fns"],
+        },
+        chunkFileNames: "assets/[name]-[hash].js",
+        entryFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+      external: ["some-cdn-lib"],
+    },
+  },
+})
+```
+
+## 主要 build 配置速查
+
+| 配置项                        | 默认值                        | 说明                      |
+| ----------------------------- | ----------------------------- | ------------------------- |
+| `build.outDir`                | `"dist"`                      | 产物输出目录              |
+| `build.assetsDir`             | `"assets"`                    | 静态资源子目录            |
+| `build.sourcemap`             | `false`                       | 产物 source map           |
+| `build.minify`                | `"esbuild"`                   | 压缩器                    |
+| `build.target`                | `"baseline-widely-available"` | 浏览器兼容目标            |
+| `build.cssMinify`             | `"lightningcss"`              | CSS 压缩器(Vite 8 新默认) |
+| `build.lib`                   | `undefined`                   | 库模式配置                |
+| `build.chunkSizeWarningLimit` | `500`                         | chunk 大小警告阈值(KB)    |
+
+## Vite 8 的压缩配置变化
+
+<V7Note title="Vite 7:CSS 用 esbuild 压缩">
+  在 Vite 7 中,CSS 压缩默认使用 esbuild。Vite 8 切换到 **lightningcss** 作为默认 CSS 压缩器。
+
+`lightningcss` 用 Rust 实现,支持更多现代 CSS 特性:嵌套规则、color-mix、层叠层(layer)等。
+
+迁移注意:如果你的 CSS 依赖某些 esbuild 特有的行为,可能需要验证 lightningcss 的输出。要恢复旧行为:
+
+```ts
+build: {
+  cssMinify: "esbuild" // 明确指定回 esbuild
+}
+```
+
+</V7Note>
+
+## JS 压缩配置
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  build: {
+    // JS 压缩器(Vite 8 仍默认 esbuild,Rolldown 内置 OXC minifier 也可用)
+    minify: "esbuild", // "esbuild" | "terser" | false
+
+    // OXC minifier(Rolldown 内置,Vite 8 实验性)
+    // minify: "rolldown",  // 使用 Rolldown 内置 OXC minifier
+  },
+})
+```
+
+## 多入口构建
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: {
+        // 多个 HTML 入口
+        index: resolve("index.html"),
+        about: resolve("about.html"),
+        admin: resolve("admin/index.html"),
+      },
+    },
+  },
+})
+```
+
+产物:
+
+```text
+dist/
+  index.html
+  about.html
+  admin/index.html
+  assets/
+    index-HASH.js
+    about-HASH.js
+    admin-HASH.js
+    vendor-HASH.js  ← 共享 chunk
+```
+
+## 代码分割策略
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        // 手动控制 chunk 分割
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            // 把所有 node_modules 按包名分割
+            const packageName = id.match(/node_modules\/(.+?)\//)?.[1]
+            if (packageName) {
+              // react 相关放一起
+              if (["react", "react-dom", "react-router-dom"].includes(packageName)) {
+                return "react-vendor"
+              }
+              // 其他大包各自分割
+              if (["lodash-es", "date-fns", "axios"].includes(packageName)) {
+                return packageName
+              }
+              // 其余打进 vendor
+              return "vendor"
+            }
+          }
+        },
+      },
+    },
+  },
+})
+```
+
+## 自测题
+
+1. Vite 7 的 `rollupOptions` 配置在 Vite 8 里还能用吗?为什么?
+2. Vite 8 中 CSS 压缩的默认工具从什么变成了什么?
+3. `build.minify: "esbuild"` 和 `build.minify: false` 有什么区别?各适合什么场景?
+4. 如何配置 Vite 同时构建多个 HTML 入口?
+
+```ts filename="练习"
+// 配置一个多页面应用的 Vite build:
+// - 有 3 个页面:index.html、dashboard.html、settings.html
+// - react 和 react-dom 单独打成 react-vendor.js
+// - lodash-es 单独一个 chunk
+// - 启用 sourcemap
+// - CSS 用 lightningcss 压缩
+
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    // TODO
+  },
+})
+```

@@ -1,0 +1,195 @@
+---
+title: 依赖预构建
+description: Vite 为什么要预构建 node_modules?Rolldown 接管预构建后有什么变化?.vite/deps 缓存是怎么工作的?
+order: 3
+part: 01-core-concepts
+chapter: "1.3"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 依赖预构建(Dependency Pre-Bundling)是什么,解决了什么问题 - `.vite/deps/` 目录里存的是什么 -
+  预构建的触发条件和缓存机制 - Vite 8 中 Rolldown 接管预构建带来的变化
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Native ESM」(1.1 节)—— 理解裸模块导入的问题 - 了解 `node_modules` 的基本概念
+</Callout>
+
+## 为什么需要预构建
+
+上一节提到,浏览器不认识 `import "react"` 这种裸模块路径。但问题不止于此。
+
+### 问题一:CommonJS 格式不兼容
+
+`node_modules` 里大量的包是 **CommonJS(CJS)** 格式:
+
+```js
+// node_modules/some-old-package/index.js
+const utils = require("./utils")
+module.exports = { doSomething: utils.doSomething }
+```
+
+浏览器原生 ESM 根本不认识 `require` 和 `module.exports`。这类包必须先转换成 ESM 格式才能在浏览器里用。
+
+### 问题二:请求数量爆炸
+
+某些 npm 包内部有几百个文件互相 import。如果全部让浏览器按 ESM 方式递归请求,首次加载时网络请求数可能达到几百上千个,把 dev server 压垮。
+
+典型例子:lodash-es 有约 600 个独立文件。不预构建的话,`import _ from "lodash-es"` 会触发 600+ 个 HTTP 请求。
+
+预构建把 lodash-es 的所有文件**合并成一个**:
+
+```text
+原始:lodash-es/
+  ├── array.js
+  ├── chunk.js
+  ├── (600+ 更多文件...)
+
+预构建后:.vite/deps/
+  └── lodash-es.js  ← 一个文件!
+```
+
+## `.vite/deps/` 目录
+
+运行 `pnpm dev` 后,会生成 `.vite/deps/` 目录:
+
+```text
+.vite/deps/
+├── react.js             ← React 预构建版本
+├── react.js.map         ← Source map
+├── react-dom.js
+├── react-dom.js.map
+├── lodash-es.js         ← 600 个文件合并成 1 个
+├── chunk-XXXX.js        ← 共享 chunk(如果多个包有公共依赖)
+└── _metadata.json       ← 缓存元数据
+```
+
+`_metadata.json` 记录了:
+
+- 预构建了哪些包
+- 每个包对应的 hash(用于缓存失效判断)
+- 预构建时的配置快照
+
+## 预构建的触发条件
+
+Vite 会在以下情况触发(重新)预构建:
+
+| 触发条件                          | 举例                    |
+| --------------------------------- | ----------------------- |
+| 首次运行                          | `.vite/deps/` 不存在    |
+| 新增了 npm 依赖                   | `pnpm add axios` 后     |
+| 删除了 npm 依赖                   | `pnpm remove lodash` 后 |
+| 配置了新的 `optimizeDeps.include` | 手动指定预构建范围      |
+| `node_modules` 内容变化           | 更新了某个包的版本      |
+| Vite 配置文件变化                 | 修改了 `vite.config.ts` |
+
+开发过程中,Vite 也会自动检测:如果浏览器请求了一个还未预构建的包,Vite 会**立即触发增量预构建**,然后刷新页面。
+
+你可能见过这个控制台输出:
+
+```text
+[vite] new dependencies optimized: some-new-package
+[vite] page reload
+```
+
+这就是增量预构建完成后的页面刷新。
+
+## 手动控制预构建范围
+
+大多数情况下 Vite 自动处理得很好,但有时候需要手动介入:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  optimizeDeps: {
+    // 强制预构建这些包(即使 Vite 自动检测没发现)
+    include: [
+      "some-package",
+      "lodash-es/debounce", // 可以指定到子路径
+    ],
+
+    // 排除某些包不预构建(通常是已经是 ESM 的包)
+    exclude: ["@vite-mastery/ui"],
+
+    // 禁用自动扫描(仅使用 include 列表)
+    // noDiscovery: true,
+  },
+})
+```
+
+**何时需要 `include`**:
+
+- 某个包是 CommonJS,但 Vite 的扫描没发现它(例如动态 import)
+- 某个包内部依赖太多,需要预打包
+
+**何时需要 `exclude`**:
+
+- 包已经是 ESM 且单文件,预构建反而浪费时间
+- 包需要在每次请求时重新加载(例如开发中的本地 workspace 包)
+
+## 强制重新预构建
+
+如果预构建缓存出问题(罕见),可以清空:
+
+```bash
+# 方法一:删除缓存目录
+rm -rf node_modules/.vite
+
+# 方法二:启动时加 --force 参数
+pnpm vite --force
+```
+
+<V7Note title="Vite 7 与 Vite 8 的预构建差异">
+  在 Vite 7 中,依赖预构建使用 **esbuild** 执行。Vite 8 切换到 **Rolldown** 执行预构建。
+
+对大多数项目:
+
+- 体感变化不大(预构建结果相同)
+- 性能可能略有不同(Rolldown 在某些场景更快)
+- 缓存路径从 `node_modules/.vite/deps/` 变成同路径(未变)
+
+如果从 Vite 7 升级到 Vite 8,建议删除旧缓存再启动:`rm -rf node_modules/.vite`
+
+</V7Note>
+
+## 预构建与 HMR 的关系
+
+预构建只针对 **`node_modules` 里的第三方依赖**,你的项目源码(`src/`)不会被预构建。
+
+- **第三方依赖**(`react` / `lodash-es`):预构建,缓存,几乎不触发 HMR
+- **项目源码**(`src/`):不预构建,每次请求按需 transform,支持 HMR
+
+这个划分是 Vite 性能的关键之一:第三方依赖通常很少改变,只需预构建一次;项目源码改动频繁,所以走按需 transform + HMR。
+
+## 自测题
+
+1. 依赖预构建要解决哪两个核心问题?各举一个实际场景。
+2. `.vite/deps/_metadata.json` 文件里记录了什么?有什么用途?
+3. `optimizeDeps.include` 和 `optimizeDeps.exclude` 分别在什么场景下使用?
+4. 为什么项目源码不做预构建,而只有 `node_modules` 里的包才预构建?
+
+```ts filename="练习"
+// 以下情况下,Vite 会重新触发预构建吗?
+// 判断并解释原因:
+
+// 情况 A:修改了 src/App.tsx
+// 情况 B:执行了 pnpm add dayjs
+// 情况 C:修改了 vite.config.ts 里的 resolve.alias
+// 情况 D:修改了 node_modules/react/index.js(直接手改)
+// 情况 E:运行了 pnpm update react
+
+// 另外:写出配置,让 Vite 预构建 "some-cjs-package" 但不预构建 "@my/local-package"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  optimizeDeps: {
+    // TODO
+  },
+})
+```

@@ -1,0 +1,197 @@
+---
+title: 插件执行顺序深探
+description: enforce pre/normal/post 怎么排序?内置插件在哪里插队?用 PluginPipeline 组件把整条执行链可视化。
+order: 3
+part: 03-plugin-system
+chapter: "3.3"
+difficulty: 2
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 插件完整的执行顺序规则 - 内置插件(vite:xxx)在链条里的位置 - 多个插件修改同一个文件时如何协作 - `PluginPipeline`
+  组件:可视化你的插件配置
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「插件解剖」(3.2 节)——理解 `enforce` 和 `apply` - 了解 middleware 中间件模式的概念
+</Callout>
+
+## 完整执行顺序
+
+把所有插件按顺序排开,大致是这样:
+
+```text
+1. enforce: "pre" 的用户插件
+2. Vite 内置插件(别名解析、import 分析等)
+3. enforce 不填的用户插件
+4. Vite 内置核心插件(文件服务、CSS、JSON...)
+5. enforce: "post" 的用户插件
+6. Vite 内置 post 插件(build 产物压缩等)
+```
+
+这条链条是针对**每个 hook 单独计算**的——不是"整个插件"前后排列,而是每个 hook 调用时按上面的顺序决定谁先执行。
+
+用 `PluginPipeline` 可视化一组典型配置:
+
+<PluginPipeline
+  plugins={[
+    {
+      name: "vite-plugin-html",
+      enforce: "pre",
+      hooks: ["transformIndexHtml", "resolveId"],
+      description: "处理 HTML 中的资源引用",
+    },
+    { name: "my-virtual-plugin", enforce: "pre", hooks: ["resolveId", "load"], description: "虚拟模块插件" },
+    { name: "vite:alias", hooks: ["resolveId"], description: "Vite 内置别名解析" },
+    { name: "@vitejs/plugin-react", hooks: ["transform", "buildStart"], description: "React JSX + Fast Refresh" },
+    { name: "vite:css", hooks: ["load", "transform"], description: "CSS Modules / PostCSS" },
+    {
+      name: "vite-plugin-legacy",
+      enforce: "post",
+      hooks: ["generateBundle", "renderChunk"],
+      description: "旧浏览器兼容 polyfill",
+    },
+  ]}
+/>
+
+## 以 `transform` 为例走一遍
+
+假设浏览器请求了 `src/App.tsx`,Vite 拿到这个文件后会依次调用每个插件的 `transform`:
+
+```text
+请求: src/App.tsx
+  │
+  ├── [pre] vite-plugin-html.transform   → 不处理 .tsx,return null → 跳过
+  ├── [pre] my-virtual-plugin.transform  → 不处理 .tsx,return null → 跳过
+  ├── [内置] vite:define.transform       → 替换 import.meta.env 变量
+  ├── [normal] @vitejs/plugin-react.transform → 编译 JSX → return { code, map }
+  │                                            ↑ 拿到上一步的 code 继续处理
+  ├── [内置] vite:esbuild.transform      → TypeScript 类型擦除
+  └── [post] ...                         → 通常没有 post transform
+```
+
+每个 `transform` 都接收**上一个**的输出(code + sourcemap),像管道一样传递。
+
+<Callout type="warning">
+  每个 `transform` 收到的 `code` 是上一个插件修改后的版本,不是原始文件内容。如果你的插件需要原始内容,在 `transform`
+  之前就要拿到(比如 `load` 阶段)。
+</Callout>
+
+## `resolveId` 的竞争执行
+
+与 `transform` 的顺序执行不同,`resolveId` 使用**竞争(First)模式**:
+
+```text
+import "virtual:my-module"
+  │
+  ├── [pre] my-virtual-plugin.resolveId → return "\0virtual:my-module" ✓
+  │                                       ← 返回了!后面的插件不再执行
+  ├── [内置] vite:alias → 不执行
+  └── ...
+```
+
+这是合理的设计:路径解析一旦命中就不需要继续查找。正因如此,**虚拟模块插件通常设 `enforce: "pre"`**,确保在 Vite 内置解析器之前命中。
+
+<V7Note title="Vite 7 中 resolveId 的行为一致">
+  `resolveId` 的竞争语义来自 Rollup,Vite 7 和 Vite 8 均沿用,无差异。
+</V7Note>
+
+## 多个插件共同处理同一文件
+
+实际项目里,一个 `.vue` 文件可能经过三四个插件:
+
+```text
+App.vue
+  ↓ @vitejs/plugin-vue.transform → 编译 template/script/style,输出 JS
+  ↓ vite:css-inline.transform    → 处理 <style> 提取出的 CSS
+  ↓ vite:define.transform        → 替换环境变量
+  ↓ vite:esbuild.transform       → 处理剩余的 TS 类型
+```
+
+每个插件只负责自己关心的部分,其余的 `return null`(表示"我不处理,传给下一个")。
+
+`null` 和 `return { code }` 的区别:
+
+- `return null` / `return undefined` → 不修改,传给下一个插件原样处理
+- `return { code }` → 本插件修改了代码,下一个插件收到修改后的版本
+- `return { code, map }` → 同时提供 source map,保证调试准确
+
+## 用 `this` 访问 Rolldown 上下文
+
+在 hook 函数里,`this` 指向 Rolldown 的**插件上下文**,提供了很多实用方法:
+
+```ts filename="my-plugin.ts"
+import type { Plugin } from "vite"
+
+export function myPlugin(): Plugin {
+  return {
+    name: "vite-plugin-my",
+    async transform(code, id) {
+      // 读取另一个模块(会触发完整的 resolve + load 流程)
+      const { code: utilsCode } = await this.load({ id: "/src/utils.ts" })
+
+      // 发出警告(不中断构建)
+      this.warn(`处理 ${id} 时遇到了兼容性问题`)
+
+      // 报错(中断构建)
+      // this.error("无法处理此文件")
+
+      // 触发该模块的 watch
+      this.addWatchFile("/src/config.json")
+
+      return { code }
+    },
+  }
+}
+```
+
+## 调试插件执行顺序
+
+不确定自己的插件有没有被执行?在关键 hook 里加 `console.log`:
+
+```ts filename="debug-plugin.ts"
+import type { Plugin } from "vite"
+
+export function debugPlugin(): Plugin {
+  return {
+    name: "vite-plugin-debug",
+    enforce: "pre", // 尽量早执行
+    transform(code, id) {
+      if (id.endsWith(".tsx")) {
+        console.log(`[debug] transform: ${id.split("/").slice(-2).join("/")}`)
+      }
+      return null // 不修改代码
+    },
+  }
+}
+```
+
+也可以用 Vite 的调试模式启动,会打印更详细的插件执行信息:
+
+```bash
+DEBUG=vite:* pnpm dev
+```
+
+## 自测题
+
+1. `enforce: "pre"` 的插件是否一定在所有 Vite 内置插件之前?给出一个反例。
+2. 如果两个 `enforce: "pre"` 的插件都有 `transform`,谁先执行?
+3. 为什么虚拟模块插件（`resolveId` 返回 `\0` 开头的 ID）通常要设 `enforce: "pre"`?
+4. `transform` 里 `return null` 和 `return { code: originalCode }` 有什么不同?
+
+```ts filename="练习"
+// 写一个插件,在所有 .ts 文件的 transform 之后统计:
+// - 共处理了多少个 .ts 文件
+// - 其中有多少个包含 "TODO" 注释
+// 在 buildEnd 时打印统计结果
+
+import type { Plugin } from "vite"
+
+export function todoCounter(): Plugin {
+  // TODO
+}
+```

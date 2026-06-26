@@ -1,0 +1,81 @@
+---
+title: Vite 插件 vs Rollup 插件
+description: 两套 hook 体系怎么共存 / 互通,以及决定写哪种插件的判断流程。
+order: 1
+part: 03-plugin-system
+chapter: "3.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-25"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 插件和 Rollup 插件的关系 - Vite 独有 hooks 何时被调用 - 一个 Rollup 插件能不能不改代码就用在 Vite 上
+</Callout>
+
+## 一句话总结
+
+**Vite 插件就是 Rollup 插件 + 几个 Vite 独有 hook**。所以绝大多数 Rollup 插件可以直接用在 Vite 里,反之不一定。
+
+## 共享的 hook(构建期通用)
+
+这些 hook 在 dev 和 build 阶段都会被调用:
+
+- `options`
+- `buildStart`
+- `resolveId`
+- `load`
+- `transform`
+- `buildEnd`
+- `generateBundle`(只在 build)
+- `writeBundle`(只在 build)
+
+## Vite 独有 hook
+
+| Hook                     | 时机                  | 典型场景                      |
+| ------------------------ | --------------------- | ----------------------------- |
+| `config`                 | 解析用户配置之前      | 注入默认值、改 alias          |
+| `configResolved`         | 配置确定后            | 拿到最终配置做后续准备        |
+| `configureServer`        | dev server 启动时     | 注入 middleware               |
+| `configurePreviewServer` | preview server 启动时 | 同上,但用于 `vite preview`    |
+| `transformIndexHtml`     | 处理 `index.html` 时  | 注入 script / meta / 注入数据 |
+| `handleHotUpdate`        | HMR 发生时            | 自定义热更新行为              |
+
+## 一个最小的 Vite 插件
+
+```ts
+// my-plugin.ts
+import type { Plugin } from "vite"
+
+export function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    resolveId(id) {
+      if (id === "virtual:hello") return id
+    },
+    load(id) {
+      if (id === "virtual:hello") {
+        return `export default "hello from virtual module"`
+      }
+    },
+  }
+}
+```
+
+这就是一个完整的 Vite 插件。**它实际上只用了 Rollup 的 hooks**,所以拿到 Rollup 项目里也能跑。
+
+## 决策树:我该写哪种?
+
+```text
+你的插件用到了 dev server / index.html / HMR 吗?
+  ├── 用到了 → 写 Vite 插件(用 enforce / apply 控制范围)
+  └── 没用到 → 写 Rollup 插件,Vite 自动兼容
+```
+
+## 自测题
+
+1. `transformIndexHtml` 为什么是 Vite 独有,而不是 Rollup 的标准 hook?
+2. 一个用了 `configureServer` 的插件,会在 build 阶段被调用吗?
+3. 写一个虚拟模块插件,导出当前 git commit hash。

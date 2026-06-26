@@ -1,0 +1,198 @@
+---
+title: "`vite-plugin-pages` 源码导读"
+description: 扫描文件系统,自动生成路由——这个"魔法"是怎么实现的?glob 扫描、虚拟模块、HMR 更新路由表。
+order: 2
+part: 13-real-world-plugins
+chapter: "13.2"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 文件路由的实现原理 - 扫描文件系统生成路由配置 - 用虚拟模块暴露路由表 - 当文件增删时 HMR 更新路由
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 理解虚拟模块插件(3.4 节) - 了解 handleHotUpdate hook(6.3 节)
+</Callout>
+
+## 功能目标
+
+```text
+pages/
+  index.tsx          → route "/"
+  about.tsx          → route "/about"
+  blog/
+    index.tsx        → route "/blog"
+    [id].tsx         → route "/blog/:id"
+    [...all].tsx     → route "/blog/*"
+
+自动生成路由配置:
+[
+  { path: "/", component: () => import("./pages/index.tsx") },
+  { path: "/about", component: ... },
+  { path: "/blog", component: ... },
+  { path: "/blog/:id", component: ... },
+]
+```
+
+## 核心实现:glob 扫描
+
+```ts
+import { globSync } from "node:fs"
+import { resolve, relative, basename, dirname } from "node:path"
+
+interface Route {
+  path: string
+  component: string
+  children?: Route[]
+}
+
+function scanPages(pagesDir: string): Route[] {
+  const pattern = resolve(pagesDir, "**/*.{tsx,jsx,vue}")
+  const files = globSync(pattern)
+
+  return files.map((file) => {
+    const relativePath = relative(pagesDir, file)
+    const routePath = filePathToRoutePath(relativePath)
+    return {
+      path: routePath,
+      component: file,
+    }
+  })
+}
+
+function filePathToRoutePath(filePath: string): string {
+  // pages/blog/[id].tsx → /blog/:id
+  return (
+    "/" +
+      filePath
+        .replace(/\.(tsx|jsx|vue)$/, "") // 去掉扩展名
+        .replace(/index$/, "") // index → 空(代表父路径)
+        .replace(/\[\.\.\.(\w+)\]/, "*") // [...all] → *
+        .replace(/\[(\w+)\]/, ":$1") // [id] → :id
+        .replace(/\/$/, "") || // 去掉末尾斜杠
+    "/"
+  )
+}
+```
+
+## 用虚拟模块暴露路由
+
+```ts
+import type { Plugin } from "vite"
+
+const VIRTUAL_ID = "virtual:pages"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function pagesPlugin(options: { pagesDir: string }): Plugin {
+  let routes: Route[] = []
+
+  function loadRoutes() {
+    routes = scanPages(options.pagesDir)
+  }
+
+  function generateCode(): string {
+    const routeImports = routes
+      .map((r, i) => `const page${i} = () => import(${JSON.stringify(r.component)})`)
+      .join("\n")
+
+    const routeArray = routes.map((r, i) => `{ path: ${JSON.stringify(r.path)}, component: page${i} }`).join(",\n  ")
+
+    return `
+${routeImports}
+
+export default [
+  ${routeArray}
+]
+`
+  }
+
+  return {
+    name: "vite-plugin-pages",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      loadRoutes()
+
+      // 监听 pages 目录变化
+      this.addWatchFile(options.pagesDir)
+
+      return generateCode()
+    },
+
+    // 文件增删时更新路由
+    handleHotUpdate({ file, server }) {
+      if (!file.startsWith(resolve(options.pagesDir))) return
+
+      // 使路由虚拟模块失效
+      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+    },
+  }
+}
+```
+
+## 嵌套路由的处理
+
+```ts
+function scanPagesNested(pagesDir: string): Route[] {
+  const flat = scanPages(pagesDir)
+
+  // 构建树形结构
+  const routeMap = new Map<string, Route>()
+  const roots: Route[] = []
+
+  for (const route of flat) {
+    const parent = route.path.split("/").slice(0, -1).join("/")
+    routeMap.set(route.path, { ...route, children: [] })
+  }
+
+  for (const [path, route] of routeMap) {
+    const parentPath = path.split("/").slice(0, -1).join("/") || "/"
+    const parent = routeMap.get(parentPath)
+
+    if (parent && parent !== route) {
+      parent.children = parent.children ?? []
+      parent.children.push(route)
+    } else {
+      roots.push(route)
+    }
+  }
+
+  return roots
+}
+```
+
+## 自测题
+
+1. `pages/[id].tsx` 为什么映射到 `:id` 而不是 `$id` 或其他格式?
+2. 为什么要用虚拟模块而不是直接生成一个真实的 JS 文件?
+3. 当用户新建一个页面文件时,`handleHotUpdate` 为什么能检测到?
+4. 如何处理 `pages/blog/index.tsx` 和 `pages/blog.tsx` 的冲突?
+
+```ts filename="练习"
+// 扩展 pagesPlugin:
+// 1. 支持路由级别的元数据(从文件的 export const meta = {} 读取)
+// 2. 支持布局文件(_layout.tsx)自动包裹页面组件
+// 3. 对嵌套路由生成 children 数组
+
+// 元数据使用:
+// 在 pages/blog/index.tsx 里:
+// export const meta = { title: "博客列表", requiresAuth: true }
+//
+// 生成的路由:
+// { path: "/blog", component: ..., meta: { title: "博客列表", requiresAuth: true } }
+```

@@ -1,0 +1,295 @@
+---
+title: 实战项目 6:用 Env API 实现 RSC-like 多环境构建
+description: 综合实战——用 Vite 8 Environment API 构建一个 RSC-like 三环境架构:client/ssr/rsc 各自独立的模块图,配合 ModuleRunner 实现跨环境数据传递。
+order: 10
+part: 05-environment-api
+chapter: "5.10"
+difficulty: 4
+readingTime: 20
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  本章使用 Vite 8 **Environment API(RC 阶段)**,API 细节可能随版本变化。项目锁定 Vite
+  `8.1.x`。生产使用前请验证当前版本的官方文档。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - 如何配置三个独立 Environment(client / ssr / rsc) - 各环境独立的模块图如何隔离敏感代码 - 通过 ModuleRunner 在 rsc
+  环境执行服务端组件 - 配套实战项目:`examples/env-api-rsc-demo`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 完成前三节 Part 5 的所有内容 - 理解 React 基础(函数组件、JSX) - 了解 Node.js HTTP server 基础
+</Callout>
+
+## 项目目标
+
+构建一个最简的 RSC-like 架构,展示 Environment API 的核心价值:
+
+```text
+浏览器
+  └── client Environment
+        └── 普通 React 组件(有状态、事件处理)
+
+Node.js(SSR)
+  └── ssr Environment
+        └── SSR 入口,调用 rsc environment 获取服务端组件产物
+
+"RSC" 环境(rsc)
+  └── rsc Environment
+        └── 服务端组件(直接访问数据库/文件系统)
+        └── 只允许用 react-server exports
+```
+
+## 项目结构
+
+```text
+examples/env-api-rsc-demo/
+├── vite.config.ts     ← 三环境配置
+├── server.js          ← HTTP server + ModuleRunner
+├── src/
+│   ├── main.tsx       ← client 入口
+│   ├── App.tsx        ← 普通 React 组件(client)
+│   ├── entry-server.tsx  ← ssr 入口
+│   └── server-component.tsx  ← RSC-like 服务端组件
+```
+
+## 步骤一:配置三个 Environment
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+
+  environments: {
+    // client:浏览器 React 应用
+    client: {
+      resolve: {
+        conditions: ["browser", "import"],
+      },
+    },
+
+    // ssr:Node.js SSR 入口
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+
+    // rsc:服务端组件环境
+    // 注意:实际 RSC 需要 react-server condition
+    // 但这里做简化演示,用 node 即可
+    rsc: {
+      resolve: {
+        conditions: ["node", "import"],
+      },
+    },
+  },
+})
+```
+
+## 步骤二:服务端组件
+
+```tsx filename="src/server-component.tsx"
+/**
+ * RSC-like 服务端组件。
+ * 只在 rsc environment 里运行。
+ * 可以直接访问数据库、文件系统等 server-only 资源。
+ */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface Post {
+  title: string
+  content: string
+}
+
+// 模拟从数据库读取数据(实际应用里是真实数据库查询)
+async function getPosts(): Promise<Post[]> {
+  const dataPath = resolve("data/posts.json")
+  try {
+    return JSON.parse(readFileSync(dataPath, "utf-8")) as Post[]
+  } catch {
+    return [
+      { title: "示例文章 1", content: "这是来自服务端的内容" },
+      { title: "示例文章 2", content: "直接从文件系统读取" },
+    ]
+  }
+}
+
+// 服务端组件:返回序列化的 JSON 数据(而不是 HTML)
+export async function ServerPostList(): Promise<string> {
+  const posts = await getPosts()
+  // 在真实 RSC 里这里会返回 RSC flight 格式
+  // 简化版直接返回 JSON
+  return JSON.stringify(posts)
+}
+```
+
+## 步骤三:SSR 入口
+
+```tsx filename="src/entry-server.tsx"
+import { renderToString } from "react-dom/server"
+
+interface ServerData {
+  posts: Array<{ title: string; content: string }>
+}
+
+export async function render(url: string, serverData: ServerData): Promise<string> {
+  // 注意:这里的 App 是在 ssr environment 里加载的
+  const { App } = await import("./App")
+
+  const appHtml = renderToString(<App posts={serverData.posts} />)
+
+  return `<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Env API RSC 演示</title>
+  </head>
+  <body>
+    <div id="root">${appHtml}</div>
+    <script>window.__INITIAL_DATA__ = ${JSON.stringify(serverData)}</script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`
+}
+```
+
+## 步骤四:HTTP Server + ModuleRunner
+
+```js filename="server.js"
+/**
+ * 开发服务器:演示如何用不同 Environment 的 ModuleRunner 执行代码。
+ *
+ * ⚠️ 具体 ModuleRunner 的 API 以 Vite 8.1.x 官方文档为准。
+ * 下面是概念性示意代码。
+ */
+
+import { createServer } from "node:http"
+import { createServer as createViteServer } from "vite"
+
+const vite = await createViteServer({
+  server: { middlewareMode: true },
+  appType: "custom",
+})
+
+// 概念:获取各环境的 ModuleRunner
+// 实际 API 以官方文档为准
+// const ssrRunner = getModuleRunner(vite.environments.ssr)
+// const rscRunner = getModuleRunner(vite.environments.rsc)
+
+const server = createServer(async (req, res) => {
+  try {
+    const url = req.url ?? "/"
+
+    // 步骤 1:在 rsc 环境里执行服务端组件
+    // const { ServerPostList } = await rscRunner.import("/src/server-component")
+    // const postsJson = await ServerPostList()
+    // const posts = JSON.parse(postsJson)
+
+    // 临时占位(正式 API 可用时替换)
+    const posts = [{ title: "示例文章", content: "Environment API 演示" }]
+
+    // 步骤 2:在 ssr 环境里渲染 HTML
+    // const { render } = await ssrRunner.import("/src/entry-server")
+    // const html = await render(url, { posts })
+
+    // 临时占位
+    const html = `<html><body><h1>Environment API Demo</h1><p>${JSON.stringify(posts)}</p></body></html>`
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8")
+    res.end(await vite.transformIndexHtml(url, html))
+  } catch (e) {
+    vite.ssrFixStacktrace(e)
+    res.statusCode = 500
+    res.end(String(e))
+  }
+})
+
+server.listen(5173, () => {
+  console.log("Env API RSC Demo: http://localhost:5173")
+  console.log("⚠️  完整 ModuleRunner API 以 Vite 8.1.x 官方文档为准")
+})
+```
+
+## 关键设计原则
+
+### 原则一:每个环境有自己的模块图
+
+```text
+client environment:
+  ModuleGraph {
+    "/src/App.tsx" → ... (browser resolve)
+  }
+
+ssr environment:
+  ModuleGraph {
+    "/src/App.tsx" → ... (node resolve,可能是不同版本)
+    "/src/entry-server.tsx" → ...
+  }
+
+rsc environment:
+  ModuleGraph {
+    "/src/server-component.tsx" → ... (node resolve)
+    "node:fs" → external
+  }
+```
+
+### 原则二:敏感代码隔离
+
+`server-component.tsx` 包含 `readFileSync`——这个模块只应该在 `rsc` 环境里存在。客户端永远不能 import 它:
+
+```text
+client 浏览器 → 无法 import server-component.tsx
+                (rsc environment 的模块图对 client 不可见)
+```
+
+## 运行实战项目
+
+```bash
+cd examples/env-api-rsc-demo
+pnpm install
+pnpm dev
+```
+
+访问 `http://localhost:5173`,观察控制台日志:
+
+- `[client]` 前缀的日志来自 client environment
+- `[rsc]` 前缀的日志来自 rsc environment
+
+## 自测题
+
+1. 为什么要给 `server-component.tsx` 单独一个 rsc environment,而不是直接放在 ssr environment 里?
+2. 如果 `client/App.tsx` 错误地 import 了 `server-component.tsx`,会发生什么?Environment API 能帮助检测这个错误吗?
+3. `data/posts.json` 的变化会触发哪些 Environment 的 HMR?
+4. 在这个简化架构里,真实的 React Server Components flight 格式在哪一步被替换成了普通 JSON?
+
+```ts filename="练习"
+// 扩展项目:添加边界检测插件
+// 如果 client environment 里的任何模块试图 import
+// /src/server-component.tsx,立即报错并阻止
+
+import type { Plugin } from "vite"
+
+export function rscBoundaryPlugin(): Plugin {
+  return {
+    name: "rsc-boundary",
+    resolveId(id, importer) {
+      // TODO:
+      // 1. 检测当前环境是否是 client
+      // 2. 检测要 import 的模块是否是 server-component.tsx
+      // 3. 如果违反边界,返回一个会 throw 的虚拟模块 ID
+    },
+    load(id) {
+      // TODO:为违规模块返回会 throw Error 的代码
+    },
+  }
+}
+```

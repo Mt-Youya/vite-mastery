@@ -1,0 +1,11 @@
+{
+  "name": "library-mode-demo",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm -r --parallel run dev",
+    "clean": "pnpm -r run clean"
+  }
+}

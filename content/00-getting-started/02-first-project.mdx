@@ -7,11 +7,12 @@ chapter: "0.2"
 difficulty: 1
 readingTime: 5
 updatedAt: "2026-06-25"
+viteVersion: "8.1"
+apiStability: "stable"
 ---
 
 <Callout type="note" title="前置知识">
-- 装好 Node 22+ 与 pnpm 10+
-- 命令行基本操作
+  - 装好 Node 24+ 与 pnpm 11+ - 命令行基本操作
 </Callout>
 
 ## 起一个项目
@@ -31,7 +32,7 @@ pnpm dev
 
 ## 目录解剖
 
-```
+```text
 hello-vite/
 ├── index.html         ← Vite 的入口,不是 src 里的某个 JS
 ├── vite.config.ts     ← 配置入口
@@ -50,19 +51,19 @@ hello-vite/
 
 ```ts
 // vite.config.ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
 
 export default defineConfig({
   plugins: [react()],
-});
+})
 ```
 
 `@vitejs/plugin-react` 装上以后,你免费拿到了:
 
 - React Fast Refresh(HMR 期间保留组件状态)
 - JSX 编译
-- 自动 import `React`(Vite 17+)
+- 自动 import `React`(Vite 8+)
 
 后面我们会拆解这个插件做了什么。
 

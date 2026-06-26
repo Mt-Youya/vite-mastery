@@ -1,0 +1,215 @@
+---
+title: Turborepo 任务编排
+description: Turborepo 让 monorepo 的构建变得聪明——依赖感知的任务顺序、远程缓存、并行执行。与 pnpm -r run build 的核心区别是什么?
+order: 4
+part: 11-monorepo
+chapter: "11.4"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Turborepo 与 `pnpm -r run` 的核心区别 - `turbo.json` 的任务定义:inputs / outputs / dependsOn - 本地缓存与远程缓存 -
+  Pipeline:任务之间的依赖关系
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「pnpm workspace 基础」(11.1 节)
+</Callout>
+
+## 为什么需要 Turborepo
+
+`pnpm -r run build` 的问题:
+
+1. **没有缓存**:即使代码没变,每次都重新构建
+2. **顺序不智能**:`-r` 按目录字母顺序运行,不知道依赖关系
+3. **没有并行**:默认顺序执行
+
+Turborepo 解决了这三个问题:
+
+```text
+pnpm -r run build:
+
+packages/ui/build    ← 可能在 packages/utils/build 之前运行(错误)
+packages/utils/build
+apps/web/build
+
+Turborepo(turbo build):
+
+packages/utils/build ← 先运行(因为 ui 依赖 utils)
+packages/ui/build    ← utils 完成后才运行
+apps/web/build       ← ui 完成后才运行(三者并行执行那些可以并行的)
+
+如果代码没变:
+所有任务命中缓存,瞬间完成!
+```
+
+## turbo.json 配置
+
+```json filename="turbo.json"
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      // "^build" 表示:运行这个任务之前,先运行所有依赖包的 build
+      "dependsOn": ["^build"],
+
+      // 输出目录:Turborepo 会缓存这些目录
+      "outputs": ["dist/**", ".next/**", "build/**"],
+
+      // 影响缓存的输入:这些文件变化才重新构建
+      // (不填则以所有文件为输入)
+      "inputs": ["src/**", "package.json", "tsconfig.json"]
+    },
+
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+      // 不需要输出目录(typecheck 没有产物)
+    },
+
+    "lint": {
+      // lint 不依赖其他包的构建结果
+      "dependsOn": []
+    },
+
+    "dev": {
+      // dev 不缓存,且是持久任务(不会结束)
+      "cache": false,
+      "persistent": true
+      // dev 只跑 apps/,不需要 packages/ 重新 dev
+    },
+
+    "clean": {
+      "cache": false
+    }
+  }
+}
+```
+
+## 依赖关系 `dependsOn`
+
+```json
+"build": {
+  "dependsOn": ["^build"]
+}
+```
+
+`^build` 的意思:
+
+- 对于每个包,在运行它的 `build` 之前
+- 先运行所有**它依赖的包**的 `build`
+
+```text
+apps/web 依赖 packages/ui 依赖 packages/utils
+
+turbo build apps/web:
+1. packages/utils build    ← 最先
+2. packages/ui build       ← 等 utils 完成后
+3. apps/web build          ← 等 ui 完成后
+```
+
+如果没有 `dependsOn` 或写了 `[]`:包之间的任务**并行执行**。
+
+## 缓存工作原理
+
+Turborepo 对每个任务创建 hash:
+
+```text
+任务 hash = hash(
+  输入文件(由 inputs 决定),
+  输出文件路径(outputs),
+  环境变量(env),
+  任务配置
+)
+```
+
+如果 hash 命中缓存:
+
+- **本地缓存**:还原上次的输出文件,瞬间完成
+- **远程缓存**:从云端下载上次的输出,团队共享缓存
+
+## 远程缓存
+
+配置 Vercel 远程缓存:
+
+```bash
+# 登录 Vercel
+npx turbo link
+```
+
+或者自托管缓存服务器(使用 `turbo-remote-cache` 包)。
+
+配置后,不同开发者的本地机器可以共享构建缓存:
+
+```bash
+# 开发者 A build 了
+turbo build  # → 产物缓存到远程
+
+# 开发者 B pull 代码后 build
+turbo build  # → 命中远程缓存,瞬间完成
+```
+
+## 常用命令
+
+```bash
+# 构建所有包
+turbo build
+
+# 只构建某个包(及其依赖)
+turbo build --filter @my/web
+
+# 显示任务执行图(不实际执行)
+turbo build --dry-run
+
+# 清空本地缓存
+turbo clean
+
+# 实时查看任务进度
+turbo build --ui stream
+```
+
+## 自测题
+
+1. Turborepo 的缓存基于什么计算?什么情况下缓存会失效?
+2. `dependsOn: ["^build"]` 和 `dependsOn: ["build"]` 有什么区别?
+3. 为什么 `dev` 任务要设置 `cache: false` 和 `persistent: true`?
+4. 远程缓存对团队协作有什么好处?
+
+```json filename="练习"
+// 为以下场景设计 turbo.json:
+// 任务列表:
+// - build: 生成产物
+// - test: 运行单元测试(依赖 build)
+// - e2e: 运行端对端测试(依赖 test)
+// - lint: 代码检查(不依赖其他任务)
+// - docs: 生成文档(依赖 build)
+//
+// 特殊要求:
+// - build 命中缓存后,test 也应该命中缓存
+// - e2e 太慢,不缓存
+// - lint 可以与 build 并行
+
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      // TODO
+    },
+    "test": {
+      // TODO
+    },
+    "e2e": {
+      // TODO
+    },
+    "lint": {
+      // TODO
+    },
+    "docs": {
+      // TODO
+    }
+  }
+}
+```

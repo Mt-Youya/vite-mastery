@@ -1,0 +1,207 @@
+---
+title: 实战项目 8:发布跨框架组件库
+description: 用 Vite 库模式构建能同时支持 React / Vue / Svelte / Solid 的 Button 组件——一份核心逻辑,四个框架适配层,各自发布为独立 npm 包。
+order: 3
+part: 10-library-mode
+chapter: "10.3"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 跨框架组件库的架构设计 - monorepo 里用 Vite 构建多个子包 - 共享核心逻辑(`packages/core/`) - 各框架适配层的实现方式 -
+  配套实战项目:`examples/library-mode-demo`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「build.lib 配置全解」(10.1 节) - 阅读「类型声明文件生成」(10.2 节) - 了解 pnpm workspace 基础
+</Callout>
+
+## 项目架构
+
+```text
+examples/library-mode-demo/
+├── pnpm-workspace.yaml
+├── package.json (根)
+└── packages/
+    ├── core/              ← 框架无关的核心逻辑
+    │   ├── src/index.ts
+    │   ├── vite.config.ts
+    │   └── package.json
+    ├── react/             ← React 适配层
+    ├── vue/               ← Vue 3 适配层
+    ├── svelte/            ← Svelte 适配层
+    └── solid/             ← Solid.js 适配层
+```
+
+## 核心包:框架无关的逻辑
+
+```ts filename="packages/core/src/index.ts"
+export interface ButtonConfig {
+  variant: "primary" | "secondary" | "ghost"
+  size: "sm" | "md" | "lg"
+  disabled: boolean
+}
+
+/** 根据配置生成 CSS 类名 */
+export function getButtonClasses(config: Partial<ButtonConfig>): string {
+  const { variant = "primary", size = "md", disabled = false } = config
+  const base = "btn"
+  const variants = { primary: "btn-primary", secondary: "btn-secondary", ghost: "btn-ghost" }
+  const sizes = { sm: "btn-sm", md: "btn-md", lg: "btn-lg" }
+  const disabledCls = disabled ? "btn-disabled" : ""
+  return [base, variants[variant], sizes[size], disabledCls].filter(Boolean).join(" ")
+}
+```
+
+```ts filename="packages/core/vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: resolve("src/index.ts"),
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+    },
+  },
+})
+```
+
+## React 适配层
+
+```tsx filename="packages/react/src/index.tsx"
+import type { ButtonHTMLAttributes } from "react"
+import { getButtonClasses, type ButtonConfig } from "@ui-kit/core"
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Partial<ButtonConfig> {
+  children: React.ReactNode
+}
+
+export function Button({ variant, size, disabled, children, className = "", ...props }: ButtonProps) {
+  const classes = getButtonClasses({ variant, size, disabled: disabled ?? false })
+  return (
+    <button className={`${classes} ${className}`} disabled={disabled} {...props}>
+      {children}
+    </button>
+  )
+}
+
+export type { ButtonConfig }
+```
+
+```ts filename="packages/react/vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    lib: {
+      entry: resolve("src/index.tsx"),
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+    },
+    rollupOptions: {
+      external: ["react", "react/jsx-runtime", "@ui-kit/core"],
+      output: {
+        globals: { react: "React", "@ui-kit/core": "UIKitCore" },
+      },
+    },
+  },
+})
+```
+
+## Vue 适配层
+
+```vue filename="packages/vue/src/Button.vue"
+<script setup lang="ts">
+import { computed } from "vue"
+import { getButtonClasses } from "@ui-kit/core"
+import type { ButtonConfig } from "@ui-kit/core"
+
+const props = withDefaults(defineProps<Partial<ButtonConfig>>(), {
+  variant: "primary",
+  size: "md",
+  disabled: false,
+})
+
+const classes = computed(() => getButtonClasses(props))
+</script>
+
+<template>
+  <button :class="classes" :disabled="disabled">
+    <slot />
+  </button>
+</template>
+```
+
+## 构建与发布流程
+
+```bash
+cd examples/library-mode-demo
+pnpm install
+
+# 先构建 core(其他包依赖它)
+pnpm -F @ui-kit/core build
+
+# 再构建各框架适配层
+pnpm -F @ui-kit/react build
+pnpm -F @ui-kit/vue build
+# ...
+```
+
+或者用根 package.json 的 build 脚本(Turborepo 自动处理依赖顺序):
+
+```bash
+pnpm build  # Turborepo 按依赖顺序构建
+```
+
+## 消费者的使用方式
+
+```tsx
+// React 项目
+import { Button } from "@ui-kit/react"
+;<Button variant="primary" size="lg">
+  点击
+</Button>
+
+// Vue 项目
+import { Button } from "@ui-kit/vue"
+;<Button variant="secondary">点击</Button>
+
+// Svelte 项目
+import { Button } from "@ui-kit/svelte"
+;<Button>点击</Button>
+```
+
+## 自测题
+
+1. 为什么要把核心逻辑单独放在 `core` 包里,而不是直接在每个框架适配层里重复实现?
+2. `rollupOptions.external` 里为什么要把 `@ui-kit/core` 也加进去?
+3. 如果用户同时安装了 `@ui-kit/react` 和 `@ui-kit/vue`,会有两份 `core` 包的代码吗?
+4. 这个库的 CSS 如何处理?如果用户不用 Tailwind,怎么让样式生效?
+
+```ts filename="练习"
+// 为 @ui-kit/core 添加 Input 组件的核心逻辑:
+// - InputConfig: { type: "text" | "password" | "email", disabled, error }
+// - getInputClasses(config): 返回 CSS 类名字符串
+// - validateInput(value: string, type: InputConfig["type"]): boolean
+
+export interface InputConfig {
+  // TODO
+}
+
+export function getInputClasses(config: Partial<InputConfig>): string {
+  // TODO
+}
+
+export function validateInput(value: string, type: InputConfig["type"]): boolean {
+  // TODO
+}
+```

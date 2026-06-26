@@ -1,7 +1,7 @@
 {
   "name": "@vite-mastery/content-config",
-  "private": true,
   "version": "0.0.0",
+  "private": true,
   "description": "content-collections 共享配置:docs / examples 两套 collection",
   "type": "module",
   "main": "./src/index.ts",
@@ -16,7 +16,7 @@
   "dependencies": {
     "@content-collections/core": "^0.15.2",
     "@content-collections/mdx": "^0.2.2",
-    "unified": "^11.0.0",
+    "unified": "^11.0.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

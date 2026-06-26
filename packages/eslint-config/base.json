@@ -19,9 +19,6 @@
     "no-debugger": "error",
     "no-empty": "warn",
     "no-unused-vars": "off",
-    "typescript/no-unused-vars": [
-      "warn",
-      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
-    ]
+    "typescript/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }]
   }
 }

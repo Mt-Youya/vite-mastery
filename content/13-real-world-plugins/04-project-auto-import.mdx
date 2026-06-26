@@ -1,0 +1,224 @@
+---
+title: 实战项目 10:复刻简化版 auto-import
+description: 综合运用整个插件系统的知识——实现一个真实可用的 auto-import 插件,覆盖 transform / resolveId / load / generateBundle / configureServer 全部主要 hook。
+order: 4
+part: 13-real-world-plugins
+chapter: "13.4"
+difficulty: 4
+readingTime: 20
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 综合运用 5+ 个插件 hook - 增量扫描:只处理变化的文件 - TypeScript 类型声明自动生成 - 与 ESLint 集成的思路 -
+  配套实战项目:`examples/plugin-auto-import`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 完成「unplugin-auto-import 源码导读」(13.1 节) - 理解 transform / generateBundle / handleHotUpdate
+</Callout>
+
+## 功能目标
+
+```ts
+// vite.config.ts
+autoImport({
+  imports: {
+    vue: ["ref", "computed", "reactive", "watch"],
+    "vue-router": ["useRouter", "useRoute"],
+  },
+  dts: "auto-imports.d.ts",
+})
+
+// 业务代码:无需 import
+const count = ref(0)
+const router = useRouter()
+```
+
+## 完整实现
+
+### 核心数据结构
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, writeFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface AutoImportOptions {
+  imports: Record<string, string[]>
+  dts?: string | false
+}
+
+// 构建反向查找表:identifier → source
+function buildLookup(imports: Record<string, string[]>): Map<string, string> {
+  const lookup = new Map<string, string>()
+  for (const [source, identifiers] of Object.entries(imports)) {
+    for (const id of identifiers) {
+      lookup.set(id, source)
+    }
+  }
+  return lookup
+}
+```
+
+### transform hook:核心注入逻辑
+
+```ts
+// 检测已有的 import,避免重复注入
+function parseExistingImports(code: string): Set<string> {
+  const existing = new Set<string>()
+  const importRe = /import\s*\{([^}]+)\}\s*from\s*["'][^"']+["']/g
+  let match: RegExpExecArray | null
+  while ((match = importRe.exec(code)) !== null) {
+    for (const name of match[1].split(",")) {
+      existing.add(name.trim().split(" as ")[0].trim())
+    }
+  }
+  return existing
+}
+
+function transform(code: string, id: string, lookup: Map<string, string>): { code: string; map: null } | null {
+  if (!id.match(/\.(ts|tsx|js|jsx|vue)$/)) return null
+  if (id.includes("node_modules")) return null
+  if (!code) return null
+
+  const existing = parseExistingImports(code)
+  const toInject = new Map<string, Set<string>>()
+
+  // 扫描代码里的标识符
+  // 注意:这是正则简化版,生产应该用 AST
+  const identifierRe = /(?<![.'"\\w])\\b([a-zA-Z_$][a-zA-Z0-9_$]*)\\b/g
+  let match: RegExpExecArray | null
+  while ((match = identifierRe.exec(code)) !== null) {
+    const identifier = match[1]
+    if (existing.has(identifier)) continue // 已经手动 import 了
+    const source = lookup.get(identifier)
+    if (!source) continue
+
+    const set = toInject.get(source) ?? new Set()
+    set.add(identifier)
+    toInject.set(source, set)
+  }
+
+  if (toInject.size === 0) return null
+
+  const importLines = [...toInject.entries()]
+    .map(([source, names]) => `import { ${[...names].join(", ")} } from "${source}"`)
+    .join("\n")
+
+  return { code: `${importLines}\n${code}`, map: null }
+}
+```
+
+### generateBundle hook:生成 .d.ts
+
+```ts
+function generateDts(lookup: Map<string, string>, dtsPath: string): void {
+  const lines = [
+    "// 由 vite-plugin-auto-import 自动生成,勿手动修改",
+    "// eslint-disable-next-line",
+    "export {}",
+    "",
+    "declare global {",
+  ]
+
+  for (const [identifier, source] of lookup) {
+    lines.push(`  const ${identifier}: typeof import("${source}")["${identifier}"]`)
+  }
+
+  lines.push("}")
+  writeFileSync(resolve(dtsPath), lines.join("\n"))
+}
+```
+
+### 完整插件
+
+```ts filename="src/plugin.ts"
+export function autoImport(options: AutoImportOptions): Plugin {
+  const { dts = "auto-imports.d.ts" } = options
+  const lookup = buildLookup(options.imports)
+
+  return {
+    name: "vite-plugin-auto-import",
+
+    transform(code, id) {
+      return transform(code, id, lookup)
+    },
+
+    buildEnd() {
+      if (!dts) return
+      generateDts(lookup, dts as string)
+    },
+  }
+}
+```
+
+## 运行实战项目
+
+```bash
+cd examples/plugin-auto-import
+pnpm install
+pnpm dev
+```
+
+在 `src/main.ts` 里直接使用 `ref`、`computed` 等 Vue API,无需 import。
+
+查看生成的 `auto-imports.d.ts` 确认类型声明正确。
+
+## 进阶:增量处理
+
+对于大型项目,对每个文件都扫描所有 API 太慢。增量策略:
+
+```ts
+// 记录每个文件实际用到了哪些 API
+const usedMap = new Map<string, Set<string>>()
+
+transform(code, id) {
+  const result = transformWithTracking(code, id, lookup, usedMap)
+  return result
+},
+
+buildEnd() {
+  if (!dts) return
+  // 只为真正用到的 API 生成声明
+  const usedIdentifiers = new Map<string, string>()
+  for (const identifiers of usedMap.values()) {
+    for (const id of identifiers) {
+      usedIdentifiers.set(id, lookup.get(id)!)
+    }
+  }
+  generateDts(usedIdentifiers, dts as string)
+},
+```
+
+## 自测题
+
+1. 为什么在 `transform` 里注入 import 而不是 `load`?
+2. `parseExistingImports` 为什么要检测已有的 import?不检测会有什么问题?
+3. 在 `buildEnd` 里生成 `.d.ts` 而不是 `generateBundle`,有什么差异?
+4. 这个实现对 Vue SFC(`<script setup>`)有效吗?为什么?
+
+```ts filename="练习"
+// 为这个 auto-import 插件添加以下功能:
+// 1. 支持自定义 preset 函数:
+//    imports: { from: "my-utils", as: { myFn: "utilFn" } }
+//    效果:把 myFn 注入为 utilFn 的别名
+
+// 2. 支持 glob 匹配的 ignore 规则:
+//    ignore: ["**/node_modules/**", "**/*.spec.ts"]
+
+// 3. 添加一个 dev 模式特有的 configureServer hook,
+//    让你可以访问 http://localhost:5173/__auto-import
+//    查看当前检测到的所有 API 使用情况
+
+export function enhancedAutoImport(options: {
+  imports: Record<string, string[]>
+  aliases?: Record<string, string>
+  ignore?: string[]
+  dts?: string
+}): Plugin {
+  // TODO
+}
+```

@@ -1,0 +1,186 @@
+---
+title: Environment 下的 HMR(HotChannel)
+description: Vite 8 Environment API 为每个环境提供独立的 HotChannel——client 用 WebSocket,ssr 用服务端消息,自定义环境可以自定义通信方式。
+order: 4
+part: 06-hmr
+chapter: "6.4"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  HotChannel API 是 Environment API 的一部分,当前处于 **RC 阶段**。具体接口以 Vite 8.1.x 官方文档为准。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - HotChannel 是什么:每个 Environment 独立的 HMR 通道 - client 环境的 HotChannel(WebSocket) - ssr 环境的
+  HotChannel(服务端消息) - 如何给自定义环境实现 HotChannel
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「核心概念」(5.2 节) - 阅读「handleHotUpdate hook」(6.3 节)
+</Callout>
+
+## 为什么每个 Environment 需要独立的 HotChannel
+
+在 Vite 7(单一模块图)时代,只有一个 HMR 通道——WebSocket,连接到浏览器。
+
+当 Environment API 引入多个独立环境后,不同环境需要不同的 HMR 通信方式:
+
+| 环境   | 通信目标                      | 通信方式                    |
+| ------ | ----------------------------- | --------------------------- |
+| client | 浏览器                        | WebSocket                   |
+| ssr    | Node.js 进程里的 ModuleRunner | 进程内函数调用/EventEmitter |
+| worker | workerd 进程                  | HTTP / IPC                  |
+
+`HotChannel` 抽象统一了这些不同的通信方式。
+
+## HotChannel API(概念)
+
+每个 `DevEnvironment` 有一个 `hot` 属性:
+
+```ts
+interface HotChannel {
+  // 向该环境的客户端发送消息
+  send(payload: HotPayload): void
+
+  // 订阅来自客户端的消息
+  on(event: string, listener: (data: unknown) => void): void
+  off(event: string, listener: (data: unknown) => void): void
+}
+```
+
+<Callout type="warning">以上是概念性描述。具体接口以 Vite 8.1.x 官方文档为准。</Callout>
+
+## client 环境的 HotChannel
+
+`client` 环境的 HotChannel 是基于 WebSocket 实现的:
+
+```ts
+configureServer(server) {
+  // 向所有浏览器 client 发送消息
+  server.environments.client.hot.send({
+    type: "custom",
+    event: "my-event",
+    data: { key: "value" },
+  })
+
+  // 订阅来自浏览器的消息(较少见)
+  server.environments.client.hot.on("browser-message", (data) => {
+    console.log("Browser sent:", data)
+  })
+},
+```
+
+这等价于直接用 `server.hot.send()`——`server.hot` 默认就是 client 环境的 HotChannel。
+
+## ssr 环境的 HotChannel
+
+`ssr` 环境的 HotChannel 不通过 WebSocket——因为 ssr 代码运行在 Node.js 里,同进程通信更高效:
+
+```ts
+configureServer(server) {
+  // 通知 ssr 环境的 ModuleRunner 某些模块需要失效
+  server.environments.ssr?.hot.send({
+    type: "custom",
+    event: "ssr:invalidate",
+    data: { path: "/src/data-fetcher.ts" },
+  })
+},
+```
+
+ModuleRunner 监听这个消息并使对应模块失效:
+
+```ts
+// 在 ModuleRunner 初始化时配置 HotChannel 监听
+// 具体 API 以官方文档为准
+```
+
+## 在插件里跨环境发送 HMR 消息
+
+```ts
+import type { Plugin } from "vite"
+
+export function crossEnvHmrPlugin(): Plugin {
+  return {
+    name: "cross-env-hmr",
+    handleHotUpdate({ file, server }) {
+      if (!file.endsWith(".data.ts")) return
+
+      // 同时通知 client 和 ssr 环境
+      server.environments.client.hot.send({
+        type: "custom",
+        event: "data-update",
+        data: { file },
+      })
+
+      server.environments.ssr?.hot.send({
+        type: "custom",
+        event: "ssr:data-update",
+        data: { file },
+      })
+
+      return []
+    },
+  }
+}
+```
+
+## 自定义环境的 HotChannel
+
+对于 Cloudflare Workers 等自定义环境,需要实现自定义的 HotChannel。这通常由框架插件(如 `@cloudflare/vite-plugin`)来做,不需要应用开发者手动处理。
+
+```ts
+// 概念:自定义 HotChannel(框架开发者实现)
+class WorkerdHotChannel implements HotChannel {
+  private connection: WorkerdConnection
+
+  send(payload: HotPayload) {
+    // 通过 HTTP 或 IPC 把消息发给 workerd 进程
+    this.connection.postMessage(JSON.stringify(payload))
+  }
+
+  on(event: string, listener: (data: unknown) => void) {
+    this.connection.on(`message:${event}`, listener)
+  }
+
+  off(event: string, listener: (data: unknown) => void) {
+    this.connection.off(`message:${event}`, listener)
+  }
+}
+```
+
+## 自测题
+
+1. 为什么 ssr 环境的 HotChannel 不使用 WebSocket?
+2. `server.hot.send()` 和 `server.environments.client.hot.send()` 有什么关系?
+3. 如果你想让 ssr 环境里运行的代码也能接收 HMR 更新,需要做什么?
+4. 对于 Cloudflare Workers 环境,HotChannel 的通信方式为什么需要自定义?
+
+```ts filename="练习"
+// 实现一个插件:当主题配置文件(theme.json)改变时
+// - 通知 client 环境:发送 "theme:update" 事件,浏览器动态替换 CSS 变量
+// - 通知 ssr 环境:使 ssr 版本的主题模块失效
+
+import type { Plugin } from "vite"
+import { resolve } from "node:path"
+
+const THEME_FILE = resolve("theme.json")
+
+export function themeHmrPlugin(): Plugin {
+  return {
+    name: "theme-hmr",
+    handleHotUpdate({ file, server }) {
+      if (file !== THEME_FILE) return
+
+      // TODO:
+      // 1. 向 client 环境发送 "theme:update" 事件
+      // 2. 向 ssr 环境发送失效通知
+      // 3. 返回 [] 阻止默认 HMR
+    },
+  }
+}
+```

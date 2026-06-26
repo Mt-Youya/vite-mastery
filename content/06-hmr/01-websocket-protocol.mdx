@@ -1,0 +1,196 @@
+---
+title: HMR 协议:WebSocket 通信
+description: Vite 的热更新是通过 WebSocket 在 client 和 server 之间交换消息实现的。本节深入 HMR 协议——消息格式、连接建立、重连机制。
+order: 1
+part: 06-hmr
+chapter: "6.1"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite HMR 基于 WebSocket 的通信架构 - client ↔ server 消息的格式与类型 - 连接建立、心跳、断线重连机制 - 如何在浏览器
+  DevTools 里直接观察 HMR 消息
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 WebSocket 的基本概念 - 了解 Vite Module Graph(1.4 节)
+</Callout>
+
+## HMR 架构概览
+
+```text
+浏览器(client)                    Node.js(Vite Dev Server)
+─────────────────────             ────────────────────────────
+import.meta.hot API               文件系统监听(chokidar)
+   │                                       │
+   │                              文件改变事件
+   │                                       │
+   │              WebSocket               检测受影响的模块
+   │◄─────────────────────────────────────│
+   │   { type: "update", updates: [...] } │
+   │                                      │
+处理 HMR 消息
+│
+├── JS 模块:重新 import 受影响的模块
+├── CSS:直接替换 <style> 或 <link> 标签
+└── 其他:根据插件的 handleHotUpdate 决定
+```
+
+WebSocket 连接在 dev server 启动时建立,持续整个开发会话。
+
+## 观察 HMR 消息
+
+打开 Chrome DevTools → Network → WS 过滤器,点击 WebSocket 连接,选 Messages 标签,就能看到实时的 HMR 消息。
+
+也可以在浏览器控制台观察:
+
+```ts
+// 在浏览器控制台执行
+const ws = new WebSocket("ws://localhost:5173")
+ws.onmessage = (e) => console.log(JSON.parse(e.data))
+```
+
+## 消息格式
+
+所有 HMR 消息都是 JSON 格式,顶层有一个 `type` 字段:
+
+### `connected` — 连接建立确认
+
+```json
+{ "type": "connected" }
+```
+
+dev server 收到客户端 WebSocket 连接后,立即发送此消息。客户端据此知道服务器已就绪。
+
+### `update` — 模块更新
+
+```json
+{
+  "type": "update",
+  "updates": [
+    {
+      "type": "js-update",
+      "path": "/src/Button.tsx",
+      "acceptedPath": "/src/Button.tsx",
+      "timestamp": 1703145600000
+    }
+  ]
+}
+```
+
+| 字段           | 含义                             |
+| -------------- | -------------------------------- |
+| `type`         | `"js-update"` 或 `"css-update"`  |
+| `path`         | 被修改的模块路径                 |
+| `acceptedPath` | 实际接受更新的模块(可能是父模块) |
+| `timestamp`    | 时间戳,用于 cache busting        |
+
+### `full-reload` — 整页刷新
+
+```json
+{ "type": "full-reload", "path": "/index.html" }
+```
+
+当模块不能做 HMR(例如没有 `import.meta.hot.accept()`)时,触发整页刷新。
+
+### `custom` — 自定义消息
+
+```json
+{
+  "type": "custom",
+  "event": "my-plugin:data-update",
+  "data": { "key": "value" }
+}
+```
+
+插件通过 `server.hot.send()` 发送的自定义消息。
+
+### `error` — 构建错误
+
+```json
+{
+  "type": "error",
+  "err": {
+    "message": "Cannot find module './missing'",
+    "stack": "...",
+    "id": "/src/App.tsx",
+    "frame": "..."
+  }
+}
+```
+
+transform 出错时,显示错误覆盖层。
+
+### `prune` — 模块被移除
+
+```json
+{
+  "type": "prune",
+  "paths": ["/src/old-component.tsx"]
+}
+```
+
+当一个模块从依赖图里消失时(文件删除、import 被移除)。
+
+## 连接建立与心跳
+
+```ts
+// Vite client 端的 WebSocket 连接代码(简化)
+function setupWebSocket() {
+  const ws = new WebSocket(`ws://${location.host}`, "vite-hmr")
+
+  ws.addEventListener("open", () => {
+    console.log("[vite] connected.")
+  })
+
+  ws.addEventListener("message", async ({ data }) => {
+    handleMessage(JSON.parse(data))
+  })
+
+  ws.addEventListener("close", () => {
+    // 断线后自动重连
+    console.log("[vite] server connection lost. Polling for restart...")
+    waitForServerRestart()
+  })
+}
+```
+
+Vite 使用 `"vite-hmr"` 作为 WebSocket 子协议,用于区分其他 WebSocket 连接。
+
+## 断线重连机制
+
+当 dev server 重启(例如修改了 `vite.config.ts`),WebSocket 连接断开。Vite client 会:
+
+1. 检测到断线
+2. 每 500ms 轮询 `http://localhost:5173/__vite_ping`
+3. ping 成功后等待 1 秒,然后刷新页面
+
+这就是为什么修改 `vite.config.ts` 后浏览器会自动刷新。
+
+## 本站 `<HmrDemo>` 组件
+
+`<HmrDemo>` 组件模拟了这个过程:编辑左侧代码,右侧显示对应的 WebSocket 消息流。
+
+<HmrDemo />
+
+## 自测题
+
+1. HMR 消息的 `type: "update"` 和 `type: "full-reload"` 分别在什么情况下触发?
+2. `acceptedPath` 和 `path` 不同意味着什么?举一个具体例子。
+3. 为什么 Vite 用 WebSocket 而不是 SSE(Server-Sent Events)做 HMR?
+4. 如果浏览器和 dev server 之间有代理,可能会影响 WebSocket 连接吗?如何配置?
+
+```ts filename="练习"
+// 在浏览器控制台写一个 HMR 消息监听器:
+// 1. 拦截所有到达的 HMR 消息
+// 2. 过滤出 type === "update" 的消息
+// 3. 打印每次更新的文件路径和时间戳
+
+// 提示:Vite 在 window 上挂载了 __vite_plugin_react_preamble_installed__ 等标识
+// WebSocket 连接也可以从浏览器 DevTools 里看到
+// 如何在不修改源码的情况下观察 HMR 消息?
+```

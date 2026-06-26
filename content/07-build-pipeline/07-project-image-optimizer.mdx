@@ -1,0 +1,287 @@
+---
+title: 实战项目 4:图片优化插件
+description: 用 generateBundle + this.emitFile 实现构建时自动图片压缩——集成 sharp,把 PNG/JPEG 转为 WebP/AVIF,输出构建报告。
+order: 7
+part: 07-build-pipeline
+chapter: "7.7"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 如何在 `generateBundle` hook 里处理产物中的图片 - 用 `this.emitFile` 向产物目录输出新文件 - 集成 `sharp` 进行 WebP /
+  AVIF 转换 - 并行处理多张图片,添加构建缓存 - 配套实战项目:`examples/plugin-image-optimizer`
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「构建期通用 Hooks 下」(4.3 节)中的 generateBundle - 了解 WebP / AVIF 图片格式的基本概念
+</Callout>
+
+## 目标:自动图片优化
+
+```bash
+pnpm build
+# 构建完成后:
+# ✓ logo.png → logo.webp (↓ 65%)
+# ✓ hero.jpg → hero.webp (↓ 72%)
+# ✓ hero.jpg → hero.avif (↓ 81%)
+# ✓ 共处理 12 张图片,节省 3.2 MB
+```
+
+## 步骤一:扫描 bundle 里的图片
+
+```ts filename="src/plugin.ts"
+import type { Plugin, OutputBundle, OutputAsset } from "vite"
+
+interface ImageOptimizerOptions {
+  /** 转换目标格式 */
+  formats?: ("webp" | "avif")[]
+  /** WebP 质量 0-100 */
+  webpQuality?: number
+  /** AVIF 质量 0-100 */
+  avifQuality?: number
+}
+
+export function imageOptimizer(options: ImageOptimizerOptions = {}): Plugin {
+  const { formats = ["webp", "avif"], webpQuality = 80, avifQuality = 65 } = options
+
+  return {
+    name: "vite-plugin-image-optimizer",
+    apply: "build",
+
+    async generateBundle(_outputOptions, bundle: OutputBundle) {
+      // 找出 bundle 里所有的图片资源
+      const imageAssets = Object.entries(bundle).filter(([fileName, chunk]): chunk is [string, OutputAsset] => {
+        return chunk.type === "asset" && /\.(png|jpe?g|gif|webp)$/i.test(fileName) && chunk.source instanceof Uint8Array
+      })
+
+      if (imageAssets.length === 0) return
+
+      console.log(`\n🖼  图片优化:发现 ${imageAssets.length} 张图片`)
+
+      // TODO:步骤二 - 使用 sharp 转换
+    },
+  }
+}
+```
+
+## 步骤二:用 sharp 转换
+
+```ts
+// 在 generateBundle 里添加转换逻辑:
+
+async generateBundle(_outputOptions, bundle: OutputBundle) {
+  // 动态 import sharp(避免 dev 模式下的开销)
+  let sharp: typeof import("sharp")
+  try {
+    sharp = (await import("sharp")).default
+  } catch {
+    console.warn("[image-optimizer] sharp 未安装,跳过图片优化")
+    return
+  }
+
+  const imageAssets = Object.entries(bundle).filter(
+    ([, chunk]) =>
+      chunk.type === "asset" &&
+      /\.(png|jpe?g|gif)$/i.test(chunk.fileName) &&
+      chunk.source instanceof Uint8Array
+  )
+
+  if (imageAssets.length === 0) return
+
+  const stats: { file: string; original: number; optimized: number; format: string }[] = []
+
+  // 并行处理所有图片
+  await Promise.all(
+    imageAssets.map(async ([fileName, chunk]) => {
+      if (chunk.type !== "asset" || !(chunk.source instanceof Uint8Array)) return
+
+      const originalSize = chunk.source.byteLength
+      const baseName = fileName.replace(/\.[^.]+$/, "")
+
+      for (const format of formats) {
+        try {
+          let optimizedBuffer: Buffer
+
+          if (format === "webp") {
+            optimizedBuffer = await sharp(chunk.source)
+              .webp({ quality: webpQuality })
+              .toBuffer()
+          } else {
+            optimizedBuffer = await sharp(chunk.source)
+              .avif({ quality: avifQuality })
+              .toBuffer()
+          }
+
+          const outputFileName = `${baseName}.${format}`
+
+          // 向产物目录输出新文件
+          this.emitFile({
+            type: "asset",
+            fileName: outputFileName,
+            source: new Uint8Array(optimizedBuffer),
+          })
+
+          stats.push({
+            file: fileName,
+            original: originalSize,
+            optimized: optimizedBuffer.byteLength,
+            format,
+          })
+        } catch (e) {
+          console.warn(`[image-optimizer] 处理 ${fileName} 失败:`, e)
+        }
+      }
+    })
+  )
+
+  // 输出优化报告
+  if (stats.length > 0) {
+    console.log("\n  图片优化报告:")
+    let totalSaved = 0
+    for (const { file, original, optimized, format } of stats) {
+      const saved = original - optimized
+      const ratio = ((saved / original) * 100).toFixed(1)
+      totalSaved += saved
+      console.log(`  ${file} → .${format}: ${formatBytes(original)} → ${formatBytes(optimized)} (↓${ratio}%)`)
+    }
+    console.log(`  共节省 ${formatBytes(totalSaved)}\n`)
+  }
+},
+```
+
+## 步骤三:添加 hash 缓存
+
+每次 build 都重新处理所有图片很慢。用 hash 做缓存:
+
+```ts
+import { createHash } from "node:crypto"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import { resolve } from "node:path"
+
+function getCacheKey(buffer: Uint8Array, format: string, quality: number): string {
+  const hash = createHash("md5")
+  hash.update(buffer)
+  hash.update(format)
+  hash.update(String(quality))
+  return hash.digest("hex")
+}
+
+const CACHE_DIR = resolve("node_modules/.vite/image-cache")
+
+function getCached(key: string): Buffer | null {
+  const cachePath = resolve(CACHE_DIR, key)
+  if (existsSync(cachePath)) {
+    return readFileSync(cachePath)
+  }
+  return null
+}
+
+function setCache(key: string, data: Buffer): void {
+  mkdirSync(CACHE_DIR, { recursive: true })
+  writeFileSync(resolve(CACHE_DIR, key), data)
+}
+```
+
+在处理每张图片前,先检查缓存:
+
+```ts
+const cacheKey = getCacheKey(chunk.source, format, quality)
+let optimizedBuffer = getCached(cacheKey)
+
+if (!optimizedBuffer) {
+  // 缓存未命中:执行转换
+  const result = await sharp(chunk.source).webp({ quality }).toBuffer()
+  optimizedBuffer = result
+  setCache(cacheKey, optimizedBuffer)
+}
+```
+
+## 完整配置示例
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { imageOptimizer } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [
+    imageOptimizer({
+      formats: ["webp", "avif"],
+      webpQuality: 80,
+      avifQuality: 65,
+    }),
+  ],
+})
+```
+
+## 运行实战项目
+
+```bash
+cd examples/plugin-image-optimizer
+pnpm install       # 会安装 sharp(需要 node-gyp 预构建,首次较慢)
+pnpm build         # 触发图片优化
+```
+
+查看 `dist/assets/` 目录:
+
+- 原始图片保留(向下兼容)
+- 同时出现 `.webp` 和 `.avif` 版本
+
+## 在 HTML 里使用 `<picture>` 标签利用优化图片
+
+```html
+<picture>
+  <!-- 浏览器按顺序尝试:优先 AVIF,其次 WebP,最后 JPEG -->
+  <source srcset="/assets/hero.avif" type="image/avif" />
+  <source srcset="/assets/hero.webp" type="image/webp" />
+  <img src="/assets/hero.jpg" alt="Hero" />
+</picture>
+```
+
+## 自测题
+
+1. 为什么要把 sharp 的 import 放在 `generateBundle` 里动态加载,而不是在文件顶部静态 import?
+2. `this.emitFile` 能在 `transform` hook 里调用吗?为什么?
+3. 这个插件设置了 `apply: "build"`,意味着什么?如果去掉这个设置会发生什么?
+4. 并行处理所有图片(`Promise.all`)比顺序处理有什么好处?有什么潜在风险?
+
+```ts filename="练习"
+// 扩展图片优化插件:
+// 1. 支持 SVG 优化(用 svgo 库压缩 SVG)
+// 2. 添加一个构建报告文件 image-report.json
+//    包含:每张图片的原始大小、优化后大小、节省比例
+
+import type { Plugin } from "vite"
+
+// 假设你已有 optimizeImage 函数
+async function optimizeImage(source: Uint8Array, format: string): Promise<Buffer> {
+  return Buffer.from(source) // 占位
+}
+
+export function enhancedImageOptimizer(): Plugin {
+  return {
+    name: "vite-plugin-enhanced-image",
+    apply: "build",
+    async generateBundle(_, bundle) {
+      // TODO:
+      // 1. 处理 .png / .jpg 转 webp(同上面的例子)
+      // 2. 处理 .svg 文件用 svgo 压缩
+      // 3. 用 this.emitFile 生成 image-report.json
+    },
+  }
+}
+```
+
+## 工具函数
+
+```ts
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`
+}
+```

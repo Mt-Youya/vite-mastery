@@ -1,0 +1,153 @@
+---
+title: Vite 8 Devtools 实战
+description: Vite 8 内置的开发工具——如何启用、能看到什么、怎么用它诊断性能问题和插件行为。
+order: 2
+part: 12-performance
+chapter: "12.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 8 Devtools 的启用方式 - 能看到的信息:模块图、transform 时间、插件耗时 - 结合 vite-plugin-inspect 的使用 -
+  性能诊断的实用工作流
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 Chrome DevTools 基本用法
+</Callout>
+
+## Vite 8 内置 Devtools
+
+Vite 8 引入了内置的 devtools 支持。在 `vite.config.ts` 里启用:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  // 以 Vite 8.1.x 官方文档为准
+  // devtools 选项的具体 API 在 8.1.x 版本中完善中
+})
+```
+
+<Callout type="warning">
+  Vite 8 Devtools 的完整 API 在 8.1.x 时仍在完善。本节介绍已稳定的功能。请以 [vitejs.dev](https://vitejs.dev/config/)
+  官方文档为准。
+</Callout>
+
+## vite-plugin-inspect:插件级调试
+
+`vite-plugin-inspect` 是 Vite 生态里最实用的调试工具:
+
+```bash
+pnpm add -D vite-plugin-inspect
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import Inspect from "vite-plugin-inspect"
+
+export default defineConfig({
+  plugins: [
+    Inspect(),
+    // ... 其他插件
+  ],
+})
+```
+
+启动 dev server 后访问 `http://localhost:5173/__inspect`:
+
+### 能看到什么
+
+1. **模块列表**:所有被加载的模块及其 transform 时间
+2. **Transform 链路**:每个模块经过哪些插件处理、各耗时多少
+3. **代码 Diff**:每个插件处理前后的代码对比
+4. **插件图**:插件调用关系
+
+### 典型使用场景
+
+**场景一:某个文件加载特别慢**
+
+在模块列表里按时间排序,找出耗时最长的模块。点进去看是哪个插件导致的。
+
+**场景二:某个插件没有生效**
+
+在模块的 transform 链路里找你的插件。如果不在列表里:
+
+- 检查 `apply` 配置是否正确
+- 检查文件过滤条件
+
+**场景三:代码被意外修改**
+
+用 Diff 模式查看每个插件的修改范围,找出修改了你不期望内容的插件。
+
+## Chrome DevTools Performance
+
+对于更底层的性能分析,直接用 Chrome DevTools:
+
+```bash
+# 开启 V8 profiler
+node --prof $(which vite) dev
+node --prof-process isolate-*.log > processed.txt
+```
+
+或者用 Clinic.js:
+
+```bash
+pnpm add -g clinic
+clinic doctor -- node ./node_modules/.bin/vite dev
+```
+
+## 调试 transform 耗时
+
+在自己的插件里加计时:
+
+```ts
+import type { Plugin } from "vite"
+
+export function timedPlugin(wrappedPlugin: Plugin): Plugin {
+  const original = wrappedPlugin.transform
+
+  return {
+    ...wrappedPlugin,
+    transform(code, id, options) {
+      const start = performance.now()
+      const result = original?.call(this, code, id, options)
+      const elapsed = performance.now() - start
+
+      if (elapsed > 10) {
+        console.log(`[${wrappedPlugin.name}] transform ${id}: ${elapsed.toFixed(1)}ms`)
+      }
+
+      return result
+    },
+  }
+}
+```
+
+## 自测题
+
+1. `vite-plugin-inspect` 需要在生产环境里启用吗?为什么?
+2. 如何找出"哪个插件让某个文件的 transform 最慢"?
+3. 如果你的插件在 transform 链路里没有出现,可能是什么原因?
+4. Vite 8 Devtools 和 `vite-plugin-inspect` 有什么不同?各适合什么场景?
+
+```ts filename="练习"
+// 使用 vite-plugin-inspect 诊断以下假设的问题:
+// 你的项目里有一个 transform 特别慢(超过 500ms)的文件
+// 步骤:
+// 1. 如何定位是哪个文件?
+// 2. 如何找出是哪个插件导致的?
+// 3. 找到后,如何在不修改该插件源码的情况下,
+//    让它只处理真正需要处理的文件?(提示:可以包一层 wrapper)
+
+import type { Plugin } from "vite"
+
+// 写出 wrapper 插件的实现:
+function withFileFilter(plugin: Plugin, pattern: RegExp): Plugin {
+  // TODO:包装插件,只让 id 匹配 pattern 的文件进入 transform
+}
+```

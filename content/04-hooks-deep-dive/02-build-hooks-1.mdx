@@ -1,0 +1,301 @@
+---
+title: 构建期通用 Hooks(上):options / buildStart / resolveId / load
+description: 深入解析构建流程前四个核心 hook——从配置读取、构建初始化,到路径解析和模块加载。每个 hook 的参数、返回值、典型用法。
+order: 2
+part: 04-hooks-deep-dive
+chapter: "4.2"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `options` hook 修改 Rolldown 输入选项的时机 - `buildStart` 的正确用法和在 Vite 8 中的变化 - `resolveId` 的竞争机制和
+  `\0` 前缀约定 - `load` 与 `resolveId` 的配合模式
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Hooks 全景图」(4.1 节) - 理解模块路径解析的概念
+</Callout>
+
+## `options` hook
+
+**触发时机**:Rolldown/Rollup 读取输入选项时(只在 build 阶段)。
+
+**用途**:修改传递给 Rolldown 的输入配置。
+
+```ts
+options(inputOptions) {
+  // inputOptions 包含 Rolldown 的完整输入配置
+  // 可以在这里修改 input / external / plugins 等
+  return {
+    ...inputOptions,
+    treeshake: {
+      moduleSideEffects: false,
+    },
+  }
+}
+```
+
+**注意**:`options` 只在 `pnpm build` 时触发。如果你想修改 dev server 的行为,应该用 `config` hook(下一章讲)。
+
+## `buildStart` hook
+
+**触发时机**:构建开始时。在 Vite 8 中,dev server 启动时也触发。
+
+**调用约定**:parallel(所有插件并发执行)
+
+**用途**:初始化插件内部状态、清理上一次构建的缓存、预读取配置文件。
+
+```ts
+buildStart() {
+  // ✅ 适合:初始化这次构建需要的变量
+  this.processedFiles = new Set()
+  this.startTime = Date.now()
+
+  // ✅ 适合:清理上一次 build 的临时数据
+  cache.clear()
+}
+```
+
+**典型模式:每次构建清空缓存**
+
+```ts
+import type { Plugin } from "vite"
+
+export function cachePlugin(): Plugin {
+  const cache = new Map<string, string>()
+
+  return {
+    name: "vite-plugin-cache",
+    buildStart() {
+      // 每次构建开始时清空缓存(避免热更新时用到旧数据)
+      cache.clear()
+    },
+    transform(code, id) {
+      if (cache.has(id)) return { code: cache.get(id)!, map: null }
+
+      const result = expensiveTransform(code)
+      cache.set(id, result)
+      return { code: result, map: null }
+    },
+  }
+}
+
+function expensiveTransform(code: string) {
+  return code
+}
+```
+
+<V7Note title="Vite 7:buildStart 在 dev 不触发">
+  在 Vite 7 中,如果你的插件用 `buildStart` 做初始化,它在 dev 模式下不会执行。这导致 dev 和 build 行为不一致。
+
+**迁移到 Vite 8**:不需要修改代码——Vite 8 会自动在 dev server 启动时也触发 `buildStart`。但需要检查:你的 `buildStart` 逻辑是否对"每次 dev 刷新都执行"有副作用?
+
+</V7Note>
+
+## `resolveId` hook
+
+**触发时机**:每次解析模块路径时(dev 和 build 都触发)。
+
+**调用约定**:first(竞争——第一个返回非 null 的插件获胜)
+
+**参数**:
+
+```ts
+resolveId(
+  source: string,      // 要解析的 import 路径,如 "react" 或 "./utils"
+  importer?: string,   // 谁在 import 这个路径(父模块 ID)
+  options: {
+    isEntry?: boolean  // 是否是入口模块
+    // 更多选项...
+  }
+): string | null | false | { id: string; external?: boolean }
+```
+
+**返回值**:
+
+- `string`:解析后的模块 ID(通常是文件绝对路径)
+- `null` / `undefined`:我不处理,让下一个插件试
+- `false`:这个模块是 external,不打包
+- `{ id, external: true }`:解析到某路径,但标记为 external
+
+### 最常见用法:虚拟模块
+
+```ts
+const VIRTUAL_ID = "virtual:config"
+const RESOLVED_ID = "\0" + VIRTUAL_ID  // \0 前缀防止文件系统误解析
+
+resolveId(id) {
+  if (id === VIRTUAL_ID) return RESOLVED_ID
+  return null
+},
+load(id) {
+  if (id !== RESOLVED_ID) return null
+  return `export default ${JSON.stringify(loadConfig())}`
+},
+```
+
+### 路径重映射
+
+```ts
+resolveId(id, importer) {
+  // 把 "@/" 别名重映射到 src/ 目录
+  if (id.startsWith("@/")) {
+    return id.replace("@/", "/absolute/path/to/src/")
+  }
+  return null
+},
+```
+
+### 标记 external
+
+```ts
+resolveId(id) {
+  // 告诉 Rolldown 这个包不需要打包进产物
+  if (id === "some-cdn-package") {
+    return { id: "https://cdn.example.com/some-package.js", external: true }
+  }
+  return null
+},
+```
+
+### `importer` 参数的用途
+
+`importer` 是导入这个模块的父模块路径。可以用它实现上下文感知的解析:
+
+```ts
+resolveId(id, importer) {
+  // 根据 importer 的位置决定解析哪个版本
+  if (id === "virtual:theme") {
+    const isDark = importer?.includes("/dark/")
+    return isDark ? "\0virtual:theme-dark" : "\0virtual:theme-light"
+  }
+  return null
+},
+```
+
+## `load` hook
+
+**触发时机**:模块路径解析完成后,读取模块内容时。
+
+**调用约定**:first(竞争)
+
+**参数**:
+
+```ts
+load(
+  id: string,  // resolveId 返回的模块 ID
+  options?: {
+    ssr?: boolean  // 是否在 SSR 环境中
+  }
+): string | null | { code: string; map?: SourceMap }
+```
+
+### 虚拟模块的标准模式
+
+`load` 和 `resolveId` 几乎总是成对出现:
+
+```ts
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+export function configPlugin(): Plugin {
+  const VIRTUAL_ID = "virtual:app-config"
+  const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+  return {
+    name: "vite-plugin-config",
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // 从配置文件读取数据,生成 ESM 模块
+      const configPath = resolve("app.config.json")
+      const config = JSON.parse(readFileSync(configPath, "utf-8"))
+
+      // 返回合法的 ES Module 代码
+      return {
+        code: `
+export const apiUrl = ${JSON.stringify(config.apiUrl)}
+export const version = ${JSON.stringify(config.version)}
+export default ${JSON.stringify(config)}
+`,
+        // map: null 表示不提供 source map
+      }
+    },
+  }
+}
+```
+
+### 读取非标准文件格式
+
+`load` 也可以读取真实文件,用于处理 Vite 本身不支持的格式:
+
+```ts
+load(id) {
+  // 处理 .yaml 文件
+  if (!id.endsWith(".yaml")) return null
+
+  const content = readFileSync(id, "utf-8")
+  const parsed = parseYaml(content)
+
+  return {
+    code: `export default ${JSON.stringify(parsed)}`,
+    map: null,
+  }
+},
+```
+
+### 在 `load` 里调用 `this.addWatchFile`
+
+如果 `load` 的结果依赖外部文件(如配置文件),告诉 Vite 监听这个文件的变化:
+
+```ts
+load(id) {
+  if (id !== "\0virtual:config") return null
+
+  const configPath = "/path/to/config.json"
+
+  // 👇 关键:监听依赖的外部文件
+  this.addWatchFile(configPath)
+
+  const config = JSON.parse(readFileSync(configPath, "utf-8"))
+  return `export default ${JSON.stringify(config)}`
+},
+```
+
+这样当 `config.json` 改变时,Vite 会重新执行 `load` 并触发 HMR。
+
+## 自测题
+
+1. `resolveId` 返回 `null` 和返回 `false` 有什么区别?
+2. 为什么虚拟模块的 ID 要加 `\0` 前缀?不加会发生什么?
+3. 如果两个插件都在 `resolveId` 里处理 `"virtual:foo"`,哪个会生效?如何控制?
+4. 为什么 `load` 里应该调用 `this.addWatchFile()`?不调用有什么后果?
+
+```ts filename="练习"
+// 实现一个插件:把项目根目录的 env.yaml 文件暴露为 "virtual:env" 模块
+// 当 env.yaml 改变时自动触发 HMR
+
+// 期望的使用方式:
+// import env from "virtual:env"
+// console.log(env.API_URL)  // 读 yaml 里的 API_URL 字段
+
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+// 假设你已经有一个 parseYaml 函数
+declare function parseYaml(content: string): Record<string, unknown>
+
+export function envYamlPlugin(): Plugin {
+  // TODO
+}
+```

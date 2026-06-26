@@ -1,0 +1,160 @@
+---
+title: 如何阅读本站
+description: 本站的阅读约定:Vite 7 差异折叠块、难度评级、交互组件、代码块标注方式——读完本节能事半功倍。
+order: 4
+part: 00-getting-started
+chapter: "0.4"
+difficulty: 1
+readingTime: 5
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 本站各类 Callout 块的含义
+  - `<V7Note>` 折叠块:Vite 7 与 Vite 8 差异的处理约定
+  - 难度评级 ▮▮▯▯ 的含义
+  - 代码块中文件名、行高亮、diff 标注的阅读方式
+</Callout>
+
+## 阅读约定总览
+
+本站以 **Vite 8** 为主线。Vite 7 的差异不写进正文,统一折叠在 `<V7Note>` 块里。如果你现在还在用 Vite 7(或正在迁移),展开它;如果你直接从 Vite 8 开始,可以完全跳过。
+
+---
+
+## Callout 块
+
+### 信息(蓝)
+
+<Callout type="note" title="示例:信息块">
+  背景知识、补充说明、需要注意但不紧急的内容。
+</Callout>
+
+### 技巧(橙)
+
+<Callout type="tip" title="示例:技巧块">
+  实际项目中的经验总结、非显而易见的用法、提升效率的小技巧。
+</Callout>
+
+### 警告(黄)
+
+<Callout type="warning" title="示例:警告块">
+  容易踩坑的地方、有破坏性变更的操作、需要在生产环境特别留意的行为。
+</Callout>
+
+### 危险(红)
+
+<Callout type="danger" title="示例:危险块">
+  会造成数据丢失、安全漏洞或构建产物损坏的操作。极少出现。
+</Callout>
+
+---
+
+## `<V7Note>` — Vite 7 差异折叠块
+
+本站最核心的约定。点击下面的标题栏展开看效果:
+
+<V7Note title="Vite 7:双引擎架构">
+  Vite 7 的 dev 模式使用 esbuild(Go)做 transform,build 模式使用 Rollup(JS)打包。两套引擎的 hook 行为有细微差异,某些 Rollup 插件在 dev 下不生效。
+
+**迁移到 Vite 8**:Rolldown 统一了两个阶段,插件只需适配一套 API。
+
+</V7Note>
+
+**规则**:
+
+- Vite 8 与 Vite 7 **行为一致**的地方 → 不出现 `<V7Note>`
+- **有差异**的地方 → 差异描述全部放进 `<V7Note>`,正文只讲 Vite 8
+- Vite 6 及更早版本 → 本站**不覆盖**
+
+---
+
+## 难度评级
+
+每篇文章的 meta 信息里有难度条:
+
+| 标记 | 含义                         |
+| ---- | ---------------------------- |
+| ▮▯▯▯ | 入门:会 JS 即可,跟着跑通     |
+| ▮▮▯▯ | 进阶:需要理解工具链基础      |
+| ▮▮▮▯ | 深入:涉及源码级原理          |
+| ▮▮▮▮ | 专家:建议有插件/工具开发经验 |
+
+---
+
+## 代码块约定
+
+### 文件名标注
+
+```ts filename="vite.config.ts"
+// 右上角 filename 标签说明这段代码属于哪个文件
+import { defineConfig } from "vite"
+export default defineConfig({})
+```
+
+### 行高亮
+
+```ts filename="vite.config.ts" {3-5}
+import { defineConfig } from "vite"
+export default defineConfig({
+  base: "/app/", // ← 这三行被高亮
+  build: {
+    outDir: "output", // ← 重点关注
+  },
+})
+```
+
+### Diff 标注
+
+```ts
+export default defineConfig({
+  build: {
+    outDir: "dist", // [!code --]
+    outDir: "output", // [!code ++]
+  },
+})
+```
+
+### Focus 标注
+
+把注意力聚焦到关键代码,其余行自动淡出。悬停可恢复查看。
+
+```ts
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react" // [!code focus]
+
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+---
+
+## 交互式组件
+
+本站有几个专为 Vite 原理可视化设计的组件,遇到时动手点一点:
+
+**HookExplorer** — 点击 hook 名称,查看触发时机 / 参数签名 / 示例代码 / Rolldown 兼容性:
+
+<HookExplorer filter={["resolveId", "load", "transform"]} />
+
+**V7Note** — 上面已演示过。
+
+**BundlerCompare** — 对比 Vite 7 双引擎与 Vite 8 Rolldown 架构,hover 高亮数据流。
+
+---
+
+## 自测题
+
+本站的「自测题」放在每节末尾,分两类:
+
+1. **概念题**(3~5 道):用自己的语言解释核心概念
+2. **编码题**(1 道):写代码或修改代码验证理解
+
+不会时不要直接翻答案——先在实验项目里跑一遍,往往豁然开朗。
+
+---
+
+好了,约定讲完了。下一节开始进入正题。

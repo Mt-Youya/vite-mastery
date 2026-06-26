@@ -1,0 +1,248 @@
+---
+title: "`import.meta.hot` API 全解"
+description: HMR 的浏览器端 API——accept / dispose / invalidate / data 每个方法的语义,以及如何为自定义文件类型实现精准 HMR 而不是整页刷新。
+order: 2
+part: 06-hmr
+chapter: "6.2"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `import.meta.hot` 是否存在及如何判断 - `accept()`:声明 HMR 边界,接受自身或依赖的更新 -
+  `dispose()`:清理副作用(定时器、事件监听等) - `invalidate()`:声明模块无法热更,让更新冒泡 -
+  `data`:在模块热更新之间保留状态
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「HMR 协议」(6.1 节) - 理解 ES Module 的作用域概念
+</Callout>
+
+## `import.meta.hot` 是什么
+
+`import.meta.hot` 是 Vite(以及兼容 HMR 的 bundler)在**开发模式**注入的对象,生产 build 里不存在。
+
+```ts
+if (import.meta.hot) {
+  // 这段代码只在 dev 模式执行
+  // build 时会被 tree-shake 掉
+}
+```
+
+**永远用 `if (import.meta.hot)` 包裹 HMR 代码**——这样 build 时 tree-shaking 就能正确移除这些开发专属逻辑。
+
+## `accept()`:声明 HMR 边界
+
+`accept()` 是最核心的 HMR API。调用它告诉 Vite:"这个模块可以自己处理更新,不需要整页刷新"。
+
+### 自接受(Self-Accept)
+
+模块接受自己的更新:
+
+```ts
+// src/counter.ts
+let count = 0
+
+export function getCount() {
+  return count
+}
+export function increment() {
+  count++
+}
+
+// 声明:当这个模块自己更新时,调用这个回调
+if (import.meta.hot) {
+  import.meta.hot.accept((newModule) => {
+    // newModule 是重新执行后的新模块
+    // 在这里把新模块的状态迁移到旧模块
+    console.log("counter 模块已热更新")
+  })
+}
+```
+
+### 接受依赖的更新
+
+```ts
+// src/App.tsx
+import { getCount } from "./counter"
+
+if (import.meta.hot) {
+  // 接受 counter 模块的更新
+  import.meta.hot.accept("./counter", (newCounter) => {
+    // counter 更新后,可以用新的 counter 重新初始化
+    console.log("counter 已更新,新值:", newCounter?.getCount())
+  })
+}
+```
+
+### 接受多个依赖
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.accept(["./moduleA", "./moduleB"], ([newA, newB]) => {
+    // 其中任意一个更新时都会触发
+    console.log("A 或 B 更新了")
+  })
+}
+```
+
+### 无回调的 accept(最简单)
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.accept()
+  // 什么都不传:接受自身更新,但不执行任何回调
+  // 适合纯函数导出的模块,不需要显式迁移状态
+}
+```
+
+## HMR 更新的传播规则
+
+当一个文件改变时,Vite 在模块图里向上遍历:
+
+```text
+Button.tsx 改变
+    │
+    ▼ 检查:Button.tsx 有 import.meta.hot.accept() 吗?
+    │
+    ├── 有 → 在这里停下,HMR 更新 Button.tsx
+    │
+    └── 没有 → 继续向上找 importer
+          │
+          App.tsx: 有 accept("./Button", ...)?
+          ├── 有 → 在 App.tsx 停下
+          └── 没有 → 继续向上...
+                main.tsx: 没有 → 整页刷新!
+```
+
+**HMR 边界**就是有 `accept()` 的模块。更新在边界处被"捕获",不再向上传播。
+
+## `dispose()`:清理副作用
+
+当模块即将被卸载(热更新替换旧版本)时,运行清理逻辑:
+
+```ts
+// 有副作用的模块
+let timer: ReturnType<typeof setInterval>
+
+export function startTimer() {
+  timer = setInterval(() => console.log("tick"), 1000)
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    // 旧模块即将被销毁:清理副作用
+    clearInterval(timer)
+    console.log("定时器已清理")
+  })
+
+  import.meta.hot.accept()
+}
+```
+
+**dispose 在 accept 之前执行**:
+
+```text
+1. 文件改变
+2. dispose 回调执行(清理旧模块的副作用)
+3. 新模块代码执行(重新初始化)
+4. accept 回调执行(状态迁移)
+```
+
+## `invalidate()`:声明无法热更
+
+有些模块的更新无法在不刷新页面的情况下安全应用:
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    // 模块更新了,但某个全局状态无法重置
+    if (someGlobalState.isCorrupted()) {
+      // 宣告无法热更,触发整页刷新
+      import.meta.hot!.invalidate()
+    }
+  })
+}
+```
+
+## `data`:跨热更新保留状态
+
+`import.meta.hot.data` 是一个持久对象,在模块热更新之间保留:
+
+```ts
+// 假设你想在热更新后保留某些状态
+if (import.meta.hot) {
+  // 热更新前的旧值会存在 data 里
+  const previousCount = import.meta.hot.data.count ?? 0
+
+  let count = previousCount // 用旧值初始化
+
+  export function getCount() {
+    return count
+  }
+
+  import.meta.hot.accept(() => {
+    // 热更新时把当前值存入 data
+    import.meta.hot!.data.count = count
+  })
+}
+```
+
+## React Fast Refresh 如何工作
+
+`@vitejs/plugin-react` v6(OXC 版)自动为 React 组件注入 HMR 代码:
+
+```ts
+// 你写的代码:
+export function Button({ label }) {
+  return <button>{label}</button>
+}
+
+// 插件自动注入(简化):
+if (import.meta.hot) {
+  const prevRefreshReg = window.$RefreshReg$
+  window.$RefreshReg$ = (type, id) => {
+    RefreshRuntime.register(type, module.id + " " + id)
+  }
+  import.meta.hot.accept()
+  // 注册 React 组件用于 Fast Refresh
+}
+```
+
+Fast Refresh 在热更新时:
+
+- 重新执行组件函数
+- 保留 React 组件树中的 state
+- 不重置 ref 和 context
+
+## 自测题
+
+1. 为什么 HMR 代码必须包裹在 `if (import.meta.hot)` 里?
+2. `accept()` 不传回调和传入空回调 `() => {}` 有区别吗?
+3. `dispose()` 和 `accept()` 的执行顺序是什么?为什么要先 dispose 再 accept?
+4. 一个模块既有 `dispose` 又有 `accept`,热更新时两个都会执行吗?顺序是什么?
+
+```ts filename="练习"
+// 实现一个有副作用的模块,正确处理 HMR:
+// 1. 模块启动时注册一个键盘事件监听器
+// 2. 模块热更新时:先移除旧监听器,再注册新监听器
+// 3. 用 data 保留当前的按键次数,热更新后继续计数
+
+export function setupKeyListener(callback: (key: string) => void) {
+  const handler = (e: KeyboardEvent) => callback(e.key)
+  document.addEventListener("keydown", handler)
+  return () => document.removeEventListener("keydown", handler)
+}
+
+// TODO:添加 HMR 支持
+// 要求:
+// - 热更新时移除旧监听器
+// - 热更新后重新注册新监听器
+// - 使用 data 保留按键次数(即使热更新也不丢失)
+if (import.meta.hot) {
+  // TODO
+}
+```

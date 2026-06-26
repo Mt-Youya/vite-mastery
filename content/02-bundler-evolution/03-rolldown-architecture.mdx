@@ -1,0 +1,162 @@
+---
+title: Rolldown 架构剖析
+description: Rolldown 内部是怎么运转的?OXC 解析、模块图构建、chunk 生成三个阶段各自做什么?与 Rollup 的架构差异在哪里?
+order: 3
+part: 02-bundler-evolution
+chapter: "2.3"
+difficulty: 3
+readingTime: 15
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Rolldown 构建过程的三个主要阶段 - OXC 解析器在整体架构里的位置 - Rolldown 与 Rollup 在架构层面的关键差异 - 为什么
+  Rust 实现对性能意义重大
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「Rolldown 是什么」(2.2 节) - 了解基本的编译器概念:解析(parse)→ 分析(analyze)→ 生成(generate)
+</Callout>
+
+## 两个架构的对比
+
+在深入 Rolldown 内部之前,先直观地感受 Vite 7 和 Vite 8 的架构差异:
+
+<BundlerCompare />
+
+左侧是 Vite 7 的双引擎——esbuild 负责 dev transform,Rollup 负责 build bundle,两者完全独立。右侧是 Vite 8 的 Rolldown 统一架构。
+
+## Rolldown 的三个核心阶段
+
+Rolldown 的执行过程可以分为三个主要阶段:
+
+### 阶段一:解析与模块图构建
+
+**输入**:入口文件路径
+
+**Rolldown 做什么**:
+
+1. 调用 OXC Parser 解析入口文件,得到 AST
+2. 从 AST 中提取所有 `import` 声明
+3. 对每个 `import` 路径执行 resolve 流程(触发 `resolveId` hook)
+4. 对 resolve 成功的模块执行 load(触发 `load` hook)+ parse
+5. 递归处理依赖,直到所有模块都被解析
+
+这个过程构建出一张**模块图谱(Module Graph)**——项目里所有模块及其依赖关系的有向图。
+
+```text
+入口: src/main.tsx
+  │
+  ├── resolve: "react" → node_modules/react/index.js
+  ├── resolve: "./App" → src/App.tsx
+  │     ├── resolve: "./Button" → src/Button.tsx
+  │     └── resolve: "./styles.css" → src/styles.css
+  └── resolve: "virtual:env" → \0virtual:env (由插件处理)
+```
+
+### 阶段二:Transform
+
+模块图构建完成后,Rolldown 对每个模块执行 transform 管道:
+
+1. 触发所有插件的 `transform(code, id)` hook(顺序执行)
+2. OXC Transformer 处理 TypeScript 类型擦除
+3. 对于 JSX,调用对应的 transform(如 `@vitejs/plugin-react`)
+4. 处理 `import.meta.*` 注入(如 `import.meta.env`、`import.meta.hot`)
+
+**dev 模式下**,Rolldown 按需执行 transform——只有浏览器实际请求的模块才会被 transform,未请求的不处理。这是冷启动极快的根本原因。
+
+**build 模式下**,Rolldown 对所有模块完整执行 transform,为后续的 tree-shaking 和 chunk 生成做准备。
+
+### 阶段三:Chunk 生成与优化(仅 build)
+
+这一阶段只在 `vite build` 时运行:
+
+1. **Tree-shaking** — 基于模块图谱和 `export` / `import` 分析,标记并删除未使用的代码
+2. **Chunk 分割** — 根据动态 `import()` 边界和 `rollupOptions.output.manualChunks` 配置,决定如何把模块打包进不同的 chunk 文件
+3. **Minification** — OXC Minifier 压缩代码(删除空格、缩短变量名等)
+4. **资源处理** — CSS 提取、图片 hash 指纹、静态资源复制
+
+触发的 hook 顺序:
+
+```text
+buildStart → resolveId/load/transform(每个模块) → buildEnd
+→ renderStart → renderChunk(每个 chunk) → generateBundle → writeBundle → closeBundle
+```
+
+## OXC 在架构里的位置
+
+OXC 不是 Rolldown 的外部依赖——它是 Rolldown 的内部核心:
+
+```text
+Rolldown 进程
+  │
+  ├── OXC Parser     — 负责所有 JS/TS 的 AST 解析
+  ├── OXC Transformer — 负责 TS 类型擦除、基础 JSX 支持
+  ├── OXC Minifier   — 负责 build 阶段的代码压缩
+  └── Rolldown Core  — 模块图、resolve 逻辑、chunk 算法、plugin hooks
+```
+
+OXC 用 Rust 实现,与 Rolldown 运行在同一个进程里,不需要跨进程通信。这与 Vite 7 里 esbuild 作为独立进程(通过 child_process 或 WASM)运行有本质区别。
+
+<V7Note title="Vite 7:esbuild 是外部进程">
+  在 Vite 7 中,esbuild 作为一个独立的 Go 二进制程序运行,Vite 通过 `esbuild` npm 包的 JavaScript API 与其通信。每次 transform 都涉及序列化 → IPC → 反序列化的开销。
+
+Rolldown 把 OXC 直接嵌入同一个 Rust 进程,消除了 IPC 开销。对于大量小文件的项目,这个差异在 dev 阶段尤为明显。
+
+</V7Note>
+
+## 与 Rollup 的架构差异
+
+Rolldown 有意模仿 Rollup 的插件 API,但底层架构有本质不同:
+
+| 维度         | Rollup             | Rolldown                 |
+| ------------ | ------------------ | ------------------------ |
+| 实现语言     | JavaScript         | Rust                     |
+| 解析器       | Acorn(JS 实现)     | OXC Parser(Rust)         |
+| 并发         | 单线程 + Promise   | 多线程(Rayon)            |
+| Tree-shaking | 基于 Acorn AST     | 基于 OXC AST             |
+| 插件 API     | Rollup Plugin 原生 | 兼容层(转换为 Rust 调用) |
+
+Rolldown 用一个兼容层把 JavaScript 插件 hook 调用翻译成 Rust 内部操作。这意味着:
+
+- 插件 API 对用户透明(写法完全一样)
+- 性能开销集中在 JS ↔ Rust 的边界调用,而不是解析和分析本身
+- 随着 Rolldown 的迭代,某些 hook 的行为细节可能与 Rollup 有轻微差异
+
+## 自测题
+
+1. 在 Rolldown 的三个阶段里,dev 模式和 build 模式的主要区别在哪个阶段?为什么?
+2. OXC Parser 被集成进 Rolldown 进程内部,与 Vite 7 esbuild 的外部进程架构相比,有哪些实际优势?
+3. Rolldown 的模块图谱构建是深度优先还是广度优先?这对 `resolveId` hook 的调用顺序有什么影响?
+4. 为什么说 Rolldown 的插件 API 是"兼容层"?这个兼容层的存在会带来哪些隐患?
+
+```ts filename="练习"
+// 分析以下代码,Rolldown 在 build 阶段会触发哪些 hook 以及顺序?
+// (假设 resolveId 和 load 使用默认行为,transform 有一个用户插件)
+
+// vite.config.ts
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: "src/main.ts",
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+        },
+      },
+    },
+  },
+  plugins: [myTransformPlugin()],
+})
+
+// src/main.ts
+import React from "react"
+import { App } from "./App"
+
+// 问题:
+// 1. renderChunk 会被调用几次?(提示:有 manualChunks)
+// 2. generateBundle 在 renderChunk 之前还是之后?
+// 3. myTransformPlugin 的 transform hook 在哪个阶段被调用?
+```

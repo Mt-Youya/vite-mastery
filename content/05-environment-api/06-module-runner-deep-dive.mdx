@@ -1,0 +1,216 @@
+---
+title: ModuleRunner 深入
+description: ModuleRunner 如何在指定 Environment 里执行模块?它的内部机制是什么?如何处理 HMR、模块缓存、循环依赖?
+order: 6
+part: 05-environment-api
+chapter: "5.6"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  Environment API 当前处于 **RC 阶段**,具体的 API 名称和接口行为可能在未来 minor 版本中变化。本章基于 Vite
+  8.1.x。生产项目使用前请确认对应 Vite 版本的官方文档。
+</Callout>
+
+<Callout type="note" title="你将学到什么">
+  - ModuleRunner 的内部执行流程 - 模块缓存机制与 HMR 更新的关系 - `import()` 与直接执行代码的区别 - ModuleRunner
+  的常见使用模式
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 阅读「核心概念」(5.2 节) - 了解 Node.js Module 系统的基本原理
+</Callout>
+
+## ModuleRunner 是什么
+
+`ModuleRunner` 是 Environment API 里**在指定环境执行模块**的机制。它的职责相当于"在这个特定的 Environment 上下文里 import 一个模块"。
+
+类比:如果 `Environment` 是一个独立的运行时沙箱,那么 `ModuleRunner` 就是这个沙箱里的 `import()` 函数。
+
+```ts
+// 概念示意(以官方文档 API 为准)
+const runner = new ModuleRunner(ssrEnvironment)
+
+// 在 ssr 环境里执行模块
+const { render } = await runner.import("/src/entry-server.tsx")
+const html = await render("/page")
+```
+
+## ModuleRunner 的内部流程
+
+```text
+runner.import("/src/App.tsx")
+         │
+         ▼
+1. 检查模块缓存
+   ├── 命中且未失效 → 直接返回缓存的模块导出
+   └── 未命中/失效 → 继续 →
+
+2. 向 DevEnvironment 请求模块 transform
+   ├── resolve → load → transform 管道执行
+   └── 返回编译后的 JS 代码
+
+3. 在当前 runner 的执行上下文里运行代码
+   ├── 类似 new Function(code)()
+   └── 但有完整的 import/export 支持
+
+4. 收集导出,加入缓存
+
+5. 返回模块导出对象
+```
+
+## 模块缓存与 HMR
+
+ModuleRunner 维护自己的模块缓存。当文件改变:
+
+```text
+文件改变: /src/utils.ts
+         │
+         ▼
+DevEnvironment 收到 watcher 事件
+         │
+         ▼
+通过 HotChannel 通知 runner:utils.ts 已失效
+         │
+         ▼
+runner.moduleCache.invalidate("/src/utils.ts")
+         │
+         ▼
+下次 runner.import("/src/utils.ts") 重新执行
+```
+
+这意味着 runner 的缓存失效是**懒惰的**:不是立即重新执行,而是等到下次 import 才重新加载。
+
+## 使用 ModuleRunner 的标准模式
+
+### 模式一:SSR 服务端渲染
+
+```ts
+// server.js(概念示意)
+import { createServer } from "vite"
+
+const vite = await createServer({
+  server: { middlewareMode: true },
+})
+
+// 获取 ssr 环境的 ModuleRunner
+// 具体 API 以官方文档为准
+const runner = getModuleRunner(vite.environments.ssr)
+
+app.use(async (req, res) => {
+  try {
+    // 每次请求都用 runner.import 获取最新模块
+    // 如果文件没改变,命中缓存,几乎零开销
+    const { render } = await runner.import("/src/entry-server.tsx")
+    const html = await render(req.url)
+
+    res.setHeader("Content-Type", "text/html")
+    res.end(html)
+  } catch (e) {
+    vite.ssrFixStacktrace(e)
+    res.status(500).end(String(e))
+  }
+})
+```
+
+### 模式二:批量处理
+
+```ts
+// 一次性执行多个模块
+const results = await Promise.all([
+  runner.import("/src/routes/home.tsx"),
+  runner.import("/src/routes/about.tsx"),
+  runner.import("/src/routes/404.tsx"),
+])
+```
+
+### 模式三:生命周期管理
+
+```ts
+// runner 应该随 server 生命周期一起关闭
+process.on("SIGTERM", async () => {
+  await runner.close() // 清理资源
+  await vite.close()
+})
+```
+
+## 与 `ssrLoadModule` 的对比
+
+| 维度       | `ssrLoadModule`   | `ModuleRunner`      |
+| ---------- | ----------------- | ------------------- |
+| 环境感知   | ❌ 共用全局模块图 | ✅ 独立 Environment |
+| 缓存机制   | 每次重新执行      | 有缓存,失效才重执行 |
+| HMR 集成   | 手动管理          | 自动                |
+| 多环境     | ❌ 不支持         | ✅ 原生支持         |
+| API 稳定性 | 稳定              | RC                  |
+
+## 模块执行上下文
+
+ModuleRunner 在一个**隔离的执行上下文**里运行模块。这意味着:
+
+```ts
+// 在 runner 里执行的代码:
+import { readFile } from "node:fs/promises" // Node.js API
+
+// 全局对象是 Node.js 的全局对象
+console.log(typeof window) // "undefined"(如果在 Node 里运行)
+console.log(typeof process) // "object"
+
+// 但如果 runner 运行在 Edge Runtime:
+// console.log(typeof window)  // "object"(Edge 有 window-like 对象)
+// console.log(typeof process)  // "undefined"
+```
+
+runner 的执行环境取决于它**运行在哪个 Runtime 里**。ssr runner 运行在 Node.js 里,worker runner 运行在 workerd 里。
+
+## 自测题
+
+1. ModuleRunner 的模块缓存何时失效?
+2. 为什么 runner 的缓存失效是"懒惰的"而不是立即重新执行?这种设计有什么好处?
+3. 如果同一个 `/src/utils.ts` 被 client runner 和 ssr runner 都 import 了,两个 runner 各自维护一份缓存吗?
+4. `runner.import("/src/App.tsx")` 和直接 `import("/src/App.tsx")` 有什么本质区别?
+
+```ts filename="练习"
+// 实现一个简单的 SSR 渲染服务器:
+// 1. 创建 Vite dev server
+// 2. 获取 ssr environment 的 ModuleRunner
+// 3. 处理每个 HTTP 请求时:
+//    a. 用 runner.import 获取 entry-server 模块
+//    b. 调用 render(url) 获取 HTML
+//    c. 返回完整 HTML
+
+import { createServer } from "node:http"
+import { createServer as createViteServer } from "vite"
+
+async function main() {
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: "custom",
+    environments: {
+      ssr: {
+        resolve: {
+          conditions: ["node", "import"],
+        },
+      },
+    },
+  })
+
+  // TODO:
+  // 1. 获取 ssr environment 的 runner(以官方 API 为准)
+  // 2. 创建 HTTP server
+  // 3. 在请求处理里用 runner.import 执行 entry-server
+
+  const server = createServer(async (req, res) => {
+    // TODO
+  })
+
+  server.listen(3000)
+  console.log("SSR server: http://localhost:3000")
+}
+
+main()
+```

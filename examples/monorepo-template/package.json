@@ -1,0 +1,16 @@
+{
+  "name": "monorepo-template",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @monorepo/web dev",
+    "build": "turbo build",
+    "typecheck": "tsc --noEmit",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.0",
+    "typescript": "^6.0.3"
+  }
+}
