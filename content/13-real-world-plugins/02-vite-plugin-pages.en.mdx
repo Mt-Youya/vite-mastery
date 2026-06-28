@@ -1,0 +1,199 @@
+---
+title: "Source Walkthrough: `vite-plugin-pages`"
+description: Scan the filesystem and auto-generate routes — how does this "magic" work? Glob scanning, virtual modules, and HMR route table updates.
+order: 2
+part: 13-real-world-plugins
+chapter: "13.2"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How file-based routing is implemented - Scanning the filesystem to generate route configs - Exposing the route table
+  via a virtual module - Updating routes via HMR when files are added or deleted
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understand virtual module plugins (section 3.4) - Familiar with the handleHotUpdate hook (section 6.3)
+</Callout>
+
+## Feature Goal
+
+```text
+pages/
+  index.tsx          → route "/"
+  about.tsx          → route "/about"
+  blog/
+    index.tsx        → route "/blog"
+    [id].tsx         → route "/blog/:id"
+    [...all].tsx     → route "/blog/*"
+
+Auto-generated route config:
+[
+  { path: "/", component: () => import("./pages/index.tsx") },
+  { path: "/about", component: ... },
+  { path: "/blog", component: ... },
+  { path: "/blog/:id", component: ... },
+]
+```
+
+## Core Implementation: Glob Scanning
+
+```ts
+import { globSync } from "node:fs"
+import { resolve, relative, basename, dirname } from "node:path"
+
+interface Route {
+  path: string
+  component: string
+  children?: Route[]
+}
+
+function scanPages(pagesDir: string): Route[] {
+  const pattern = resolve(pagesDir, "**/*.{tsx,jsx,vue}")
+  const files = globSync(pattern)
+
+  return files.map((file) => {
+    const relativePath = relative(pagesDir, file)
+    const routePath = filePathToRoutePath(relativePath)
+    return {
+      path: routePath,
+      component: file,
+    }
+  })
+}
+
+function filePathToRoutePath(filePath: string): string {
+  // pages/blog/[id].tsx → /blog/:id
+  return (
+    "/" +
+      filePath
+        .replace(/\.(tsx|jsx|vue)$/, "") // strip extension
+        .replace(/index$/, "") // index → empty (represents parent path)
+        .replace(/\[\.\.\.(\w+)\]/, "*") // [...all] → *
+        .replace(/\[(\w+)\]/, ":$1") // [id] → :id
+        .replace(/\/$/, "") || // strip trailing slash
+    "/"
+  )
+}
+```
+
+## Exposing Routes via a Virtual Module
+
+```ts
+import type { Plugin } from "vite"
+
+const VIRTUAL_ID = "virtual:pages"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function pagesPlugin(options: { pagesDir: string }): Plugin {
+  let routes: Route[] = []
+
+  function loadRoutes() {
+    routes = scanPages(options.pagesDir)
+  }
+
+  function generateCode(): string {
+    const routeImports = routes
+      .map((r, i) => `const page${i} = () => import(${JSON.stringify(r.component)})`)
+      .join("\n")
+
+    const routeArray = routes.map((r, i) => `{ path: ${JSON.stringify(r.path)}, component: page${i} }`).join(",\n  ")
+
+    return `
+${routeImports}
+
+export default [
+  ${routeArray}
+]
+`
+  }
+
+  return {
+    name: "vite-plugin-pages",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      loadRoutes()
+
+      // Watch the pages directory for changes
+      this.addWatchFile(options.pagesDir)
+
+      return generateCode()
+    },
+
+    // Update routes when files are added or deleted
+    handleHotUpdate({ file, server }) {
+      if (!file.startsWith(resolve(options.pagesDir))) return
+
+      // Invalidate the route virtual module
+      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+    },
+  }
+}
+```
+
+## Handling Nested Routes
+
+```ts
+function scanPagesNested(pagesDir: string): Route[] {
+  const flat = scanPages(pagesDir)
+
+  // Build a tree structure
+  const routeMap = new Map<string, Route>()
+  const roots: Route[] = []
+
+  for (const route of flat) {
+    const parent = route.path.split("/").slice(0, -1).join("/")
+    routeMap.set(route.path, { ...route, children: [] })
+  }
+
+  for (const [path, route] of routeMap) {
+    const parentPath = path.split("/").slice(0, -1).join("/") || "/"
+    const parent = routeMap.get(parentPath)
+
+    if (parent && parent !== route) {
+      parent.children = parent.children ?? []
+      parent.children.push(route)
+    } else {
+      roots.push(route)
+    }
+  }
+
+  return roots
+}
+```
+
+## Self-check
+
+1. Why does `pages/[id].tsx` map to `:id` rather than `$id` or some other format?
+2. Why use a virtual module instead of generating a real JS file on disk?
+3. When a user creates a new page file, how does `handleHotUpdate` detect it?
+4. How should a conflict between `pages/blog/index.tsx` and `pages/blog.tsx` be handled?
+
+```ts filename="Exercise"
+// Extend pagesPlugin to:
+// 1. Support route-level metadata (read from the file's `export const meta = {}`)
+// 2. Support layout files (_layout.tsx) that automatically wrap page components
+// 3. Generate a children array for nested routes
+
+// Metadata usage:
+// In pages/blog/index.tsx:
+// export const meta = { title: "Blog List", requiresAuth: true }
+//
+// Generated route:
+// { path: "/blog", component: ..., meta: { title: "Blog List", requiresAuth: true } }
+```

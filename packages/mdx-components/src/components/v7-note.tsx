@@ -16,13 +16,22 @@ import { useState } from "react"
 import { Collapsible } from "@vite-mastery/ui"
 import { cn } from "@vite-mastery/ui"
 
-interface V7NoteProps {
+export interface V7NoteProps {
   /** 折叠栏标题,默认 "Vite 7 行为差异" */
   title?: string
+  /** 展开按钮 aria 文案 */
+  expandLabel?: string
+  /** 折叠按钮 aria 文案 */
+  collapseLabel?: string
   children: React.ReactNode
 }
 
-export function V7Note({ title = "Vite 7 行为差异", children }: V7NoteProps) {
+export function V7Note({
+  title = "Vite 7 行为差异",
+  expandLabel = "展开",
+  collapseLabel = "折叠",
+  children,
+}: V7NoteProps) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -43,7 +52,7 @@ export function V7Note({ title = "Vite 7 行为差异", children }: V7NoteProps)
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning-400/50",
           open && "rounded-b-none"
         )}
-        aria-label={`${open ? "折叠" : "展开"}:${title}`}
+        aria-label={`${open ? collapseLabel : expandLabel}:${title}`}
       >
         {/* V7 徽章:展开后去灰度 */}
         <span

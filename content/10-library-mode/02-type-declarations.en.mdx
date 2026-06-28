@@ -1,0 +1,173 @@
+---
+title: Generating Type Declaration Files
+description: Publishing an npm package requires .d.ts type declarations — vite-plugin-dts generates them automatically, when to hand-write .d.ts files, and how tsconfig settings affect the output.
+order: 2
+part: 10-library-mode
+chapter: "10.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Why npm packages need `.d.ts` type declaration files - Basic usage and configuration of `vite-plugin-dts` - How
+  tsconfig settings affect type generation - When to write `.d.ts` files by hand
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Familiarity with TypeScript's basic type system - Read "build.lib Configuration Reference" (section 10.1)
+</Callout>
+
+## Why you need .d.ts files
+
+After a user runs `pnpm add my-lib`, their TypeScript project needs to know the library's types:
+
+```ts
+import { Button } from "my-lib"
+// TypeScript looks in node_modules/my-lib/ for type declarations
+// Without .d.ts files, it errors: "Could not find a declaration file for module 'my-lib'"
+```
+
+Type declaration files can come from:
+
+1. The package itself (declared in `package.json` under `types` / `exports["types"]`)
+2. A separate `@types/xxx` package (e.g., `@types/react`)
+3. The package ships TypeScript source and the consumer configures path resolution in tsconfig
+
+## vite-plugin-dts
+
+The easiest approach: use `vite-plugin-dts` to automatically generate `.d.ts` files at build time:
+
+```bash
+pnpm add -D vite-plugin-dts
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import dts from "vite-plugin-dts"
+
+export default defineConfig({
+  plugins: [
+    dts({
+      // Reads configuration from tsconfig.json
+      // Places generated .d.ts files inside dist/
+      include: ["src"],
+      outDir: "dist",
+      // rollupTypes: merge all declarations into a single file (optional)
+      rollupTypes: true,
+    }),
+  ],
+  build: {
+    lib: {
+      entry: "src/index.ts",
+      formats: ["es", "cjs"],
+    },
+  },
+})
+```
+
+Build output:
+
+```text
+dist/
+  index.js         ← ESM
+  index.cjs        ← CJS
+  index.d.ts       ← Type declarations
+```
+
+## How tsconfig settings affect type generation
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "declaration": true, // Generate .d.ts files
+    "declarationDir": "dist", // Output directory for .d.ts files
+    "declarationMap": true, // Generate .d.ts.map (optional, enables Go to Definition)
+    "emitDeclarationOnly": true // Only emit .d.ts, no .js (use alongside Vite)
+  }
+}
+```
+
+## Using tsc directly (without a plugin)
+
+For simple libraries, you can call tsc directly in the build script:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "build": "vite build && tsc --emitDeclarationOnly --outDir dist"
+  }
+}
+```
+
+## When to write .d.ts files by hand
+
+Sometimes you need to write type declarations manually:
+
+1. **Virtual modules**: your plugin generates virtual modules that need types
+
+```ts filename="src/virtual.d.ts"
+declare module "virtual:my-data" {
+  export const items: string[]
+  export default items
+}
+```
+
+2. **Global type augmentation**
+
+```ts filename="src/global.d.ts"
+declare global {
+  interface Window {
+    __MY_LIB__: { version: string }
+  }
+}
+
+export {}
+```
+
+3. **.vue / .svelte file types**
+
+```ts filename="src/shims.d.ts"
+declare module "*.vue" {
+  import type { DefineComponent } from "vue"
+  const Component: DefineComponent
+  export default Component
+}
+```
+
+## Verifying your type declarations
+
+Before publishing, check with `arethetypeswrong`:
+
+```bash
+npx arethetypeswrong@latest --pack
+```
+
+This tool verifies that your package's types resolve correctly under different module systems.
+
+## Self-check
+
+1. What problem will TypeScript users encounter if a published npm package has no `.d.ts` files?
+2. What does `rollupTypes: true` do in `vite-plugin-dts`?
+3. What is a `.d.ts.map` file used for? Do you need to include it when publishing an npm package?
+4. In what situations should you write `.d.ts` files by hand instead of generating them automatically?
+
+```ts filename="Exercise"
+// Set up complete type generation for a React component library:
+// - The library has three components: Button, Input, and Modal
+// - Each component has a Props type
+// - Consumers should get full type hints in their IDE
+
+// 1. Write the export structure for src/index.ts
+// 2. Write the dts configuration in vite.config.ts
+// 3. Write the types/exports configuration in package.json
+
+// src/index.ts
+export { Button } from "./components/Button"
+export type { ButtonProps } from "./components/Button"
+export { Input } from "./components/Input"
+export type { InputProps } from "./components/Input"
+// TODO: ...
+```

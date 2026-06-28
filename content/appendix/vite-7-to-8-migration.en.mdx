@@ -1,0 +1,316 @@
+---
+title: Vite 7 → 8 Migration Guide
+description: A systematic guide for migrating from Vite 7 to Vite 8 — pre-upgrade checklist, configuration change reference, plugin compatibility self-audit, and common migration pitfalls with solutions.
+order: 1
+part: appendix
+chapter: "A.1"
+difficulty: 2
+readingTime: 20
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="Who this is for">
+  Developers with an existing Vite 7 project who want to upgrade to Vite 8. Read through the whole guide before you
+  start.
+</Callout>
+
+## Pre-upgrade checklist
+
+```text
+Confirm before upgrading:
+□ Node.js version ≥ 20.19 or ≥ 22.12
+□ Back up the current project (git commit or stash)
+□ Read the Vite 8 official release notes (vitejs.dev/blog)
+□ Confirm all Vite plugin dependencies have been updated to versions that support Vite 8
+□ If using @vitejs/plugin-react, decide whether to migrate to v6
+```
+
+## Upgrade steps
+
+### Step 1: Update Vite itself
+
+```bash
+pnpm update vite@^8.1.0
+
+# If using React
+pnpm update @vitejs/plugin-react@^6.0.0
+
+# If using Vue
+pnpm update @vitejs/plugin-vue
+
+# If using Svelte
+pnpm update @sveltejs/vite-plugin-svelte
+```
+
+### Step 2: Delete the old cache
+
+```bash
+# Delete the pre-build cache (the format may be incompatible)
+rm -rf node_modules/.vite
+```
+
+### Step 3: Run and observe
+
+```bash
+pnpm dev
+```
+
+If warnings appear, refer to the corresponding section in this guide.
+
+## Configuration change reference
+
+### CSS minification
+
+```ts
+// Vite 7: esbuild CSS minification
+// build.cssMinify default: "esbuild"
+
+// Vite 8: lightningcss is now the default
+// build.cssMinify default: "lightningcss"
+
+// To keep the old behavior:
+export default defineConfig({
+  build: {
+    cssMinify: "esbuild", // explicitly revert to esbuild
+  },
+})
+```
+
+### Browser target
+
+```ts
+// Vite 7: default target changed to "baseline-widely-available" starting in Vite 7
+// Vite 8: still "baseline-widely-available"
+// → No change here
+```
+
+### `@vitejs/plugin-react` v5 → v6
+
+```ts
+// v5 (Vite 7 era): uses Babel
+import react from "@vitejs/plugin-react"
+export default defineConfig({ plugins: [react()] })
+
+// v6 (Vite 8 era): uses OXC
+import react from "@vitejs/plugin-react" // ← same import
+export default defineConfig({ plugins: [react()] }) // ← same config
+// Internally switched to OXC — no code changes required
+```
+
+**Special case: if v5 used Babel plugins**
+
+```ts
+// v5 with custom Babel config:
+react({
+  babel: {
+    plugins: ["babel-plugin-styled-components"],
+  },
+})
+
+// Migrating to v6:
+// v6 supports the same babel options, but you need to install @babel/core manually:
+pnpm add -D @babel/core babel-plugin-styled-components
+
+// v6 config:
+react({
+  babel: {
+    plugins: ["babel-plugin-styled-components"],
+  },
+})
+// ← Same syntax; v6 automatically uses Babel when it detects babel options
+```
+
+## Plugin compatibility self-audit
+
+### Check whether your plugins support Vite 8
+
+```bash
+# Check the vite version requirement in the plugin's peerDependencies
+cat node_modules/your-plugin/package.json | grep -A5 peerDependencies
+```
+
+If a plugin requires `"vite": "^7.0.0"`, try:
+
+1. Check whether the plugin has a newer version that supports Vite 8
+2. Most plugins work directly because the Rollup API is compatible
+
+### Rollup API migration for plugins
+
+```ts
+// The following hooks behave identically under Vite 8 (Rolldown) — no changes needed:
+resolveId()
+load()
+transform()
+generateBundle()
+writeBundle()
+
+// Worth checking:
+buildStart()
+// Vite 8 dev mode also fires buildStart
+// Verify that your buildStart logic can safely run multiple times
+```
+
+## Common migration pitfalls
+
+### Pitfall 1: CSS style differences
+
+**Problem**: After upgrading, some CSS styles render slightly differently.
+
+**Cause**: lightningcss handles certain CSS features differently from esbuild, especially around polyfill behavior.
+
+**Solution**:
+
+```ts
+export default defineConfig({
+  build: {
+    cssMinify: "esbuild", // temporarily fall back to esbuild
+  },
+  // Or use lightningcss but disable certain features:
+  css: {
+    lightningcss: {
+      targets: {
+        // adjust target browsers
+      },
+    },
+  },
+})
+```
+
+### Pitfall 2: buildStart fires unexpectedly in dev mode
+
+**Problem**: A plugin throws an error on dev startup, but worked fine under Vite 7.
+
+**Cause**: Vite 8 dev server fires `buildStart` on startup too. Some initialization logic is not appropriate in dev mode.
+
+**Solution**:
+
+```ts
+buildStart() {
+  // Check whether this is a build
+  if (this.meta.watchMode) {
+    // dev mode — skip certain initialization
+    return
+  }
+  // build mode initialization
+  initBuildCache()
+},
+```
+
+### Pitfall 3: manualChunks function no longer receives module info
+
+**Problem**: After upgrading, `manualChunks(id, { getModuleInfo })` throws an error.
+
+**Solution**:
+
+```ts
+// Vite 7/Rollup:
+manualChunks(id, { getModuleInfo }) {
+  const info = getModuleInfo(id)
+  // ...
+}
+
+// Vite 8/Rolldown: verify whether getModuleInfo is still available
+// If not, switch to id string matching:
+manualChunks(id) {
+  if (id.includes("node_modules/react")) return "react"
+}
+```
+
+### Pitfall 4: Some esbuild options no longer take effect
+
+```ts
+// Some Vite 7 projects used esbuild.jsxInject:
+export default defineConfig({
+  esbuild: {
+    jsxInject: `import React from "react"`,
+  },
+})
+
+// Vite 8: Rolldown does not use esbuild for transforms
+// Replace with plugin-react's automatic JSX runtime:
+plugins: [react()] // automatically uses react/jsx-runtime
+```
+
+## Expected performance improvements
+
+After upgrading to Vite 8 you can generally expect:
+
+| Scenario                             | Expected improvement              |
+| ------------------------------------ | --------------------------------- |
+| Dependency pre-bundling (cold start) | 10–30% faster                     |
+| Hot module replacement (HMR)         | Comparable or slightly faster     |
+| Production build                     | 5–20% faster (Rolldown is faster) |
+| CSS minification                     | lightningcss is generally faster  |
+
+Exact numbers depend on project size and dependency complexity.
+
+## Incremental migration path
+
+If your project is large and a single-step upgrade feels too risky:
+
+### Option: use rolldown-vite as a stepping stone
+
+```bash
+# Try Rolldown in a Vite 7 project first
+pnpm add -D rolldown-vite
+
+# package.json:
+{
+  "scripts": {
+    "dev": "ROLLDOWN_VITE=1 vite dev",
+    "build": "ROLLDOWN_VITE=1 vite build"
+  }
+}
+```
+
+`rolldown-vite` is an experimental combination of Vite 7 + the Rolldown bundler. Use it to test Rolldown compatibility ahead of the full upgrade.
+
+### Suggested migration timeline
+
+```text
+Now:    Assess the scope of impact (this guide)
+Week 1: Upgrade on a dev branch and run your test suite
+Week 2: Open a PR and go through review
+Release: Upgrade during a low-traffic window
+```
+
+## Rollback plan
+
+If a serious problem appears after upgrading:
+
+```bash
+# Revert the vite version
+pnpm add vite@^7.3.0
+
+# If using React
+pnpm add @vitejs/plugin-react@^5.0.0
+
+# Clear the cache
+rm -rf node_modules/.vite
+```
+
+Remember to delete the `.vite` cache to prevent Vite 7 from reading a cache written by Vite 8 in an incompatible format.
+
+## Self-check
+
+1. Why do you need to delete the `.vite/deps/` cache directory before upgrading?
+2. Do you need to modify `vite.config.ts` when upgrading `@vitejs/plugin-react` to v6?
+3. Which hooks have changed behavior in Vite 8 dev mode, and what should you watch out for?
+4. If a third-party plugin shows that it does not support Vite 8, what are your alternatives?
+
+```bash filename="Hands-on exercise"
+# 1. Run the upgrade steps on a Vite 7 project
+# 2. Run the full test suite to verify everything works
+# 3. Compare the output bundle size between Vite 7 and Vite 8 (pnpm build)
+# 4. Record the pnpm dev startup time before and after the upgrade
+
+# Reference recording format:
+# | Metric       | Vite 7 | Vite 8 | Change |
+# |--------------|--------|--------|--------|
+# | Cold start   | ??s    | ??s    | ?%     |
+# | HMR          | ??ms   | ??ms   | ?%     |
+# | Build        | ??s    | ??s    | ?%     |
+# | Bundle size  | ??KB   | ??KB   | ?%     |
+```

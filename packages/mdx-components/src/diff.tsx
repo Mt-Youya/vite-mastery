@@ -11,13 +11,13 @@
  *   </Diff>
  */
 
-import type { BundledLanguage } from "shiki";
-import { CodeBlock } from "./code-block.tsx";
+import type { BundledLanguage } from "shiki"
+import { CodeBlock } from "./code-block.tsx"
 
 interface DiffProps {
-  lang?: BundledLanguage;
-  filename?: string;
-  children: string;
+  lang?: BundledLanguage
+  filename?: string
+  children: string
 }
 
 export function Diff({ lang = "tsx", filename, children }: DiffProps) {
@@ -25,5 +25,5 @@ export function Diff({ lang = "tsx", filename, children }: DiffProps) {
     <CodeBlock lang={lang} filename={filename} kind="diff">
       {children}
     </CodeBlock>
-  );
+  )
 }

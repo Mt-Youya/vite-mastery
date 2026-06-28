@@ -1,8 +1,8 @@
-"use client";
+"use client"
 
-import { Switch as Base } from "@base-ui/react/switch";
-import type { ComponentPropsWithoutRef } from "react";
-import { cn } from "./lib/cn.ts";
+import { Switch as Base } from "@base-ui/react/switch"
+import type { ComponentPropsWithoutRef } from "react"
+import { cn } from "./lib/cn.ts"
 
 interface SwitchProps extends ComponentPropsWithoutRef<typeof Base.Root> {}
 
@@ -16,7 +16,7 @@ export function Switch({ className, ...rest }: SwitchProps) {
         "data-[checked]:bg-primary data-[checked]:border-primary",
         "focus-visible:outline-none focus-visible:[box-shadow:var(--shadow-focus)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
-        className,
+        className
       )}
       {...rest}
     >
@@ -24,9 +24,9 @@ export function Switch({ className, ...rest }: SwitchProps) {
         className={cn(
           "pointer-events-none size-4 translate-x-0.5 rounded-full bg-white shadow-sm",
           "transition-transform duration-base ease-[var(--ease-out-expo)]",
-          "data-[checked]:translate-x-[1.125rem]",
+          "data-[checked]:translate-x-[1.125rem]"
         )}
       />
     </Base.Root>
-  );
+  )
 }

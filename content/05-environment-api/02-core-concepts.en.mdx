@@ -1,0 +1,250 @@
+---
+title: "Core Concepts: Environment, ModuleRunner, HotChannel"
+description: The three core abstractions of the Environment API — what each one is, what problem it solves, and how they work together. Includes a visual component to aid understanding.
+order: 2
+part: 05-environment-api
+chapter: "5.2"
+difficulty: 4
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - What an `Environment` object represents and what core capabilities it holds - How `ModuleRunner` executes modules
+  inside a specified environment - How `HotChannel` enables HMR message passing across environments - How the three work
+  together to form a complete multi-environment development experience
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Why the Environment API" (section 5.1) - Basic familiarity with the Node.js module system
+</Callout>
+
+## The relationship between the three core abstractions
+
+Start with a high-level view of how the three concepts divide responsibilities:
+
+```text
+┌─────────────────────────────────────────────┐
+│              Vite Dev Server                │
+│                                             │
+│  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ Environment │  │  ModuleRunner       │  │
+│  │  (client)   │  │  (executes import   │  │
+│  │  - module   │  │   inside the client │  │
+│  │    graph    │──│   environment)      │  │
+│  │  - resolve  │  └─────────────────────┘  │
+│  │  - plugins  │                           │
+│  └─────────────┘                           │
+│                          ▲                  │
+│  ┌─────────────┐         │ HotChannel       │
+│  │ Environment │         │ (HMR messages)   │
+│  │   (ssr)     │─────────┘                  │
+│  │  - module   │                            │
+│  │    graph    │                            │
+│  │  - resolve  │                            │
+│  └─────────────┘                            │
+└─────────────────────────────────────────────┘
+```
+
+- **Environment** — an independent module execution context
+- **ModuleRunner** — the runner that executes modules inside an Environment
+- **HotChannel** — the channel for passing HMR messages between environments
+
+Use the component below to visualize the module boundaries of each environment in the current configuration:
+
+<EnvironmentExplorer />
+
+## Environment: encapsulating an execution context
+
+An `Environment` object encapsulates everything about an independent execution context:
+
+- **Module Graph**: the dependency graph owned exclusively by this environment
+- **Resolve configuration**: which `conditions` are active, which packages are external, alias rules, etc.
+- **Plugin pipeline**: plugins specific to a particular environment can be configured here
+- **Runtime information**: environment name, whether HMR is supported, etc.
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    client: {
+      // browser environment, HMR supported
+    },
+    ssr: {
+      // Node.js SSR environment
+      resolve: {
+        conditions: ["node", "import", "require"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+  },
+})
+```
+
+When the dev server is running, configured environments are accessible via `server.environments`:
+
+```ts
+// Accessing environments inside a plugin or middleware
+configureServer(server) {
+  const clientEnv = server.environments.client
+  const ssrEnv = server.environments.ssr
+
+  // Each environment has its own module graph
+  console.log(clientEnv.moduleGraph)
+  console.log(ssrEnv.moduleGraph)
+}
+```
+
+<Callout type="warning">
+  Specific API property names (such as `server.environments.xxx`) may change during the RC stage. Check the current Vite
+  8.1.x official documentation before using them.
+</Callout>
+
+## ModuleRunner: executing modules inside an environment
+
+`ModuleRunner` is the mechanism for dynamically executing modules inside a specified environment. It is the environment-aware replacement for Vite 7's `ssrLoadModule`.
+
+```ts
+// Conceptual illustration (refer to official docs for the exact API)
+const runner = await createModuleRunner(server.environments.ssr)
+
+// Execute a module inside the ssr environment
+const module = await runner.import("/src/entry-server.tsx")
+const html = await module.render(url)
+```
+
+Key differences from the old `ssrLoadModule`:
+
+| Dimension         | `ssrLoadModule`          | `ModuleRunner`                  |
+| ----------------- | ------------------------ | ------------------------------- |
+| Environment-aware | No (shared global graph) | Yes (independent graph per env) |
+| HMR integration   | Manual                   | Automatic via HotChannel        |
+| Multi-environment | Not supported            | Natively supported              |
+| Semantics         | "eval some code"         | "import inside an environment"  |
+
+### How ModuleRunner works internally
+
+When you call `runner.import("/src/component.tsx")`:
+
+1. The runner requests the module from the dev server
+2. The dev server executes the resolve + load + transform pipeline in the corresponding Environment's context
+3. The result (compiled code) is returned to the runner
+4. The runner executes and caches the module locally
+5. If the module has dependencies, they are processed recursively
+
+This flow ensures that a module is processed in the "correct environment context" rather than sharing a single global transform pipeline.
+
+## HotChannel: HMR message passing across environments
+
+`HotChannel` solves the multi-environment HMR communication problem: when a file changes, **all** environments that depend on it need to be notified for hot update.
+
+```text
+File changed: src/utils.ts
+          │
+          ▼
+    Vite Dev Server
+          │
+          ├── client environment HotChannel → WebSocket → browser HMR
+          │
+          └── ssr environment HotChannel → notify ModuleRunner to invalidate cache
+                                           → next runner.import reloads the module
+```
+
+`HotChannel` has two built-in implementations:
+
+1. **WebSocket channel** (client environment): communicates with the browser via the `import.meta.hot` API
+2. **Server-side message channel** (ssr and other environments): notifies the ModuleRunner via inter-process communication
+
+Framework authors can also implement custom `HotChannel`, for example to notify an Edge Worker to refresh via WebSocket.
+
+```ts
+// Listening to HMR events for a specific environment inside a plugin
+configureServer(server) {
+  // Subscribe to module invalidation events in the ssr environment
+  server.environments.ssr.hot.on("vite:invalidate", (data) => {
+    console.log("SSR module invalidated:", data)
+  })
+}
+```
+
+<Callout type="warning">
+  The specific event names and API shape of HotChannel are still being iterated during the RC stage. The code above is
+  for conceptual illustration only. Refer to the Vite 8.1.x official documentation for actual usage.
+</Callout>
+
+## All three working together: a complete request flow
+
+Using an SSR framework as an example, here is a complete request handling flow:
+
+```text
+1. Browser sends GET /page
+         │
+2. Express middleware receives the request
+         │
+3. Calls ssrRunner.import("/src/entry-server.tsx")
+   (ssrRunner is the ModuleRunner inside the ssr Environment)
+         │
+4. ModuleRunner → requests the module from the ssr Environment
+         │
+5. ssr Environment executes resolve + transform
+   (using Node.js conditions, different from client's browser conditions)
+         │
+6. Module executes in the ssr context, calls render(url)
+         │
+7. HTML is produced → returned to the browser
+         │
+8. Browser receives HTML, loads the client bundle
+   (client bundle is generated by the client Environment)
+         │
+9. Client executes hydration
+```
+
+In this flow:
+
+- The **client Environment** manages the module graph and HMR for `<script>` bundles
+- The **ssr Environment** manages the module graph and HMR for server rendering
+- **HotChannel** ensures that when a file changes, both environments update correctly
+
+## Self-check
+
+1. What specific problem does the "independent module graph" inside an `Environment` object solve? Give an example with `src/utils.ts` used by both client and ssr.
+2. What is the fundamental difference between `ModuleRunner` and Vite 7's `ssrLoadModule`?
+3. Why does the client environment's HotChannel use WebSocket while the ssr environment's HotChannel needs a different implementation?
+4. If you wanted to implement a Cloudflare Worker environment, which parts would you need to customize?
+
+```ts filename="Exercise"
+// Read the pseudocode below, fill in the missing parts, and explain the role of each step.
+
+const vite = await createServer({
+  environments: {
+    client: {},
+    ssr: {
+      resolve: { conditions: ["node"] },
+    },
+  },
+})
+
+// Q1: Which Environment should be used here? Why?
+const runner = createModuleRunner(
+  vite.environments.??? // fill in the blank
+)
+
+// Q2: What effect does the request handler below have on the ssr module graph?
+app.get("*", async (req, res) => {
+  const { render } = await runner.import("/src/entry-server.tsx")
+  const html = await render(req.url)
+  res.send(html)
+})
+
+// Q3: If src/data.ts is modified, what does the ssr environment's HotChannel trigger?
+// Will the next runner.import return the old module or the new one?
+```

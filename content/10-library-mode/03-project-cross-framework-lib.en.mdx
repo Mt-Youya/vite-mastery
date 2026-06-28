@@ -1,0 +1,209 @@
+---
+title: "Project 8: Publishing a Cross-Framework Component Library"
+description: Use Vite library mode to build a Button component that supports React, Vue, Svelte, and Solid simultaneously — one core logic package, four framework adapters, each published as an independent npm package.
+order: 3
+part: 10-library-mode
+chapter: "10.3"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Architecture design for a cross-framework component library - Building multiple sub-packages with Vite inside a
+  monorepo - Sharing core logic via `packages/core/` - How each framework adapter is implemented - Companion project:
+  `examples/library-mode-demo`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "build.lib Configuration Reference" (section 10.1) - Read "Generating Type Declaration Files" (section 10.2) -
+  Basic familiarity with pnpm workspaces
+</Callout>
+
+## Project architecture
+
+```text
+examples/library-mode-demo/
+├── pnpm-workspace.yaml
+├── package.json (root)
+└── packages/
+    ├── core/              ← Framework-agnostic core logic
+    │   ├── src/index.ts
+    │   ├── vite.config.ts
+    │   └── package.json
+    ├── react/             ← React adapter
+    ├── vue/               ← Vue 3 adapter
+    ├── svelte/            ← Svelte adapter
+    └── solid/             ← Solid.js adapter
+```
+
+## Core package: framework-agnostic logic
+
+```ts filename="packages/core/src/index.ts"
+export interface ButtonConfig {
+  variant: "primary" | "secondary" | "ghost"
+  size: "sm" | "md" | "lg"
+  disabled: boolean
+}
+
+/** Generate CSS class names from config */
+export function getButtonClasses(config: Partial<ButtonConfig>): string {
+  const { variant = "primary", size = "md", disabled = false } = config
+  const base = "btn"
+  const variants = { primary: "btn-primary", secondary: "btn-secondary", ghost: "btn-ghost" }
+  const sizes = { sm: "btn-sm", md: "btn-md", lg: "btn-lg" }
+  const disabledCls = disabled ? "btn-disabled" : ""
+  return [base, variants[variant], sizes[size], disabledCls].filter(Boolean).join(" ")
+}
+```
+
+```ts filename="packages/core/vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      entry: resolve("src/index.ts"),
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+    },
+  },
+})
+```
+
+## React adapter
+
+```tsx filename="packages/react/src/index.tsx"
+import type { ButtonHTMLAttributes } from "react"
+import { getButtonClasses, type ButtonConfig } from "@ui-kit/core"
+
+interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, Partial<ButtonConfig> {
+  children: React.ReactNode
+}
+
+export function Button({ variant, size, disabled, children, className = "", ...props }: ButtonProps) {
+  const classes = getButtonClasses({ variant, size, disabled: disabled ?? false })
+  return (
+    <button className={`${classes} ${className}`} disabled={disabled} {...props}>
+      {children}
+    </button>
+  )
+}
+
+export type { ButtonConfig }
+```
+
+```ts filename="packages/react/vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    lib: {
+      entry: resolve("src/index.tsx"),
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+    },
+    rollupOptions: {
+      external: ["react", "react/jsx-runtime", "@ui-kit/core"],
+      output: {
+        globals: { react: "React", "@ui-kit/core": "UIKitCore" },
+      },
+    },
+  },
+})
+```
+
+## Vue adapter
+
+```vue filename="packages/vue/src/Button.vue"
+<script setup lang="ts">
+import { computed } from "vue"
+import { getButtonClasses } from "@ui-kit/core"
+import type { ButtonConfig } from "@ui-kit/core"
+
+const props = withDefaults(defineProps<Partial<ButtonConfig>>(), {
+  variant: "primary",
+  size: "md",
+  disabled: false,
+})
+
+const classes = computed(() => getButtonClasses(props))
+</script>
+
+<template>
+  <button :class="classes" :disabled="disabled">
+    <slot />
+  </button>
+</template>
+```
+
+## Build and publish workflow
+
+```bash
+cd examples/library-mode-demo
+pnpm install
+
+# Build core first (other packages depend on it)
+pnpm -F @ui-kit/core build
+
+# Then build each framework adapter
+pnpm -F @ui-kit/react build
+pnpm -F @ui-kit/vue build
+# ...
+```
+
+Or use the root `package.json` build script (Turborepo handles dependency order automatically):
+
+```bash
+pnpm build  # Turborepo builds in dependency order
+```
+
+## How consumers use the library
+
+```tsx
+// React project
+import { Button } from "@ui-kit/react"
+;<Button variant="primary" size="lg">
+  Click me
+</Button>
+
+// Vue project
+import { Button } from "@ui-kit/vue"
+;<Button variant="secondary">Click me</Button>
+
+// Svelte project
+import { Button } from "@ui-kit/svelte"
+;<Button>Click me</Button>
+```
+
+## Self-check
+
+1. Why put the core logic in a separate `core` package instead of duplicating it in each framework adapter?
+2. Why should `@ui-kit/core` also be listed in `rollupOptions.external`?
+3. If a user installs both `@ui-kit/react` and `@ui-kit/vue`, will there be two copies of the `core` package's code?
+4. How should CSS be handled in this library? If a user doesn't use Tailwind, how do you make the styles work?
+
+```ts filename="Exercise"
+// Add Input component core logic to @ui-kit/core:
+// - InputConfig: { type: "text" | "password" | "email", disabled, error }
+// - getInputClasses(config): returns a CSS class name string
+// - validateInput(value: string, type: InputConfig["type"]): boolean
+
+export interface InputConfig {
+  // TODO
+}
+
+export function getInputClasses(config: Partial<InputConfig>): string {
+  // TODO
+}
+
+export function validateInput(value: string, type: InputConfig["type"]): boolean {
+  // TODO
+}
+```

@@ -1,0 +1,196 @@
+---
+title: Hooks Panorama
+description: A complete overview of all Vite/Rolldown hooks. Where are the boundaries between universal build hooks, Vite-specific hooks, and Rolldown extension hooks? What is the execution order?
+order: 1
+part: 04-hooks-deep-dive
+chapter: "4.1"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The three hook categories: universal build / Vite-specific / Rolldown extension - Hook execution order during dev
+  server startup vs the build phase - The calling convention for each hook (parallel / sequential / first) - How to
+  quickly look up details for any hook
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Plugin Anatomy" (section 3.2) - Understand Vite's dev and build phases
+</Callout>
+
+## Three Categories
+
+Vite hooks come from three layers:
+
+| Category                     | Source                               | Where it runs                         |
+| ---------------------------- | ------------------------------------ | ------------------------------------- |
+| **Universal Build Hooks**    | Rollup / Rolldown API                | Runs in both dev and build            |
+| **Vite-Specific Hooks**      | Vite extensions on top of Rollup     | Only effective in a Vite environment  |
+| **Rolldown Extension Hooks** | Rolldown extensions on top of Rollup | Vite 8+ and standalone Rolldown usage |
+
+**Universal build hooks** are part of the standard Rollup API — plugins written using only these hooks can theoretically be reused directly in a Rollup project.
+
+**Vite-specific hooks** are added by Vite itself, covering concepts like the dev server, HTML processing, and HMR that Rollup has no notion of.
+
+**Rolldown extension hooks** are capabilities that Rolldown adds on top of the Rollup-compatible API, such as access to the OXC AST and multi-environment annotations.
+
+## Hook Execution Order During Dev Server Startup
+
+```text
+Vite Dev Server startup sequence:
+
+config ─────────────────────── Before user config is read (can be modified)
+configResolved ─────────────── Config is finalized (read-only)
+configureServer ────────────── After dev server is created (can add middleware)
+
+─── Waiting for browser requests ───
+
+(For each module request):
+resolveId ──────────────────── Resolve module path
+load ───────────────────────── Read module contents
+transform ──────────────────── Transform module code
+
+(On file change):
+handleHotUpdate ────────────── HMR update handling
+
+(On HTML request):
+transformIndexHtml ─────────── Modify index.html
+```
+
+## Hook Execution Order During Build
+
+```text
+Vite Build sequence:
+
+config / configResolved ─────── Same as dev
+
+options ─────────────────────── Read/modify Rolldown input options
+buildStart ──────────────────── Build starts (initialization)
+
+(For each module):
+resolveId ──────────────────────
+load ────────────────────────── } Build the module graph
+transform ──────────────────────
+moduleParsed ───────────────────
+
+buildEnd ────────────────────── Module graph construction complete
+
+renderStart ─────────────────── Begin generating output files
+renderChunk ─────────────────── Transform each chunk
+generateBundle ──────────────── All chunks have been generated
+
+writeBundle ─────────────────── Chunks written to disk
+closeBundle ─────────────────── Entire process complete
+```
+
+## Panorama (Interactive)
+
+Click any hook to see its details:
+
+<HookExplorer />
+
+## Hook Calling Convention Quick Reference
+
+| Hook                 | Convention     | Meaning                                     |
+| -------------------- | -------------- | ------------------------------------------- |
+| `buildStart`         | parallel       | All plugins' hooks execute concurrently     |
+| `resolveId`          | **first**      | The first plugin to return non-null wins    |
+| `load`               | **first**      | Same as above                               |
+| `transform`          | **sequential** | Code is passed through plugins in order     |
+| `moduleParsed`       | parallel       | Executes concurrently                       |
+| `buildEnd`           | parallel       | Executes concurrently                       |
+| `renderChunk`        | sequential     | Processes chunks in order                   |
+| `generateBundle`     | sequential     | Executes in order                           |
+| `writeBundle`        | parallel       | Executes concurrently                       |
+| `closeBundle`        | parallel       | Executes concurrently                       |
+| `config`             | sequential     | Executes in order; return values are merged |
+| `configResolved`     | parallel       | Executes concurrently                       |
+| `configureServer`    | sequential     | Executes in order                           |
+| `transformIndexHtml` | sequential     | Executes in order                           |
+| `handleHotUpdate`    | sequential     | Executes in order                           |
+
+**Key distinctions**:
+
+- **parallel**: All plugins' hooks for this call execute simultaneously without waiting for each other
+- **sequential**: Executes in plugin array order; the next plugin only runs after the previous one finishes
+- **first**: Executes in order; the first plugin to return a non-null/undefined value wins, and subsequent plugins are skipped
+
+## Which Hooks Fire in Each Phase
+
+| Hook                     | dev           | build        |
+| ------------------------ | ------------- | ------------ |
+| `config`                 | ✅            | ✅           |
+| `configResolved`         | ✅            | ✅           |
+| `configureServer`        | ✅            | ❌           |
+| `configurePreviewServer` | ❌            | preview only |
+| `options`                | ❌            | ✅           |
+| `buildStart`             | ✅ (Vite 8)   | ✅           |
+| `resolveId`              | ✅            | ✅           |
+| `load`                   | ✅            | ✅           |
+| `transform`              | ✅            | ✅           |
+| `buildEnd`               | ❌            | ✅           |
+| `renderChunk`            | ❌            | ✅           |
+| `generateBundle`         | ❌            | ✅           |
+| `writeBundle`            | ❌            | ✅           |
+| `closeBundle`            | ✅ (on close) | ✅           |
+| `transformIndexHtml`     | ✅            | ✅           |
+| `handleHotUpdate`        | ✅            | ❌           |
+
+<V7Note title="Vite 7: buildStart does not fire in dev">
+  In Vite 7, the `buildStart` hook **does not fire** in dev mode. This means that plugins relying on `buildStart` for initialization will not run their initialization logic in dev.
+
+Vite 8 fixes this: `buildStart` is now triggered when the dev server starts, keeping behavior consistent with the build phase.
+
+</V7Note>
+
+## Self-check
+
+1. What calling conventions do `resolveId` and `transform` use respectively? Why are they different?
+2. Does `configureServer` fire during `pnpm build`? If your plugin needs to initialize during build, which hook should you use?
+3. What is the difference in timing between `buildEnd` and `closeBundle`?
+4. In Vite 7, what problem would a plugin that relies on `buildStart` for global initialization have in dev mode?
+
+```ts filename="Exercise"
+// Determine whether each hook in the following plugin fires in dev / build mode:
+
+export function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    config(config) {
+      /* A */
+    },
+    configureServer(server) {
+      /* B */
+    },
+    buildStart() {
+      /* C */
+    },
+    resolveId(id) {
+      /* D */
+    },
+    transform(code, id) {
+      /* E */
+    },
+    generateBundle(_, bundle) {
+      /* F */
+    },
+    handleHotUpdate(ctx) {
+      /* G */
+    },
+  }
+}
+
+// Fill in the table:
+// | Hook | dev | build |
+// |------|-----|-------|
+// | A    | ?   | ?     |
+// | B    | ?   | ?     |
+// | C    | ?   | ?     |
+// | D    | ?   | ?     |
+// | E    | ?   | ?     |
+// | F    | ?   | ?     |
+// | G    | ?   | ?     |
+```

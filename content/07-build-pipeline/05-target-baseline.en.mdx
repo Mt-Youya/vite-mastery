@@ -1,0 +1,130 @@
+---
+title: "Default target: baseline-widely-available"
+description: The baseline-widely-available target introduced in Vite 7+ — what is Baseline? How does it determine compiled output? Why is it better than writing browserlist by hand?
+order: 5
+part: 07-build-pipeline
+chapter: "7.5"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What `baseline-widely-available` means - The relationship between the Baseline project and W3C / MDN - How to adjust
+  the target based on your project's needs - How it compares to browserslist
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of browser compatibility concepts
+</Callout>
+
+## What is Baseline
+
+**Baseline** is a web platform compatibility standard established jointly by Google, Mozilla, Apple, and Microsoft.
+
+When a Web API or CSS feature is marked as `Baseline Widely Available`, it means:
+
+- It has been **stably supported for more than 2.5 years** in Chrome, Firefox, Safari, and Edge
+- You can safely use it in production without polyfills or fallbacks
+
+Starting with Vite 7, `baseline-widely-available` is the default build target:
+
+```ts filename="vite.config.ts"
+// This is the default for Vite 7+, no need to write it explicitly
+export default defineConfig({
+  build: {
+    target: "baseline-widely-available",
+  },
+})
+```
+
+## What browsers does it actually cover
+
+"Widely Available" means the **stable release and the two most recent versions** of all major browsers support the feature. As of 2026, this is roughly equivalent to:
+
+- Chrome 95+
+- Firefox 95+
+- Safari 15+
+- Edge 95+
+
+This covers approximately 95%+ of browser users worldwide.
+
+## Comparing with a manual target
+
+```ts filename="vite.config.ts"
+// Option 1: Baseline (recommended — keeps up with time automatically)
+export default defineConfig({
+  build: {
+    target: "baseline-widely-available",
+  },
+})
+
+// Option 2: Specific browser versions (requires manual maintenance)
+export default defineConfig({
+  build: {
+    target: ["chrome95", "firefox95", "safari15", "edge95"],
+  },
+})
+
+// Option 3: ECMAScript version
+export default defineConfig({
+  build: {
+    target: "es2022", // build output uses ES2022 syntax features
+  },
+})
+```
+
+The advantage of Baseline: as time passes, it automatically represents "features supported by current mainstream browsers" without requiring manual updates.
+
+## Supporting older browsers
+
+If your user base requires IE11 or older Safari versions:
+
+```bash
+pnpm add -D @vitejs/plugin-legacy
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import legacy from "@vitejs/plugin-legacy"
+
+export default defineConfig({
+  plugins: [
+    legacy({
+      targets: ["defaults", "not IE 11"], // browserslist format
+    }),
+  ],
+})
+```
+
+`@vitejs/plugin-legacy` will:
+
+1. Build a modern ES Module version (for new browsers)
+2. Also build a legacy SystemJS format (for old browsers)
+3. Use `<script type="module">` and `<script nomodule>` in HTML to distinguish between them
+
+## Self-check
+
+1. What is the difference between `baseline-widely-available` and `es2022` as a target?
+2. Why is Baseline more convenient than manually maintaining a browserslist?
+3. If a project needs to support Safari on iOS 13, how should it be configured?
+4. What does `@vitejs/plugin-legacy` do? How many sets of output does it produce?
+
+```ts filename="Exercise"
+// What build.target should be used for each scenario? Provide the configuration and your reasoning:
+
+// Scenario A: A ToC utility app targeting developers on the latest Chrome
+// Scenario B: A government information portal that needs to support IE 11
+// Scenario C: An internal enterprise app where all users use company-issued Chrome 100
+// Scenario D: A public marketing landing page that needs to reach as many users as possible
+
+// For each scenario, write the recommended configuration:
+import { defineConfig } from "vite"
+
+// Scenario A:
+const configA = defineConfig({
+  build: { target: /* TODO */ }
+})
+```

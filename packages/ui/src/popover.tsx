@@ -1,18 +1,18 @@
-"use client";
+"use client"
 
-import { Popover as Base } from "@base-ui/react/popover";
-import type { ComponentPropsWithoutRef } from "react";
-import { cn } from "./lib/cn.ts";
+import { Popover as Base } from "@base-ui/react/popover"
+import type { ComponentPropsWithoutRef } from "react"
+import { cn } from "./lib/cn.ts"
 
-const Root = Base.Root;
-const Trigger = Base.Trigger;
-const Close = Base.Close;
-const Title = Base.Title;
-const Description = Base.Description;
+const Root = Base.Root
+const Trigger = Base.Trigger
+const Close = Base.Close
+const Title = Base.Title
+const Description = Base.Description
 
 interface ContentProps extends ComponentPropsWithoutRef<typeof Base.Popup> {
   /** 偏移量,默认 8 */
-  sideOffset?: number;
+  sideOffset?: number
 }
 
 function Content({ className, sideOffset = 8, ...rest }: ContentProps) {
@@ -25,13 +25,13 @@ function Content({ className, sideOffset = 8, ...rest }: ContentProps) {
             "text-sm text-fg shadow-lg outline-none",
             "data-[state=open]:animate-in data-[state=closed]:animate-out",
             "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
-            className,
+            className
           )}
           {...rest}
         />
       </Base.Positioner>
     </Base.Portal>
-  );
+  )
 }
 
 export const Popover = {
@@ -41,4 +41,4 @@ export const Popover = {
   Title,
   Description,
   Content,
-};
+}

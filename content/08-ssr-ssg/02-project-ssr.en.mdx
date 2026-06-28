@@ -1,0 +1,241 @@
+---
+title: "Project 7: Hand-rolling SSR with Environment API"
+description: Build a complete SSR application from scratch using Vite + Node.js, without any SSR framework — understand every step of SSR and use Environment API for a cleaner architecture.
+order: 2
+part: 08-ssr-ssg
+chapter: "8.2"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Implementing SSR from scratch: no Next.js / Nuxt or other frameworks - Dev mode: Vite middleware + ssrLoadModule -
+  Production mode: pre-built output + direct import - HMR: auto-refresh when SSR code changes - Companion project:
+  `examples/ssr-with-env-api`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "SSR API in the Vite 8 Era" (section 8.1) - Understand React renderToString / hydrateRoot - Understand Node.js
+  HTTP server basics
+</Callout>
+
+## Project Structure
+
+```text
+examples/ssr-with-env-api/
+├── package.json
+├── vite.config.ts
+├── server.js          ← HTTP server (works for both dev + prod)
+├── index.html         ← HTML template
+└── src/
+    ├── main.tsx       ← client entry (hydration)
+    ├── App.tsx        ← shared component
+    └── entry-server.tsx  ← server entry (renderToString)
+```
+
+## Vite Configuration
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+  environments: {
+    client: {},
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+  },
+})
+```
+
+## Shared Component
+
+```tsx filename="src/App.tsx"
+interface AppProps {
+  url?: string
+  data?: { message: string }
+}
+
+export function App({ url = "/", data }: AppProps) {
+  return (
+    <div>
+      <h1>Vite SSR Demo</h1>
+      <p>Current path: {url}</p>
+      {data && <p>Server data: {data.message}</p>}
+      <button onClick={() => alert("Client-side interaction works!")}>Test Hydration</button>
+    </div>
+  )
+}
+```
+
+## Server Entry
+
+```tsx filename="src/entry-server.tsx"
+import { renderToString } from "react-dom/server"
+import { App } from "./App"
+
+export async function render(url: string): Promise<{ html: string; data: unknown }> {
+  // Server-side data fetching happens here
+  const data = {
+    message: `Data fetched on the server (${new Date().toISOString()})`,
+  }
+
+  const html = renderToString(<App url={url} data={data} />)
+
+  return { html, data }
+}
+```
+
+## Client Entry
+
+```tsx filename="src/main.tsx"
+import { hydrateRoot } from "react-dom/client"
+import { App } from "./App"
+
+// Read the server-injected data from window.__SSR_DATA__
+const data = (window as { __SSR_DATA__?: unknown }).__SSR_DATA__
+
+hydrateRoot(document.getElementById("root")!, <App url={window.location.pathname} data={data as { message: string }} />)
+```
+
+## HTML Template
+
+```html filename="index.html"
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite SSR</title>
+  </head>
+  <body>
+    <div id="root"><!--ssr-outlet--></div>
+    <script>
+      window.__SSR_DATA__ = <!--ssr-data-->;
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+## Development Server
+
+```js filename="server.js"
+import { createServer as createViteServer } from "vite"
+import { createServer as createHttpServer } from "node:http"
+import { readFileSync } from "node:fs"
+
+const isProd = process.argv.includes("--prod")
+
+async function startServer() {
+  let vite
+  let template
+
+  if (!isProd) {
+    // Dev mode: start the Vite dev server
+    vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "custom",
+    })
+  } else {
+    // Production mode: read the pre-built output
+    template = readFileSync("dist/client/index.html", "utf-8")
+  }
+
+  const server = createHttpServer(async (req, res) => {
+    const url = req.url ?? "/"
+
+    // Dev mode: let Vite handle static assets
+    if (!isProd && vite) {
+      // Check if this is a Vite request (starting with /@vite/, etc.)
+      await new Promise((resolve) => {
+        vite.middlewares(req, res, resolve)
+      })
+      if (res.writableEnded) return
+    }
+
+    try {
+      let html: string
+      let appHtml: string
+      let data: unknown
+
+      if (!isProd && vite) {
+        // Dev mode: use ssrLoadModule to execute the server entry
+        const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+        ;({ html: appHtml, data } = await render(url))
+
+        const rawTemplate = readFileSync("index.html", "utf-8")
+        html = await vite.transformIndexHtml(url, rawTemplate)
+      } else {
+        // Production mode: directly import the pre-built output
+        const { render } = await import("./dist/server/entry-server.js")
+        ;({ html: appHtml, data } = await render(url))
+        html = template!
+      }
+
+      // Inject the rendered result
+      html = html
+        .replace("<!--ssr-outlet-->", appHtml)
+        .replace("<!--ssr-data-->", JSON.stringify(data))
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8")
+      res.end(html)
+    } catch (e) {
+      if (vite) vite.ssrFixStacktrace(e)
+      console.error(e)
+      res.statusCode = 500
+      res.end(String(e))
+    }
+  })
+
+  const port = 3000
+  server.listen(port, () => {
+    console.log(`SSR server: http://localhost:${port}`)
+    if (!isProd) console.log("  Dev mode: HMR enabled")
+  })
+}
+
+startServer()
+```
+
+## Running the Project
+
+```bash
+cd examples/ssr-with-env-api
+pnpm install
+
+# Dev mode (with HMR)
+pnpm dev
+
+# Production mode
+pnpm build   # build client + server
+node server.js --prod
+```
+
+Visit `http://localhost:3000` and view the page source — you should see complete HTML (not an empty div), which confirms that SSR is working correctly.
+
+## Self-check
+
+1. How do you verify in the page source that SSR is working (rather than pure client-side rendering)?
+2. Why does `entry-server.tsx` need to return `data`, and why inject it into `window.__SSR_DATA__`?
+3. What is the main difference between dev mode and production mode? Why doesn't production mode use `ssrLoadModule`?
+4. What happens if the `renderToString` output doesn't match the React tree received by `hydrateRoot`?
+
+```ts filename="Exercise"
+// Extend this SSR implementation:
+// 1. Add file-path-based routing (/ → Home, /about → About page)
+// 2. Each page has its own server-side data fetching
+// 3. The page title is set correctly during SSR
+
+// Hints:
+// - The second argument of vite.transformIndexHtml can accept already-processed HTML
+// - You can handle the title in two phases: initial data (server) + useEffect (client)
+```

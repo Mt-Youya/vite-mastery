@@ -1,0 +1,201 @@
+---
+title: Plugin Execution Order In Depth
+description: How does enforce pre/normal/post ordering work? Where do built-in plugins cut in line? Visualize the entire execution chain with the PluginPipeline component.
+order: 3
+part: 03-plugin-system
+chapter: "3.3"
+difficulty: 2
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The complete execution order rules for Vite plugins - Where built-in plugins (vite:xxx) sit in the chain - How
+  multiple plugins cooperate when they all modify the same file - The `PluginPipeline` component: visualize your plugin
+  configuration
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Plugin Anatomy" (section 3.2) — understand `enforce` and `apply` - Familiarity with the middleware pattern
+  concept
+</Callout>
+
+## The complete execution order
+
+Laying all plugins out in sequence, the order looks roughly like this:
+
+```text
+1. User plugins with enforce: "pre"
+2. Vite built-in plugins (alias resolution, import analysis, etc.)
+3. User plugins with no enforce value
+4. Vite built-in core plugins (file serving, CSS, JSON...)
+5. User plugins with enforce: "post"
+6. Vite built-in post plugins (build output minification, etc.)
+```
+
+This chain is computed **per hook individually** — it's not about ordering entire plugins front to back. Each time a hook is called, the order above determines who runs first.
+
+Use `PluginPipeline` to visualize a typical configuration:
+
+<PluginPipeline
+  plugins={[
+    {
+      name: "vite-plugin-html",
+      enforce: "pre",
+      hooks: ["transformIndexHtml", "resolveId"],
+      description: "Handles asset references in HTML",
+    },
+    { name: "my-virtual-plugin", enforce: "pre", hooks: ["resolveId", "load"], description: "Virtual module plugin" },
+    { name: "vite:alias", hooks: ["resolveId"], description: "Vite built-in alias resolution" },
+    { name: "@vitejs/plugin-react", hooks: ["transform", "buildStart"], description: "React JSX + Fast Refresh" },
+    { name: "vite:css", hooks: ["load", "transform"], description: "CSS Modules / PostCSS" },
+    {
+      name: "vite-plugin-legacy",
+      enforce: "post",
+      hooks: ["generateBundle", "renderChunk"],
+      description: "Legacy browser compatibility polyfills",
+    },
+  ]}
+/>
+
+## Walking through `transform` step by step
+
+Suppose the browser requests `src/App.tsx`. After Vite receives the file, it calls each plugin's `transform` in sequence:
+
+```text
+Request: src/App.tsx
+  │
+  ├── [pre] vite-plugin-html.transform   → doesn't handle .tsx, return null → skip
+  ├── [pre] my-virtual-plugin.transform  → doesn't handle .tsx, return null → skip
+  ├── [built-in] vite:define.transform   → replaces import.meta.env variables
+  ├── [normal] @vitejs/plugin-react.transform → compiles JSX → return { code, map }
+  │                                            ↑ next plugin receives this code
+  ├── [built-in] vite:esbuild.transform  → TypeScript type stripping
+  └── [post] ...                         → usually no post transform
+```
+
+Each `transform` receives the output of the **previous** one (code + sourcemap), passing through the pipeline like a chain.
+
+<Callout type="warning">
+  The `code` received by each `transform` is the version already modified by the previous plugin, not the original file
+  content. If your plugin needs the original content, you must capture it before the `transform` phase (for example, in
+  the `load` phase).
+</Callout>
+
+## `resolveId`'s first-wins execution
+
+Unlike `transform`'s sequential execution, `resolveId` uses the **first-wins** mode:
+
+```text
+import "virtual:my-module"
+  │
+  ├── [pre] my-virtual-plugin.resolveId → return "\0virtual:my-module" ✓
+  │                                       ← returned! plugins below are not called
+  ├── [built-in] vite:alias → not called
+  └── ...
+```
+
+This is a sensible design: once a path is resolved, there's no need to keep looking. For this reason, **virtual module plugins typically set `enforce: "pre"`**, ensuring they match before Vite's built-in resolver.
+
+<V7Note title="resolveId behavior is the same in Vite 7">
+  The first-wins semantics of `resolveId` come from Rollup. Both Vite 7 and Vite 8 follow this behavior; there is no
+  difference.
+</V7Note>
+
+## Multiple plugins processing the same file
+
+In a real project, a single `.vue` file might pass through three or four plugins:
+
+```text
+App.vue
+  ↓ @vitejs/plugin-vue.transform → compiles template/script/style, outputs JS
+  ↓ vite:css-inline.transform    → processes CSS extracted from <style>
+  ↓ vite:define.transform        → replaces environment variables
+  ↓ vite:esbuild.transform       → handles remaining TS types
+```
+
+Each plugin only handles the part it cares about, returning `null` for everything else (meaning "I'm not handling this; pass it to the next one").
+
+The difference between `null` and `return { code }`:
+
+- `return null` / `return undefined` → no modification; the next plugin receives the code unchanged
+- `return { code }` → this plugin modified the code; the next plugin receives the modified version
+- `return { code, map }` → also provides a source map, ensuring accurate debugging
+
+## Accessing the Rolldown context via `this`
+
+Inside a hook function, `this` refers to Rolldown's **plugin context**, which provides many useful methods:
+
+```ts filename="my-plugin.ts"
+import type { Plugin } from "vite"
+
+export function myPlugin(): Plugin {
+  return {
+    name: "vite-plugin-my",
+    async transform(code, id) {
+      // Load another module (triggers the full resolve + load pipeline)
+      const { code: utilsCode } = await this.load({ id: "/src/utils.ts" })
+
+      // Emit a warning (doesn't interrupt the build)
+      this.warn(`Encountered a compatibility issue while processing ${id}`)
+
+      // Throw an error (interrupts the build)
+      // this.error("Cannot process this file")
+
+      // Watch this file for changes
+      this.addWatchFile("/src/config.json")
+
+      return { code }
+    },
+  }
+}
+```
+
+## Debugging plugin execution order
+
+Not sure whether your plugin is being executed? Add `console.log` at key hooks:
+
+```ts filename="debug-plugin.ts"
+import type { Plugin } from "vite"
+
+export function debugPlugin(): Plugin {
+  return {
+    name: "vite-plugin-debug",
+    enforce: "pre", // run as early as possible
+    transform(code, id) {
+      if (id.endsWith(".tsx")) {
+        console.log(`[debug] transform: ${id.split("/").slice(-2).join("/")}`)
+      }
+      return null // don't modify the code
+    },
+  }
+}
+```
+
+You can also start Vite in debug mode to get more detailed plugin execution output:
+
+```bash
+DEBUG=vite:* pnpm dev
+```
+
+## Self-check
+
+1. Does a plugin with `enforce: "pre"` always run before all Vite built-in plugins? Give a counterexample.
+2. If two plugins both have `enforce: "pre"` and both have a `transform` hook, which one runs first?
+3. Why do virtual module plugins (where `resolveId` returns an ID starting with `\0`) typically set `enforce: "pre"`?
+4. What is the difference between returning `null` and returning `return { code: originalCode }` in `transform`?
+
+```ts filename="Exercise"
+// Write a plugin that, after all .ts files have been transformed, counts:
+// - How many .ts files were processed in total
+// - How many of them contain a "TODO" comment
+// Print the statistics in buildEnd
+
+import type { Plugin } from "vite"
+
+export function todoCounter(): Plugin {
+  // TODO
+}
+```

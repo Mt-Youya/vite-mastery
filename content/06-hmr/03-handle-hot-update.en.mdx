@@ -1,0 +1,228 @@
+---
+title: "The `handleHotUpdate` Hook"
+description: The server-side HMR hook — when a file changes, you can intercept and customize the HMR update logic. Implement precise hot updates for custom file types instead of being limited to a full page reload.
+order: 3
+part: 06-hmr
+chapter: "6.3"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The full parameter list of the `handleHotUpdate` hook - How to filter out files that should not trigger HMR -
+  Implementing HMR for custom file types (YAML / CSV / config files) - Sending custom HMR events to the browser
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "HMR Protocol" (section 6.1) - Read "Virtual Modules Plugin" (section 3.4) — custom HMR is often paired with
+  virtual modules
+</Callout>
+
+## `handleHotUpdate` Parameters
+
+```ts
+handleHotUpdate(ctx: HmrContext): Array<ModuleNode> | void | Promise<...>
+
+interface HmrContext {
+  file: string                    // Absolute path of the changed file
+  timestamp: number               // Change timestamp (milliseconds)
+  modules: Array<ModuleNode>      // Vite's inferred list of affected modules
+  read(): Promise<string>         // Async read of the file's new content
+  server: ViteDevServer           // Dev server instance
+}
+```
+
+**Return value:**
+
+- `ModuleNode[]` — override Vite's default judgment, update only these modules
+- `[]` — empty array, trigger no HMR at all (but also no full page reload)
+- `void` — use Vite's default behavior
+
+## Example 1: HMR for YAML Files
+
+Suppose you have a YAML loader plugin that makes `.yaml` files importable as ES Modules:
+
+```ts filename="yaml-plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+
+function parseYaml(content: string): unknown {
+  // Assume you already have a YAML parser
+  return {} // placeholder
+}
+
+export function yamlPlugin(): Plugin {
+  return {
+    name: "vite-plugin-yaml",
+
+    load(id) {
+      if (!id.endsWith(".yaml")) return null
+      const content = readFileSync(id, "utf-8")
+      const data = parseYaml(content)
+      return `export default ${JSON.stringify(data)}`
+    },
+
+    handleHotUpdate({ file, modules, server }) {
+      if (!file.endsWith(".yaml")) return
+
+      // Vite will pass the .yaml file's change through to modules by default
+      // Simply return modules to trigger HMR for those modules
+      console.log(`[yaml-plugin] hot update: ${file}`)
+      return modules
+    },
+  }
+}
+```
+
+## Example 2: Config File Changes — Send a Custom Event
+
+When a config file changes, skip module-level HMR and instead send a custom event to the browser:
+
+```ts filename="config-plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+export function configPlugin(): Plugin {
+  const configPath = resolve("app.config.json")
+
+  return {
+    name: "vite-plugin-config",
+
+    load(id) {
+      if (id !== "\0virtual:config") return null
+      this.addWatchFile(configPath)
+      return `export default ${readFileSync(configPath, "utf-8")}`
+    },
+
+    resolveId(id) {
+      if (id === "virtual:config") return "\0virtual:config"
+      return null
+    },
+
+    handleHotUpdate({ file, server }) {
+      if (file !== configPath) return
+
+      // Config changed: notify the browser and let it decide how to respond
+      server.hot.send({
+        type: "custom",
+        event: "config-update",
+        data: {
+          timestamp: Date.now(),
+          file: file.replace(process.cwd(), ""),
+        },
+      })
+
+      // Also invalidate the virtual config module
+      const module = server.moduleGraph.getModuleById("\0virtual:config")
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+
+      return []
+    },
+  }
+}
+```
+
+Browser side:
+
+```ts
+// src/main.ts
+import config from "virtual:config"
+
+if (import.meta.hot) {
+  import.meta.hot.on("config-update", async () => {
+    // Dynamically re-import the latest config
+    const newConfig = await import("virtual:config")
+    applyConfig(newConfig.default)
+    console.log("[HMR] config hot updated")
+  })
+}
+```
+
+## Example 3: Debouncing Batch File Changes
+
+In some scenarios (such as `pnpm install` updating many files at once), HMR can fire hundreds of times. Debounce it:
+
+```ts
+import type { Plugin } from "vite"
+
+export function debouncedHmrPlugin(): Plugin {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let pendingModules: Set<string> = new Set()
+
+  return {
+    name: "debounced-hmr",
+    handleHotUpdate({ file, modules, server }) {
+      pendingModules.add(file)
+
+      if (timer) clearTimeout(timer)
+
+      timer = setTimeout(() => {
+        // Process all pending files together
+        console.log(`[hmr] batch update: ${pendingModules.size} files`)
+        pendingModules.clear()
+        timer = null
+        // Trigger a full page reload
+        server.hot.send({ type: "full-reload" })
+      }, 300)
+
+      return [] // Block immediate HMR, wait for debounce to complete
+    },
+  }
+}
+```
+
+## Example 4: Skip HMR for Test Files
+
+```ts
+handleHotUpdate({ file, modules }) {
+  // Test file changed — trigger no updates
+  if (
+    file.includes("__tests__") ||
+    file.includes(".spec.") ||
+    file.includes(".test.")
+  ) {
+    console.log(`[hmr] skipping test file: ${file.split("/").pop()}`)
+    return []
+  }
+},
+```
+
+## Self-check
+
+1. What is the difference between `handleHotUpdate` returning `[]` versus `void`? What happens in each case?
+2. If multiple plugins all implement `handleHotUpdate`, what is the execution order? If the first plugin returns `[]`, do subsequent plugins still run?
+3. Is `ctx.modules` computed automatically by Vite, or do you have to provide it manually?
+4. When is `server.hot.send({ type: "custom", event: "..." })` appropriate versus `server.hot.send({ type: "full-reload" })`?
+
+```ts filename="Exercise"
+// Implement a translation-file hot update plugin:
+// When any file under locales/*.json changes:
+// 1. Log the changed filename
+// 2. Send an "i18n:update" event to the browser with the changed locale name
+// 3. Invalidate all modules that imported that locale bundle
+//
+// Example: locales/zh.json changes → send { locale: "zh" }
+
+import type { Plugin } from "vite"
+import { basename } from "node:path"
+
+export function i18nHmrPlugin(): Plugin {
+  return {
+    name: "vite-plugin-i18n-hmr",
+    handleHotUpdate({ file, server }) {
+      // TODO:
+      // 1. Check whether file is under the locales/ directory and is a .json file
+      // 2. Extract the locale name (e.g. "zh" from "locales/zh.json")
+      // 3. Send a custom HMR event
+      // 4. Invalidate the corresponding virtual module and return it
+    },
+  }
+}
+```

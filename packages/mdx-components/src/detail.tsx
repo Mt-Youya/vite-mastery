@@ -4,15 +4,15 @@
  * 原生 <details> 的样式包装,自带翻转动画的 chevron。
  */
 
-import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { ReactNode } from "react";
-import { cn } from "@vite-mastery/ui";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import type { ReactNode } from "react"
+import { cn } from "@vite-mastery/ui"
 
 interface DetailProps {
-  summary: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
+  summary: string
+  defaultOpen?: boolean
+  children: ReactNode
 }
 
 export function Detail({ summary, defaultOpen = false, children }: DetailProps) {
@@ -22,14 +22,14 @@ export function Detail({ summary, defaultOpen = false, children }: DetailProps) 
       className={cn(
         "group my-4 rounded-lg border border-border bg-bg-elevated",
         "transition-colors duration-base",
-        "open:bg-bg-subtle",
+        "open:bg-bg-subtle"
       )}
     >
       <summary
         className={cn(
           "flex cursor-pointer list-none items-center gap-2 px-4 py-3",
           "text-sm font-medium select-none",
-          "focus-visible:outline-none",
+          "focus-visible:outline-none"
         )}
       >
         <HugeiconsIcon
@@ -42,5 +42,5 @@ export function Detail({ summary, defaultOpen = false, children }: DetailProps) 
       </summary>
       <div className="border-t border-border px-4 py-3 text-sm leading-relaxed">{children}</div>
     </details>
-  );
+  )
 }

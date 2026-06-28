@@ -4,19 +4,19 @@
  * 服务端组件:在 RSC 阶段就把 Shiki HTML 算好,客户端只挂个 copy 按钮的 island。
  */
 
-import type { BundledLanguage } from "shiki";
-import { CodeBlockContainer } from "@vite-mastery/ui";
-import { highlight } from "./shiki.ts";
-import { CodeCopyButton } from "./code-copy-button.tsx";
+import type { BundledLanguage } from "shiki"
+import { CodeBlockContainer } from "@vite-mastery/ui"
+import { highlight } from "./shiki.ts"
+import { CodeCopyButton } from "./code-copy-button.tsx"
 
 interface CodeBlockProps {
-  lang?: BundledLanguage | "text";
-  filename?: string;
+  lang?: BundledLanguage | "text"
+  filename?: string
   /** 区分普通代码块与 diff 视觉差异 */
-  kind?: "default" | "diff";
+  kind?: "default" | "diff"
   /** 高亮某些行,比如 "1,3-5" */
-  highlight?: string;
-  children: string;
+  highlight?: string
+  children: string
 }
 
 export async function CodeBlock({
@@ -26,8 +26,8 @@ export async function CodeBlock({
   highlight: highlightRange,
   children,
 }: CodeBlockProps) {
-  const code = children.trimEnd();
-  const html = await highlight(code, lang);
+  const code = children.trimEnd()
+  const html = await highlight(code, lang)
 
   return (
     <CodeBlockContainer
@@ -39,5 +39,5 @@ export async function CodeBlock({
     >
       <div className="shiki-host" dangerouslySetInnerHTML={{ __html: html }} />
     </CodeBlockContainer>
-  );
+  )
 }

@@ -1,0 +1,166 @@
+---
+title: Why the Environment API
+description: What limitations did Vite's SSR model hit in the multi-framework era? What problem does the Environment API set out to solve, and what is its design intent?
+order: 1
+part: 05-environment-api
+chapter: "5.1"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - The concrete limitations of Vite's old SSR model - Why a single client/ssr binary model cannot meet the needs of
+  modern frameworks - The design intent and core ideas behind the Environment API - Which frameworks benefit from the
+  Environment API
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic familiarity with Vite (Part 0) - Understanding of SSR fundamentals (server-side rendering returns HTML, client
+  hydration) - Optional: having read the Part 08 chapter on writing SSR from scratch
+</Callout>
+
+## The implicit assumption in Vite's old SSR model
+
+Vite has supported SSR since its early days, but its design rested on an implicit assumption: **there are only two execution environments — the browser (client) and Node.js (ssr)**.
+
+That assumption was reasonable in 2020. The vast majority of SSR frameworks genuinely had only these two environments:
+
+```text
+Browser                   Node.js
+─────────────────         ─────────────────
+Load JS Bundle      ←→   Execute renderToString
+Execute hydration          Return HTML
+```
+
+Vite's SSR API was designed around this model:
+
+```ts
+// Old SSR model API (Vite 7 and earlier)
+const module = await server.ssrLoadModule("/src/entry-server.ts")
+const html = await module.render(url)
+```
+
+`ssrLoadModule` loads a module in a special "SSR mode" — it uses the same module graph as the client, but does no bundling and does not cache (it re-executes every time).
+
+## Three main limitations of the old model
+
+### Limitation 1: Two environments share a single module graph
+
+The Vite 7 dev server internally maintains only **one** module graph. All modules — whether client code or server code — live in the same graph.
+
+This causes confusion: when `src/utils.ts` is used by both client and server, Vite has no way to distinguish "this is the client version of utils.ts" from "this is the server version" — they share the same module node.
+
+If the server side modifies `utils.ts`, the client HMR may be incorrectly triggered, and vice versa.
+
+### Limitation 2: No support for more than two environments
+
+React Server Components (RSC) introduced a third environment: Server Components have their own execution context, distinct from both ordinary SSR and the client.
+
+Vite's old API had no way to natively support three independent environments — `ssrLoadModule` has only one mode, and implementing RSC required managing module loading entirely outside of Vite, which was extremely complex.
+
+Similarly:
+
+- Cloudflare Workers is an independent JS runtime (not Node.js) with its own API constraints
+- Deno Deploy has different module resolution rules
+- Service Workers run in the browser but have an isolated scope
+
+All of these scenarios require the abstraction of a "third environment, fourth environment" — something the old API could not express at all.
+
+### Limitation 3: Performance and semantic issues with `ssrLoadModule`
+
+`server.ssrLoadModule()` re-executes a module every time, without relying on the normal module caching mechanism. This is sufficient in dev mode, but semantically it means "eval a piece of code" rather than "import a module inside a specific environment".
+
+It also cannot do accurate HMR: server-side module hot updates require manual management, rather than propagating automatically through the module graph the way the client does.
+
+## The core idea of the Environment API
+
+The Environment API replaces the implicit client/ssr binary assumption with **explicit Environment objects**.
+
+Each `Environment` represents an independent execution context with:
+
+- **An independent module graph**: `src/utils.ts` inside this environment is completely isolated from the same file in another environment
+- **Independent resolve configuration**: different `conditions`, `external` settings, and so on can be specified per environment
+- **An independent HMR channel**: when a module updates inside one environment, only that environment's HMR is affected
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    // client environment (browser)
+    client: {
+      /* ... */
+    },
+
+    // ssr environment (Node.js server)
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+      },
+    },
+
+    // custom environments: RSC, Edge Worker, Service Worker...
+    rsc: {
+      resolve: {
+        conditions: ["react-server", "node"],
+      },
+    },
+  },
+})
+```
+
+## Frameworks that benefit from the Environment API
+
+The Environment API is a low-level API designed for framework authors, not something application developers will typically use directly. The following frameworks can build better developer experiences on top of it:
+
+| Framework / scenario                   | Number of environments needed  |
+| -------------------------------------- | ------------------------------ |
+| Traditional SSR (Next.js Pages Router) | 2 (client + ssr)               |
+| React Server Components                | 3 (client + ssr + rsc)         |
+| Multi-Worker apps (Cloudflare)         | 2+ (client + multiple workers) |
+| Micro-frontends                        | Multiple client environments   |
+
+<V7Note title="Vite 7: how multi-environment was handled">
+  In Vite 7, RSC frameworks (such as Next.js App Router) had to manage server component module loading outside of Vite — typically by spawning a separate Node.js process or using private internal Vite APIs.
+
+The Environment API standardizes this capability so that framework authors no longer need to hack Vite internals.
+
+</V7Note>
+
+## Self-check
+
+1. What is the core assumption of Vite's old SSR model? Why does that assumption fall short in the modern framework era?
+2. What concrete problems arise from "two environments sharing a single module graph"? Give an HMR-related example.
+3. Why do React Server Components require a "third environment"? What is the fundamental difference between it and an ordinary SSR environment?
+4. Is the Environment API intended for application developers or framework authors? Why?
+
+```ts filename="Exercise"
+// Read the following Vite 7 SSR configuration, analyze its potential problems,
+// then describe how the same scenario should be handled using the Environment API mindset.
+
+// server.js (Vite 7 style)
+const vite = await createServer({ server: { middlewareMode: true } })
+
+app.use("*", async (req, res) => {
+  // What is wrong here?
+  const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+  const appHtml = await render(req.url)
+
+  // If entry-server.tsx imports a module that can only run on the server,
+  // and the client also imports the same utils.ts,
+  // what happens?
+})
+
+// Q1: How does ssrLoadModule distinguish between the server and client versions of utils.ts?
+// Q2: If you wanted to add an RSC environment, can the old API handle it?
+// Q3: How would the Environment API change the structure of the code above?
+```

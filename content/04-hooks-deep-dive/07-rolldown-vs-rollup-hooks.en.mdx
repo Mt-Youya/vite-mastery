@@ -1,0 +1,238 @@
+---
+title: Hook Behavior Differences Between Rolldown and Rollup
+description: From Vite 7 (Rollup) to Vite 8 (Rolldown) — which hooks behave identically? Which have subtle differences? How do you write plugins that work well with both?
+order: 7
+part: 04-hooks-deep-dive
+chapter: "4.7"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Rolldown's overall strategy for Rollup hook compatibility - Which hooks behave identically between the two (safe to
+  migrate) - Which hooks have subtle differences to watch out for - Practical patterns for writing cross-bundler
+  compatible plugins
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Plugin API Compatibility Layer" (section 2.4) - Understand the Rolldown architecture (section 2.3)
+</Callout>
+
+## Compatibility Strategy Overview
+
+Rolldown's compatibility goal for the Rollup plugin API is: **let Rollup plugins run on Rolldown without modification**.
+
+This goal is largely achieved for core hooks, but "largely" is not "completely".
+
+## Fully Compatible Hooks
+
+The following hooks behave **identically** on Rolldown and Rollup — use them with confidence:
+
+| Hook             | Safety       |
+| ---------------- | ------------ |
+| `buildStart`     | ✅ Identical |
+| `resolveId`      | ✅ Identical |
+| `load`           | ✅ Identical |
+| `transform`      | ✅ Identical |
+| `buildEnd`       | ✅ Identical |
+| `generateBundle` | ✅ Identical |
+| `writeBundle`    | ✅ Identical |
+| `closeBundle`    | ✅ Identical |
+
+These hooks cover 90% of plugin use cases. If your plugin only uses these hooks, migrating to Vite 8 requires virtually no code changes.
+
+## Differences to Watch Out For
+
+### Difference 1: `buildStart` fires in dev
+
+**Rollup**: No dev server; `buildStart` only fires when a build starts.
+
+**Vite 7 (Rollup)**: `buildStart` does **not fire** in dev mode.
+
+**Vite 8 (Rolldown)**: `buildStart` **also fires** when the dev server starts.
+
+```ts
+buildStart() {
+  // ✅ Will execute in Vite 8 dev
+  // ⚠️ Will NOT execute in Vite 7 dev (only runs during build)
+  initializeCache()
+}
+```
+
+**Impact**: If your plugin performs side-effectful initialization in `buildStart`, check whether it can tolerate being triggered on every dev server hot reload.
+
+### Difference 2: AST format
+
+**Rollup**: Uses Acorn to parse JS; the AST in `this.parse()` and `moduleParsed` is in Acorn/ESTree format.
+
+**Rolldown**: Uses OXC to parse; the AST format is based on ESTree but has extensions and differences.
+
+```ts
+moduleParsed(info) {
+  // ⚠️ Code that directly manipulates the AST may behave differently between the two
+  const ast = info.ast
+  // ast.type, ast.body and other basic fields are usually consistent
+  // But some node sub-properties may differ
+}
+```
+
+**Recommendation**: Avoid directly depending on specific AST fields; prefer using the `transform` hook for string-level code modifications.
+
+### Difference 3: The `chunk` object in `renderChunk` has extensions
+
+When the Environment API is enabled, the chunk object received by Rolldown's `renderChunk` has additional fields:
+
+```ts
+renderChunk(code, chunk) {
+  // Rollup: chunk only has standard fields
+  // Rolldown (Env API): chunk may have extra fields like environmentName
+
+  // ✅ Safe: only use standard Rollup fields
+  console.log(chunk.fileName, chunk.isEntry, chunk.exports)
+
+  // ⚠️ Caution: Rolldown extension fields
+  // const env = chunk.environmentName  // Does not exist under Rollup
+}
+```
+
+### Difference 4: Advanced options in `this.resolve()`
+
+Both support `this.resolve(id, importer, options)`, but the range of supported `options` differs slightly:
+
+```ts
+// ✅ Basic usage, supported by both
+const result = await this.resolve("some-module", "/path/to/importer.ts")
+
+// ⚠️ Advanced options (Rollup supports; Rolldown may differ)
+const result = await this.resolve("some-module", importer, {
+  skipSelf: true,        // Usually supported
+  custom: { ... },       // May differ
+})
+```
+
+## Practical Compatibility Patterns
+
+### Detecting the bundler at runtime
+
+```ts
+import type { Plugin } from "vite"
+
+export function compatPlugin(): Plugin {
+  return {
+    name: "compat-plugin",
+    renderChunk(code, chunk) {
+      // Safely detect Rolldown extension fields
+      const isRolldown = "environmentName" in chunk
+      const envName = isRolldown ? (chunk as typeof chunk & { environmentName?: string }).environmentName : "unknown"
+
+      if (isRolldown && envName === "ssr") {
+        // Special handling for Rolldown + SSR environment
+        return { code: `/* ssr */ ${code}`, map: null }
+      }
+
+      return null
+    },
+  }
+}
+```
+
+### Safe AST manipulation
+
+```ts
+transform(code, id) {
+  // ✅ Prefer string operations; don't depend on AST format
+  if (!code.includes("import.meta.DEBUG")) return null
+
+  return {
+    code: code.replace(/import\.meta\.DEBUG/g, JSON.stringify(process.env.DEBUG ?? false)),
+    map: null,
+  }
+}
+```
+
+### Use only public APIs
+
+A useful summary of safe patterns:
+
+```ts
+// ✅ These usages are fully consistent between Rollup and Rolldown
+const SAFE_PATTERN = {
+  resolveId: true, // ✅
+  load: true, // ✅
+  transform: true, // ✅
+  generateBundle: true, // ✅
+
+  // Build-mode only (both support)
+  renderChunk: true,
+  writeBundle: true,
+
+  // Use with caution
+  moduleParsed: "careful", // AST format differences
+  this_parse: "careful", // Same as above
+  this_resolve_advanced: "careful", // options differences
+}
+```
+
+## Checklist for Migrating Vite 7 Plugins
+
+```text
+Checklist for migrating to Vite 8:
+
+□ buildStart will now be called in dev — check for side effects
+□ Plugin uses this.parse() or moduleParsed AST — test OXC format compatibility
+□ renderChunk accesses chunk object fields — use only standard Rollup fields
+□ Uses the custom option in this.resolve() — verify consistent behavior
+□ Plugin execution order relies on assumptions — use enforce to control explicitly
+```
+
+## Self-check
+
+1. Your plugin only uses `resolveId` / `load` / `transform`. Do you need to change any code when upgrading from Vite 7 to Vite 8?
+2. Why is `buildStart` firing in Vite 8 dev a potentially breaking change? Give a concrete example.
+3. If your plugin needs to manipulate the JS AST, how should you write it to maximize compatibility with both Rollup and Rolldown?
+4. How do you safely use Rolldown extension fields (like `environmentName`) in `renderChunk` without causing errors under Rollup?
+
+```ts filename="Exercise"
+// Review the following plugin and identify which parts may cause issues
+// when migrating from Vite 7 to Vite 8.
+// Then propose fixes.
+
+import type { Plugin } from "vite"
+
+export function problemPlugin(): Plugin {
+  let initialized = false
+
+  return {
+    name: "problem-plugin",
+
+    // A: buildStart does global initialization
+    buildStart() {
+      if (initialized) return // ← Problem: in Vite 8 dev, after the first trigger, initialized becomes true
+      initialized = true
+      expensiveInit()
+    },
+
+    // B: relies on Acorn AST format
+    moduleParsed(info) {
+      const exports = info.ast.body
+        .filter((node: any) => node.type === "ExportNamedDeclaration")
+        .flatMap((node: any) => node.specifiers.map((s: any) => s.exported.name))
+      console.log("exports:", exports)
+    },
+
+    // C: renderChunk uses extension fields
+    renderChunk(code, chunk) {
+      // @ts-ignore
+      if (chunk.environmentName === "ssr") {
+        return { code: `"use server";\n${code}`, map: null }
+      }
+      return null
+    },
+  }
+}
+
+function expensiveInit() {}
+```

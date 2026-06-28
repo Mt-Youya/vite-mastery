@@ -1,0 +1,169 @@
+---
+title: Meta-Framework Comparison
+description: Next.js / Nuxt / SvelteKit / SolidStart all build on Vite — what does each one add on top of it? How do you decide which framework to choose?
+order: 5
+part: 09-framework-integration
+chapter: "9.5"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - What the major meta-frameworks provide on top of Vite - The core differences between Next.js / Nuxt / SvelteKit /
+  SolidStart - A decision framework for choosing a meta-framework - How Vite upgrades affect meta-framework users
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic familiarity with at least one meta-framework
+</Callout>
+
+## What Is a Meta-Framework
+
+A meta-framework builds on top of a UI framework and delivers **production-ready capabilities** as a complete solution:
+
+```text
+Raw Vite + React:
+  Routing: configure React Router yourself
+  SSR: write your own server.js
+  Data fetching: write your own loader
+  File-based routing: not supported
+  Optimization: configure yourself
+
+Next.js = Vite + React + all of the above out of the box
+```
+
+The core value of a meta-framework: **convention over configuration**, reducing the number of decisions you have to make.
+
+## Comparing the Four Major Meta-Frameworks
+
+| Dimension     | Next.js         | Nuxt              | SvelteKit      | SolidStart     |
+| ------------- | --------------- | ----------------- | -------------- | -------------- |
+| UI framework  | React           | Vue               | Svelte         | Solid          |
+| Routing       | File-based      | File-based        | File-based     | File-based     |
+| SSR support   | ✅ Mature       | ✅ Mature         | ✅ Mature      | ✅ Mature      |
+| RSC support   | ✅ (App Router) | 🔄 Nuxt Islands   | ❌             | 🔄 In progress |
+| Edge support  | ✅ Middleware   | ✅ Nitro          | ✅ Adapter     | ✅             |
+| Deploy target | Vercel-first    | Universal (Nitro) | Adapter system | Universal      |
+| Vite version  | 8.x             | 8.x               | 8.x            | 8.x            |
+
+## Next.js 15+ (App Router)
+
+Next.js's App Router is the most aggressive adopter of RSC:
+
+```ts
+// Next.js App Router routing structure
+app/
+  layout.tsx        ← Root layout (Server Component)
+  page.tsx          ← / route (Server Component)
+  blog/
+    page.tsx        ← /blog
+    [slug]/
+      page.tsx      ← /blog/:slug
+```
+
+Data fetching:
+
+```tsx
+// Server Component: direct async/await, no useEffect needed
+export default async function BlogPost({ params }: { params: { slug: string } }) {
+  const post = await db.post.findUnique({ where: { slug: params.slug } })
+  return <article>{post.content}</article>
+}
+```
+
+## Nuxt 3
+
+Nuxt's standout feature: the Nitro server engine, which supports deployment to any platform:
+
+```ts
+// Nuxt routing
+pages/
+  index.vue          ← /
+  blog/
+    index.vue        ← /blog
+    [slug].vue       ← /blog/:slug
+
+// Nuxt data fetching
+const { data: post } = await useFetch(`/api/posts/${slug}`)
+```
+
+Nuxt's Islands architecture: pages are SSR by default, with client-side components mixed in via `<ClientOnly>` or `<NuxtIsland>`.
+
+## SvelteKit
+
+SvelteKit's server-only filesystem design is elegantly structured:
+
+```ts
+// routes/blog/[slug]/
++page.svelte       ← Frontend component
++page.server.ts    ← Server-only data loading (not bundled into client)
++page.ts           ← Isomorphic data loading
+
+// +page.server.ts
+export async function load({ params }) {
+  const post = await db.post.findUnique({ where: { slug: params.slug } })
+  return { post }
+}
+```
+
+SvelteKit's Adapter system lets the same codebase deploy to different platforms:
+
+```ts
+import adapter from "@sveltejs/adapter-cloudflare"
+// or
+import adapter from "@sveltejs/adapter-node"
+// or
+import adapter from "@sveltejs/adapter-vercel"
+```
+
+## Decision Tree for Choosing a Framework
+
+```text
+Team familiar with React?
+  ├── Yes → Need RSC or Edge features?
+  │         ├── Yes → Next.js (App Router)
+  │         └── No  → React Router v7 or Vite + React
+  │
+Team familiar with Vue?
+  └── Yes → Nuxt 3
+         (best compatibility with Vite.js and multi-platform deployment)
+
+Svelte enthusiasts → SvelteKit
+
+Chasing maximum performance → SolidStart
+
+Full control, no black boxes → Assemble your own with Vite (what this site does!)
+```
+
+## Impact of Vite 8 Upgrades on Meta-Framework Users
+
+For developers using Next.js / Nuxt / SvelteKit:
+
+- **Vite upgrades are transparent to you**: the framework handles Vite version compatibility
+- **No application code changes required**: the framework's Vite plugins are already adapted
+- **Faster builds**: benefit from Rolldown's performance improvements
+- **Watch the framework's release notes**: learn how they leverage the new Vite 8 features
+
+## Self-check
+
+1. What capabilities do meta-frameworks primarily add on top of Vite?
+2. What is the main difference between Next.js App Router and Pages Router?
+3. What problem does SvelteKit's Adapter system solve?
+4. If a project needs frequently updated data and supports user login, should you use SSR or SSG?
+
+```ts filename="Exercise"
+// Design a scenario: a company needs to build an internal knowledge base system
+// Requirements:
+// - Documentation written in Markdown
+// - Full-text search support
+// - Employees must log in to view content
+// - Deployed on the company's own servers
+
+// Question 1: Does this scenario call for SSR or SSG? Why?
+// Question 2: Which meta-framework should you choose (assuming the team knows React)?
+// Question 3: If you did not use a meta-framework and built it yourself (like vite-mastery does),
+//             what additional problems would you need to solve?
+```

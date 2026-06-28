@@ -1,0 +1,207 @@
+---
+title: Static Site Generation (SSG)
+description: Implement SSG (Static Site Generation) with Vite + Node.js — pre-render all pages to HTML files at build time, with no server runtime required.
+order: 3
+part: 08-ssr-ssg
+chapter: "8.3"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The difference between SSG and SSR: build time vs runtime - Using Vite build hooks to implement SSG - Route
+  collection and batch pre-rendering - When SSG fits and where it falls short
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "SSR API in the Vite 8 Era" (section 8.1) - Understand the concepts of static websites and CDNs
+</Callout>
+
+## SSR vs SSG
+
+| Dimension      | SSR                                  | SSG                                   |
+| -------------- | ------------------------------------ | ------------------------------------- |
+| When rendered  | Dynamically on each request          | Once at build time                    |
+| Deployment     | Requires a Node.js server            | Only needs a static file server / CDN |
+| Data freshness | Always up to date                    | A snapshot from build time            |
+| Best for       | Personalized content, real-time data | Docs, blogs, marketing pages          |
+
+## The Core Idea Behind SSG
+
+```text
+vite build (SSR build)
+      │
+      ▼
+Node.js script:
+  1. Collect all routes
+  2. Call render(url) for each route
+  3. Write the rendered result to the corresponding HTML file
+  4. Copy the client build output
+```
+
+## Complete SSG Implementation
+
+```ts filename="scripts/prerender.ts"
+import { readFileSync, writeFileSync, mkdirSync } from "node:fs"
+import { resolve, join } from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __dirname = fileURLToPath(new URL(".", import.meta.url))
+
+// 1. Collect all routes to pre-render
+function collectRoutes(): string[] {
+  // Option A: static list
+  return ["/", "/about", "/docs/getting-started", "/docs/api"]
+
+  // Option B: read from a route config file
+  // return loadRoutesFromConfig()
+
+  // Option C: scan the content/ directory to generate routes
+  // return scanContentDir()
+}
+
+async function prerender() {
+  const routes = collectRoutes()
+  const distDir = resolve("dist")
+  const clientDir = join(distDir, "client")
+  const serverEntry = join(distDir, "server", "entry-server.js")
+
+  console.log(`\n🚀 Pre-rendering ${routes.length} pages...\n`)
+
+  // Read the template HTML (already contains correct asset links)
+  const template = readFileSync(join(clientDir, "index.html"), "utf-8")
+
+  // Dynamically import the server entry
+  const { render } = await import(serverEntry)
+
+  // 2. Pre-render each route
+  const results = await Promise.all(
+    routes.map(async (route) => {
+      try {
+        const { html: appHtml, data } = await render(route)
+
+        const html = template
+          .replace("<!--ssr-outlet-->", appHtml)
+          .replace("<!--ssr-data-->", JSON.stringify(data ?? null))
+
+        // 3. Calculate the output file path
+        const outputPath = route === "/" ? join(clientDir, "index.html") : join(clientDir, route.slice(1), "index.html")
+
+        // Ensure the directory exists
+        mkdirSync(join(outputPath, ".."), { recursive: true })
+
+        // 4. Write the HTML file
+        writeFileSync(outputPath, html)
+
+        console.log(`  ✓ ${route} → ${outputPath.replace(clientDir, "")}`)
+        return { route, success: true }
+      } catch (e) {
+        console.error(`  ✗ ${route}: ${e}`)
+        return { route, success: false, error: e }
+      }
+    })
+  )
+
+  const success = results.filter((r) => r.success).length
+  const failed = results.filter((r) => !r.success).length
+
+  console.log(`\nPre-render complete: ${success} succeeded${failed ? `, ${failed} failed` : ""}`)
+}
+
+prerender().catch(console.error)
+```
+
+## Build Script
+
+```json filename="package.json"
+{
+  "scripts": {
+    "build": "vite build && vite build --ssr && node scripts/prerender.ts",
+    "preview": "serve dist/client"
+  }
+}
+```
+
+## Incremental SSG: Rebuild Only Changed Pages
+
+For content-driven sites, a full rebuild can be slow. An incremental build strategy:
+
+```ts
+async function incrementalPrerender() {
+  const allRoutes = collectRoutes()
+
+  // Read the hash record from the last build
+  const hashFile = resolve(".ssg-hash.json")
+  const hashes = existsSync(hashFile) ? JSON.parse(readFileSync(hashFile, "utf-8")) : {}
+
+  const toRender: string[] = []
+
+  for (const route of allRoutes) {
+    const contentHash = getContentHash(route) // read the hash of the corresponding content file
+
+    if (hashes[route] !== contentHash) {
+      toRender.push(route)
+    }
+  }
+
+  if (toRender.length === 0) {
+    console.log("No pages have changed, skipping pre-render")
+    return
+  }
+
+  console.log(`Incrementally rendering ${toRender.length} changed pages`)
+  await renderPages(toRender)
+
+  // Update the hash record
+  for (const route of toRender) {
+    hashes[route] = getContentHash(route)
+  }
+  writeFileSync(hashFile, JSON.stringify(hashes, null, 2))
+}
+```
+
+## Limitations of SSG
+
+- **Not suited for dynamic content**: user login state, shopping carts, personalized recommendations
+- **Data staleness**: data from external APIs is fetched at build time and not updated afterward
+- **Build time**: with many pages, build time grows significantly (incremental builds help)
+
+**Hybrid strategy**: combine SSG with client-side fetching:
+
+- SSG renders the static skeleton (without dynamic data)
+- The client fetches dynamic data after loading
+
+## Self-check
+
+1. What is the core difference between SSG and SSR? What type of application is each suited for?
+2. Can the output of SSG pre-rendering be deployed on a CDN? What are the advantages?
+3. Why use `Promise.all` to pre-render all pages in parallel? What are the potential risks?
+4. A blog application has both a "post list" page and "post detail" pages. Which ones suit SSG, and which might not?
+
+```ts filename="Exercise"
+// Implement SSG for this site (vite-mastery):
+// 1. Collect all routes corresponding to content/*.mdx files
+// 2. Pre-render each route to an HTML file
+// 3. Add sitemap.xml generation
+
+// Given:
+// - Route format: /docs/<part-id>/<slug>
+// - content/ directory structure: content/<part>/xx-slug.mdx
+// - sitemap.xml must be generated after prerender completes
+
+import { readdirSync, readFileSync } from "node:fs"
+import { resolve, join } from "node:path"
+
+function collectDocRoutes(): string[] {
+  // TODO: scan the content/ directory and return all doc routes
+  return []
+}
+
+function generateSitemap(routes: string[], baseUrl: string): string {
+  // TODO: generate sitemap.xml content
+  return ""
+}
+```

@@ -7,6 +7,8 @@ packages:
   - "packages/*"
   - "examples/*"
 allowBuilds:
+  "@parcel/watcher": true
+  "@swc/core": true
   esbuild: true
   sharp: true
 onlyBuiltDependencies:

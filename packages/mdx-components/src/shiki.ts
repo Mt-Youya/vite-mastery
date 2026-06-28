@@ -6,12 +6,7 @@
  * - twoslash 单独入口,只在标注了 `twoslash` meta 的代码块上启用
  */
 
-import {
-  type BundledLanguage,
-  type BundledTheme,
-  type Highlighter,
-  createHighlighter,
-} from "shiki";
+import { type BundledLanguage, type BundledTheme, type Highlighter, createHighlighter } from "shiki"
 import {
   transformerNotationDiff,
   transformerNotationFocus,
@@ -19,12 +14,12 @@ import {
   transformerNotationWordHighlight,
   transformerMetaHighlight,
   transformerMetaWordHighlight,
-} from "@shikijs/transformers";
+} from "@shikijs/transformers"
 
 export const SHIKI_THEMES = {
   light: "github-light" satisfies BundledTheme,
   dark: "github-dark-dimmed" satisfies BundledTheme,
-};
+}
 
 export const DEFAULT_LANGS: BundledLanguage[] = [
   "typescript",
@@ -44,16 +39,16 @@ export const DEFAULT_LANGS: BundledLanguage[] = [
   "vue",
   "svelte",
   "diff",
-];
+]
 
-let cached: Promise<Highlighter> | null = null;
+let cached: Promise<Highlighter> | null = null
 
 export function getHighlighter() {
   cached ??= createHighlighter({
     themes: [SHIKI_THEMES.light, SHIKI_THEMES.dark],
     langs: DEFAULT_LANGS,
-  });
-  return cached;
+  })
+  return cached
 }
 
 export function getShikiTransformers() {
@@ -64,22 +59,19 @@ export function getShikiTransformers() {
     transformerNotationWordHighlight(),
     transformerMetaHighlight(),
     transformerMetaWordHighlight(),
-  ];
+  ]
 }
 
 /**
  * 高亮单段代码,返回 HTML 字符串。
  * 给 RSC / 静态生成用 —— 客户端不应当再调一次。
  */
-export async function highlight(
-  code: string,
-  lang: BundledLanguage | "text" = "text",
-): Promise<string> {
-  const highlighter = await getHighlighter();
+export async function highlight(code: string, lang: BundledLanguage | "text" = "text"): Promise<string> {
+  const highlighter = await getHighlighter()
   return highlighter.codeToHtml(code, {
     lang,
     themes: SHIKI_THEMES,
     defaultColor: false,
     transformers: getShikiTransformers(),
-  });
+  })
 }

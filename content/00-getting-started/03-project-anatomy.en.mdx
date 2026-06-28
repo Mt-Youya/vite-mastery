@@ -1,0 +1,159 @@
+---
+title: Anatomy of a Vite project
+description: Take apart every file in a Vite project — why index.html sits at the root, what vite.config.ts can do, what dev mode actually does differently from build mode.
+order: 3
+part: 00-getting-started
+chapter: "0.3"
+difficulty: 1
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Why `index.html` is Vite's entry rather than a JS file - The shape of `vite.config.ts` and the common fields - How
+  Vite 8's dev mode (Rolldown transform) differs from build mode (Rolldown bundle) - What the Module Graph is and why it
+  makes HMR fast
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Finished the previous section "A working Vite project in five minutes" - Familiar with ES Module basics (`import` /
+  `export`)
+</Callout>
+
+## Why `index.html` lives at the root
+
+The first thing that surprises people about a fresh Vite project:
+
+```text
+my-app/
+├── index.html    ← at the root! not under src/ or public/
+├── vite.config.ts
+└── src/
+    └── main.tsx
+```
+
+The Webpack-era intuition: HTML is the "shell", JS is the entry. You set `entry: './src/main.js'`, the bundler resolves the dependency graph, then injects it into an HTML template.
+
+Vite flips it: **`index.html` is the entry**. When the dev server gets a request for `/`, it reads `index.html`, finds `<script type="module" src="/src/main.tsx">` and walks the module graph from there — not from some JS file.
+
+Consequences:
+
+- Multiple HTML files = multiple entries (configure via `rollupOptions.input` in `vite.config.ts`)
+- Paths written in HTML are URL paths — no separate publicPath config needed
+- Files in `public/` **do not pass through Vite** — they're copied to the output directory as-is
+
+<V7Note title="Vite 7 and Vite 8 behave the same here">
+  Using `index.html` as the entry has been the design since Vite 2. Vite 8 didn't touch it. No diff to flag in this
+  section.
+</V7Note>
+
+## The shape of `vite.config.ts`
+
+A minimum Vite 8 config:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+`defineConfig` is just a helper for TypeScript inference — it does nothing at runtime. It accepts a config object, or a function returning one (handy when you need to read `mode` or other env hints):
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig(({ command, mode }) => {
+  // command: "serve" (dev) or "build"
+  // mode: "development" / "production" / custom
+  return {
+    base: command === "build" ? "/prod/" : "/",
+  }
+})
+```
+
+Field cheat-sheet:
+
+| Field             | Purpose           | Typical value                         |
+| ----------------- | ----------------- | ------------------------------------- |
+| `plugins`         | plugin list       | `[react(), myPlugin()]`               |
+| `base`            | deploy base path  | `"/"` / `"/app/"`                     |
+| `root`            | project root      | `"."` (default)                       |
+| `build.outDir`    | output directory  | `"dist"`                              |
+| `build.sourcemap` | output source map | `false` / `true` / `"inline"`         |
+| `resolve.alias`   | path aliases      | `{ "@": "/src" }`                     |
+| `server.port`     | dev server port   | `5173`                                |
+| `server.proxy`    | proxy rules       | `{ "/api": "http://localhost:3000" }` |
+
+## Dev mode vs build mode
+
+The core split in Vite's design — same config, **completely different** execution paths between dev and build.
+
+### Dev mode: transform on demand
+
+When the Vite dev server boots, **nothing in your app code is bundled up front**. When the browser requests `/src/main.tsx`, only then does Vite:
+
+1. Read `src/main.tsx`
+2. Run the file through the Rolldown transform pipeline (Vite 8) for TypeScript / JSX compilation
+3. Hand the result back as an ES module
+
+The browser parses `import { useState } from "react"`, fires a new request, Vite handles `react`… and so on, recursively.
+
+**Cold starts are extremely fast** for exactly this reason: Vite never compiles the whole app graph up front.
+
+<V7Note title="Vite 7: esbuild powers dev transform">
+  Vite 7's dev server uses esbuild (written in Go) for single-file transform. Vite 8 switched to Rolldown (Rust) — same
+  surface API, higher transform throughput, and the dev/build pipeline is now unified, reducing dev-vs-build behavior
+  drift.
+</V7Note>
+
+### Build mode: a full Rolldown bundle
+
+On `pnpm build`, Vite 8 calls into **Rolldown** for full static analysis and bundling:
+
+- **Tree-shaking** — drop unused exports
+- **Code splitting** — automatically split chunks based on dynamic imports
+- **Minification** — using the built-in minifier (Rolldown ships the OXC minifier)
+- **Asset handling** — content-hashed filenames + copying for images, fonts, CSS
+
+Output lands in `dist/` by default — deployable static files.
+
+## What the Module Graph is
+
+The Module Graph is a **directed graph** Vite keeps in memory: nodes are module files, edges are `import` relationships.
+
+```text
+main.tsx  →  App.tsx  →  Button.tsx  →  styles.css
+              ↓
+            store.ts  →  utils.ts
+```
+
+HMR (Hot Module Replacement) relies on this graph: when `Button.tsx` changes, Vite walks the graph in reverse to find every importer, decides the minimum update boundary, and pushes only the affected modules to the browser.
+
+That's why Vite HMR stays fast regardless of project size — it doesn't recompile the whole app, it ships only the diff.
+
+You can see the module graph at work in your browser DevTools' Network panel: every `?t=xxxxxx` query is a timestamp the HMR system stamps onto a module to bust the cache.
+
+## Self-check
+
+1. Why can't files under `public/` be imported with `import`?
+2. With the same `vite.config.ts`, name two clearly different internal paths between dev and build.
+3. You change `utils.ts` — how does Vite know to notify the browser to update `App.tsx`?
+4. What's the difference between `build.sourcemap: "inline"` and `build.sourcemap: true`?
+
+```ts filename="exercise"
+// Configure a Vite project that satisfies:
+// 1. Deploy base path is /my-app/
+// 2. Dev server port is 4000
+// 3. @ aliased to src/
+// 4. Output directory changed to output/
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  // TODO
+})
+```

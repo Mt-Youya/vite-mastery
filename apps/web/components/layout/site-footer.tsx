@@ -1,26 +1,46 @@
+import { getTranslations } from "next-intl/server"
 import Link from "next/link"
+import type { Locale } from "@/i18n/config"
+import { localizedHref } from "@/lib/i18n-routing"
 import { SITE } from "@/lib/site-config"
 
-const FOOTER_LINKS = {
-  内容: [
-    { href: "/docs", label: "文档" },
-    { href: "/examples", label: "实战项目" },
-    { href: "/changelog", label: "变更日志" },
-  ],
-  资源: [
-    { href: "https://vite.dev", label: "Vite 官方文档", external: true },
-    { href: "https://rollupjs.org", label: "Rollup 文档", external: true },
-    { href: SITE.repo, label: "GitHub 仓库", external: true },
-  ],
-  关于: [
-    { href: "/about", label: "项目缘起" },
-    { href: "/about#author", label: "作者" },
-    { href: "/feedback", label: "反馈与勘误" },
-  ],
+interface SiteFooterProps {
+  locale: Locale
 }
 
-export function SiteFooter() {
+/** group-key → 该列的 link 配置。href 写成 /docs 等"裸"路径,渲染时拼 locale 前缀。 */
+const FOOTER_GROUPS = [
+  {
+    groupKey: "content",
+    links: [
+      { key: "docs", href: "/docs" },
+      { key: "examples", href: "/examples" },
+      { key: "changelog", href: "/changelog" },
+    ],
+  },
+  {
+    groupKey: "resources",
+    links: [
+      { key: "viteDocs", external: "https://vite.dev" },
+      { key: "rollupDocs", external: "https://rollupjs.org" },
+      { key: "repo", external: SITE.repo },
+    ],
+  },
+  {
+    groupKey: "about",
+    links: [
+      { key: "origin", href: "/about" },
+      { key: "author", href: "/about#author" },
+      { key: "feedback", href: "/feedback" },
+    ],
+  },
+] as const
+
+export async function SiteFooter({ locale }: SiteFooterProps) {
+  const t = await getTranslations({ locale, namespace: "footer" })
+  const tSite = await getTranslations({ locale, namespace: "site" })
   const year = new Date().getFullYear()
+
   return (
     <footer
       className="mt-24 border-t border-border bg-bg-subtle/40"
@@ -30,40 +50,45 @@ export function SiteFooter() {
         <div className="grid gap-10 md:grid-cols-[1.4fr_repeat(3,1fr)]">
           <div>
             <p className="font-display text-sm font-semibold tracking-tight">{SITE.name}</p>
-            <p className="mt-2 max-w-prose text-sm text-fg-muted">{SITE.description}</p>
+            <p className="mt-2 max-w-prose text-sm text-fg-muted">{tSite("description")}</p>
           </div>
-          {Object.entries(FOOTER_LINKS).map(([group, links]) => (
-            <div key={group}>
-              <p className="text-xs font-semibold tracking-wide text-fg-subtle uppercase">{group}</p>
+          {FOOTER_GROUPS.map((group) => (
+            <div key={group.groupKey}>
+              <p className="text-xs font-semibold tracking-wide text-fg-subtle uppercase">
+                {t(`groups.${group.groupKey}`)}
+              </p>
               <ul className="mt-3 space-y-2 text-sm">
-                {links.map((link) => (
-                  <li key={link.href}>
-                    {"external" in link && link.external ? (
+                {group.links.map((link) =>
+                  "external" in link ? (
+                    <li key={link.key}>
                       <a
-                        href={link.href}
+                        href={link.external}
                         target="_blank"
                         rel="noreferrer noopener"
                         className="text-fg-muted transition-colors duration-base hover:text-fg"
                       >
-                        {link.label}
+                        {t(`links.${link.key}`)}
                       </a>
-                    ) : (
-                      <Link href={link.href} className="text-fg-muted transition-colors duration-base hover:text-fg">
-                        {link.label}
+                    </li>
+                  ) : (
+                    <li key={link.key}>
+                      <Link
+                        href={localizedHref(link.href, locale)}
+                        className="text-fg-muted transition-colors duration-base hover:text-fg"
+                      >
+                        {t(`links.${link.key}`)}
                       </Link>
-                    )}
-                  </li>
-                ))}
+                    </li>
+                  )
+                )}
               </ul>
             </div>
           ))}
         </div>
 
         <div className="mt-12 flex flex-col gap-2 border-t border-border pt-6 text-xs text-fg-subtle md:flex-row md:items-center md:justify-between">
-          <p>
-            © {year} {SITE.author.name}. 内容采用 CC BY-NC-SA 4.0,代码采用 MIT 许可证。
-          </p>
-          <p className="font-mono">v0.0 · 中文社区第一份 Vite 深度指南</p>
+          <p>{t("copyright", { year: String(year), author: SITE.author.name })}</p>
+          <p className="font-mono">v0.0 · {tSite("shortTagline")}</p>
         </div>
       </div>
     </footer>

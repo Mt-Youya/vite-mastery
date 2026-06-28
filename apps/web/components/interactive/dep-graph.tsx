@@ -12,6 +12,7 @@ import { ReactFlow, Background, Controls, MiniMap } from "@xyflow/react"
 import type { Node, Edge, NodeMouseHandler } from "@xyflow/react"
 import "@xyflow/react/dist/style.css"
 import { useMounted } from "@/hooks/use-mounted"
+import { useInteractiveLocale } from "./locale"
 
 /** @xyflow 要求 data 可被字符串 key 索引 */
 interface GraphNodeData extends Record<string, unknown> {
@@ -66,7 +67,26 @@ export interface DepGraphProps {
   edges?: Edge<GraphEdgeMeta>[]
 }
 
+const COPY = {
+  en: {
+    loading: "Loading module graph...",
+    module: "Module",
+    type: "Type",
+    importedBy: "Imported by",
+    empty: "Click a node to inspect import / importer",
+  },
+  zh: {
+    loading: "加载模块图…",
+    module: "模块",
+    type: "类型",
+    importedBy: "被导入",
+    empty: "点击节点查看 import / importer",
+  },
+} as const
+
 export function DepGraph({ nodes = INITIAL_NODES, edges = INITIAL_EDGES }: DepGraphProps) {
+  const locale = useInteractiveLocale()
+  const copy = COPY[locale]
   const mounted = useMounted()
   const [selected, setSelected] = useState<string | null>(null)
 
@@ -127,7 +147,7 @@ export function DepGraph({ nodes = INITIAL_NODES, edges = INITIAL_EDGES }: DepGr
       <div className="relative bg-bg-subtle" style={{ height: 420 }}>
         {!mounted ? (
           <div className="flex h-full items-center justify-center">
-            <div className="text-sm text-fg-subtle animate-pulse">加载模块图…</div>
+            <div className="text-sm text-fg-subtle animate-pulse">{copy.loading}</div>
           </div>
         ) : (
           <ReactFlow
@@ -150,11 +170,11 @@ export function DepGraph({ nodes = INITIAL_NODES, edges = INITIAL_EDGES }: DepGr
         <div className="border-t border-border bg-bg-muted/40 px-5 py-3">
           <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">模块</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.module}</p>
               <p className="mt-0.5 font-mono font-semibold text-fg">{selectedNode.data.label}</p>
             </div>
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">类型</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.type}</p>
               <p className="mt-0.5 text-fg">{selectedNode.data.nodeType}</p>
             </div>
             <div>
@@ -162,13 +182,13 @@ export function DepGraph({ nodes = INITIAL_NODES, edges = INITIAL_EDGES }: DepGr
               <p className="mt-0.5 font-mono text-2xs text-fg-muted">{imports.length ? imports.join(", ") : "—"}</p>
             </div>
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">被导入</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.importedBy}</p>
               <p className="mt-0.5 font-mono text-2xs text-fg-muted">{importers.length ? importers.join(", ") : "—"}</p>
             </div>
           </div>
         </div>
       ) : (
-        <div className="border-t border-border px-4 py-2.5 text-2xs text-fg-subtle">点击节点查看 import / importer</div>
+        <div className="border-t border-border px-4 py-2.5 text-2xs text-fg-subtle">{copy.empty}</div>
       )}
     </figure>
   )

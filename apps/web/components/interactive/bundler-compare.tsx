@@ -9,6 +9,7 @@
 
 import { useState } from "react"
 import { cn } from "@/lib/utils"
+import { useInteractiveLocale } from "./locale"
 
 type HighlightKey = "dev" | "build" | "esbuild" | "rollup" | "rolldown" | null
 
@@ -20,6 +21,33 @@ interface FlowNodeProps {
   onHover: (k: HighlightKey) => void
   accent?: "blue" | "orange" | "purple" | "brand"
 }
+
+const COPY = {
+  en: {
+    caption: "Bundler architecture comparison",
+    v7Title: "Dual engine (esbuild + Rollup)",
+    source: "Source",
+    output: "Browser / Node output",
+    v7Note: "Two engines had different designs, so plugin behavior often needed separate adaptation.",
+    v8Title: "Rolldown unified engine",
+    rolldownSub: "Rust · dev + build unified",
+    internals: ["OXC parser", "Module graph", "Chunking"],
+    v8Note: "One Rust core keeps dev/build behavior aligned, while the compatibility layer preserves Rollup APIs.",
+    footer: "Click or hover a node to highlight data flow",
+  },
+  zh: {
+    caption: "Bundler 架构对比",
+    v7Title: "双引擎(esbuild + Rollup)",
+    source: "源码",
+    output: "浏览器 / Node 产物",
+    v7Note: "两套引擎设计不同,行为差异需要插件分别适配。",
+    v8Title: "Rolldown 统一引擎",
+    rolldownSub: "Rust · dev + build 统一",
+    internals: ["OXC parser", "Module graph", "Chunking"],
+    v8Note: "单一 Rust 内核,dev/build 行为一致,插件兼容层向后兼容 Rollup API。",
+    footer: "点击或悬停节点查看数据流高亮",
+  },
+} as const
 
 function FlowNode({ label, sub, highlight, nodeKey, onHover, accent = "blue" }: FlowNodeProps) {
   const active = highlight === nodeKey
@@ -69,12 +97,14 @@ function Arrow({ direction = "down" }: { direction?: "down" | "right" }) {
 }
 
 export function BundlerCompare() {
+  const locale = useInteractiveLocale()
+  const copy = COPY[locale]
   const [highlight, setHighlight] = useState<HighlightKey>(null)
 
   return (
     <figure className="not-prose my-8 overflow-hidden rounded-xl border border-border bg-bg-subtle">
       <figcaption className="flex items-center justify-between border-b border-border px-5 py-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Bundler 架构对比</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{copy.caption}</span>
         <span className="rounded bg-bg-muted px-2 py-0.5 font-mono text-2xs text-fg-muted">{highlight || "dev"}</span>
       </figcaption>
 
@@ -85,12 +115,12 @@ export function BundlerCompare() {
             <span className="rounded-sm bg-warning-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-warning-700 dark:bg-warning-900/40 dark:text-warning-400">
               V7
             </span>
-            <span className="text-sm font-semibold text-fg">双引擎(esbuild + Rollup)</span>
+            <span className="text-sm font-semibold text-fg">{copy.v7Title}</span>
           </div>
 
           {/* 源码层 */}
           <FlowNode
-            label="源码"
+            label={copy.source}
             sub="TypeScript / JSX"
             highlight={highlight}
             nodeKey="dev"
@@ -135,10 +165,10 @@ export function BundlerCompare() {
                 "border-brand-300 bg-brand-50/30 dark:bg-brand-900/10"
             )}
           >
-            浏览器 / Node 产物
+            {copy.output}
           </div>
 
-          <p className="mt-1 text-2xs leading-relaxed text-fg-subtle">两套引擎设计不同,行为差异需要插件分别适配。</p>
+          <p className="mt-1 text-2xs leading-relaxed text-fg-subtle">{copy.v7Note}</p>
         </div>
 
         {/* —— 右:Vite 8 —— */}
@@ -147,12 +177,12 @@ export function BundlerCompare() {
             <span className="rounded-sm bg-brand-100 px-1.5 py-0.5 font-mono text-[10px] font-bold text-brand-700 dark:bg-brand-900/40 dark:text-brand-400">
               V8
             </span>
-            <span className="text-sm font-semibold text-fg">Rolldown 统一引擎</span>
+            <span className="text-sm font-semibold text-fg">{copy.v8Title}</span>
           </div>
 
           {/* 源码层 */}
           <FlowNode
-            label="源码"
+            label={copy.source}
             sub="TypeScript / JSX"
             highlight={highlight}
             nodeKey="dev"
@@ -164,7 +194,7 @@ export function BundlerCompare() {
           {/* Rolldown 大块 */}
           <FlowNode
             label="Rolldown"
-            sub="Rust · dev + build 统一"
+            sub={copy.rolldownSub}
             highlight={highlight}
             nodeKey="rolldown"
             onHover={setHighlight}
@@ -179,7 +209,7 @@ export function BundlerCompare() {
               highlight === "rolldown" && "border-brand-300/70 bg-brand-50/20 dark:bg-brand-900/10"
             )}
           >
-            {["OXC parser", "Module graph", "Chunking"].map((name) => (
+            {copy.internals.map((name) => (
               <div
                 key={name}
                 className="rounded bg-bg-muted px-1 py-1 text-center font-mono text-[10px] text-fg-subtle"
@@ -198,16 +228,14 @@ export function BundlerCompare() {
               highlight === "rolldown" && "border-brand-300 bg-brand-50/30 dark:bg-brand-900/10"
             )}
           >
-            浏览器 / Node 产物
+            {copy.output}
           </div>
 
-          <p className="mt-1 text-2xs leading-relaxed text-fg-subtle">
-            单一 Rust 内核,dev/build 行为一致,插件兼容层向后兼容 Rollup API。
-          </p>
+          <p className="mt-1 text-2xs leading-relaxed text-fg-subtle">{copy.v8Note}</p>
         </div>
       </div>
 
-      <div className="border-t border-border px-5 py-2.5 text-2xs text-fg-subtle">点击或悬停节点查看数据流高亮</div>
+      <div className="border-t border-border px-5 py-2.5 text-2xs text-fg-subtle">{copy.footer}</div>
     </figure>
   )
 }

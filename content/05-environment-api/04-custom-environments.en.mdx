@@ -1,0 +1,222 @@
+---
+title: Custom Environments
+description: Beyond the built-in client and ssr environments, how do you create dedicated environments for Cloudflare Workers, Edge Runtime, and Service Workers? What does the configuration structure for a custom environment look like?
+order: 4
+part: 05-environment-api
+chapter: "5.4"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - When you need a custom environment - The configuration structure for a custom environment - Designing environment
+  configurations for Cloudflare Workers and Edge Runtime - How custom environments interact with plugins
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Default Environments: client and ssr" (section 5.3) - Basic familiarity with Cloudflare Workers or a similar
+  Edge Runtime concept
+</Callout>
+
+## When do you need a custom environment
+
+The built-in `client` and `ssr` environments cover most traditional applications. The following scenarios require custom environments:
+
+| Scenario                       | Required custom environment                         |
+| ------------------------------ | --------------------------------------------------- |
+| Cloudflare Workers             | An isolated environment using the `workerd` runtime |
+| React Server Components        | A dedicated `rsc` environment                       |
+| Service Worker                 | Runs in the browser but with an isolated scope      |
+| Edge Middleware (e.g. Next.js) | A dedicated `edge` environment                      |
+| Multi-Worker architecture      | One environment per worker                          |
+
+## Basic configuration structure
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    // The default client and ssr still exist
+    client: {},
+    ssr: {},
+
+    // New: Cloudflare Workers environment
+    worker: {
+      resolve: {
+        // Export conditions used by Cloudflare Workers
+        conditions: ["workerd", "browser", "import"],
+        // Cloudflare Workers cannot bundle Node.js built-in modules
+        noExternal: true,
+      },
+    },
+  },
+})
+```
+
+## Configuring an environment for Cloudflare Workers
+
+Cloudflare Workers run on the `workerd` runtime — not Node.js, not a browser, but a dedicated V8 sandbox:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    worker: {
+      resolve: {
+        // workerd first, fallback to browser
+        conditions: ["workerd", "worker", "browser", "import"],
+        // Node.js built-in modules (fs, path, crypto, etc.) are not available
+        // but Cloudflare's node: compatibility layer can be used
+        noExternal: true,
+        external: [
+          // Cloudflare-provided built-in modules
+          "__STATIC_CONTENT_MANIFEST",
+        ],
+      },
+      build: {
+        // Output format: ESM (natively supported by workerd)
+        rollupOptions: {
+          output: {
+            format: "es",
+          },
+        },
+      },
+    },
+  },
+})
+```
+
+## Configuring an environment for React Server Components
+
+RSC has unique resolve requirements — it needs the `react-server` condition:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    client: {},
+    ssr: {},
+    rsc: {
+      // RSC-specific: react-server condition
+      resolve: {
+        conditions: ["react-server", "node", "import"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+  },
+})
+```
+
+The `react-server` condition tells React-related packages to use the Server Component-specific exports:
+
+```json
+// react/package.json (simplified)
+{
+  "exports": {
+    ".": {
+      "react-server": "./react.server.js", // RSC-specific version
+      "import": "./react.js", // regular ESM
+      "require": "./cjs/react.js"
+    }
+  }
+}
+```
+
+## Writing environment-specific plugins for custom environments
+
+Sometimes a plugin should only run in a specific environment:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import type { Plugin } from "vite"
+
+function workerOnlyPlugin(): Plugin {
+  return {
+    name: "vite-plugin-worker-only",
+    // Use applyToEnvironment to restrict to a specific environment (RC-stage API, refer to official docs)
+    transform(code, id) {
+      // Only execute in the worker environment
+      if (this.environment?.name !== "worker") return null
+
+      // Worker-specific processing: replace Node.js APIs
+      return {
+        code: code.replace("process.env.NODE_ENV", '"production"'),
+        map: null,
+      }
+    },
+  }
+}
+
+export default defineConfig({
+  plugins: [workerOnlyPlugin()],
+  environments: {
+    worker: {
+      // Or configure environment-specific plugins directly on the environment
+      plugins: [workerSpecificPlugin()],
+    },
+  },
+})
+
+function workerSpecificPlugin(): Plugin {
+  return { name: "worker-specific" }
+}
+```
+
+## Accessing a custom environment
+
+Accessing a custom environment inside `configureServer`:
+
+```ts
+configureServer(server) {
+  // Access the worker environment
+  const workerEnv = server.environments.worker
+  if (workerEnv) {
+    console.log("worker environment module graph:", workerEnv.moduleGraph)
+  }
+}
+```
+
+## Self-check
+
+1. Why does Cloudflare Workers need an independent Environment rather than reusing the ssr environment?
+2. What is the role of the `react-server` condition in an RSC environment?
+3. What is the difference between `plugins` configured inside `environments` and `plugins` at the top level of the config?
+4. If an npm package's `package.json` has no `workerd` condition, what happens when you import it in the worker environment?
+
+```ts filename="Exercise"
+// Configure an environment for a project that deploys to Deno Deploy.
+// Deno characteristics:
+// - Uses browser-like APIs (fetch, URL, etc.)
+// - Supports "deno" and "browser" export conditions
+// - Cannot use Node.js built-in modules
+// - Supports TypeScript natively
+
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  environments: {
+    client: {}, // frontend code
+    deno: {
+      // TODO: configure a suitable environment for Deno Deploy
+      resolve: {
+        conditions: [
+          /* TODO */
+        ],
+        // TODO: which Node.js modules should be external?
+      },
+    },
+  },
+})
+```

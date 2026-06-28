@@ -1,0 +1,249 @@
+---
+title: "The `import.meta.hot` API: Complete Guide"
+description: The browser-side HMR API — the semantics of accept / dispose / invalidate / data, and how to implement precise HMR for custom file types instead of falling back to a full page reload.
+order: 2
+part: 06-hmr
+chapter: "6.2"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Whether `import.meta.hot` exists and how to check - `accept()`: declaring an HMR boundary, accepting updates from
+  self or dependencies - `dispose()`: cleaning up side effects (timers, event listeners, etc.) - `invalidate()`:
+  declaring that a module cannot hot-update, bubbling the update upward - `data`: preserving state across module hot
+  updates
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "HMR Protocol" (section 6.1) - Understand ES Module scope
+</Callout>
+
+## What is `import.meta.hot`
+
+`import.meta.hot` is an object injected by Vite (and HMR-compatible bundlers) in **development mode**. It does not exist in production builds.
+
+```ts
+if (import.meta.hot) {
+  // This code only runs in dev mode
+  // It will be tree-shaken away at build time
+}
+```
+
+**Always wrap HMR code in `if (import.meta.hot)`** — this ensures tree-shaking correctly removes these dev-only code paths at build time.
+
+## `accept()`: Declaring an HMR Boundary
+
+`accept()` is the most fundamental HMR API. Calling it tells Vite: "this module can handle its own updates — no full page reload needed."
+
+### Self-accept
+
+The module accepts updates to itself:
+
+```ts
+// src/counter.ts
+let count = 0
+
+export function getCount() {
+  return count
+}
+export function increment() {
+  count++
+}
+
+// Declare: when this module itself updates, call this callback
+if (import.meta.hot) {
+  import.meta.hot.accept((newModule) => {
+    // newModule is the freshly-executed new module
+    // Migrate state from the old module to the new one here
+    console.log("counter module hot updated")
+  })
+}
+```
+
+### Accepting a dependency's update
+
+```ts
+// src/App.tsx
+import { getCount } from "./counter"
+
+if (import.meta.hot) {
+  // Accept updates from the counter module
+  import.meta.hot.accept("./counter", (newCounter) => {
+    // After counter updates, re-initialize with the new counter
+    console.log("counter updated, new value:", newCounter?.getCount())
+  })
+}
+```
+
+### Accepting multiple dependencies
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.accept(["./moduleA", "./moduleB"], ([newA, newB]) => {
+    // Triggered when either one updates
+    console.log("A or B updated")
+  })
+}
+```
+
+### accept with no callback (simplest form)
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.accept()
+  // No arguments: accept self-updates but run no callback
+  // Suitable for modules that only export pure functions — no explicit state migration needed
+}
+```
+
+## HMR Update Propagation Rules
+
+When a file changes, Vite traverses upward through the module graph:
+
+```text
+Button.tsx changes
+    │
+    ▼ Check: does Button.tsx have import.meta.hot.accept()?
+    │
+    ├── Yes → stop here, HMR-update Button.tsx
+    │
+    └── No → keep going up to the importer
+          │
+          App.tsx: has accept("./Button", ...)?
+          ├── Yes → stop at App.tsx
+          └── No → keep going up...
+                main.tsx: No → full page reload!
+```
+
+An **HMR boundary** is any module with `accept()`. The update is "caught" at the boundary and does not propagate further up.
+
+## `dispose()`: Cleaning Up Side Effects
+
+When a module is about to be unloaded (replaced by a hot update), run cleanup logic:
+
+```ts
+// A module with side effects
+let timer: ReturnType<typeof setInterval>
+
+export function startTimer() {
+  timer = setInterval(() => console.log("tick"), 1000)
+}
+
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    // The old module is about to be destroyed: clean up side effects
+    clearInterval(timer)
+    console.log("timer cleaned up")
+  })
+
+  import.meta.hot.accept()
+}
+```
+
+**`dispose` runs before `accept`:**
+
+```text
+1. File changes
+2. dispose callback runs (cleans up old module's side effects)
+3. New module code executes (re-initializes)
+4. accept callback runs (state migration)
+```
+
+## `invalidate()`: Declaring That Hot Update Is Not Possible
+
+Some module updates cannot be safely applied without a page reload:
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.accept(() => {
+    // The module updated, but some global state cannot be reset
+    if (someGlobalState.isCorrupted()) {
+      // Declare that hot update is not possible, trigger a full page reload
+      import.meta.hot!.invalidate()
+    }
+  })
+}
+```
+
+## `data`: Preserving State Across Hot Updates
+
+`import.meta.hot.data` is a persistent object that survives module hot updates:
+
+```ts
+// Suppose you want to preserve some state across hot updates
+if (import.meta.hot) {
+  // The old value from before the hot update lives in data
+  const previousCount = import.meta.hot.data.count ?? 0
+
+  let count = previousCount // initialize with the old value
+
+  export function getCount() {
+    return count
+  }
+
+  import.meta.hot.accept(() => {
+    // Store the current value into data when hot updating
+    import.meta.hot!.data.count = count
+  })
+}
+```
+
+## How React Fast Refresh Works
+
+`@vitejs/plugin-react` v6 (OXC version) automatically injects HMR code for React components:
+
+```ts
+// Your code:
+export function Button({ label }) {
+  return <button>{label}</button>
+}
+
+// Plugin auto-injected (simplified):
+if (import.meta.hot) {
+  const prevRefreshReg = window.$RefreshReg$
+  window.$RefreshReg$ = (type, id) => {
+    RefreshRuntime.register(type, module.id + " " + id)
+  }
+  import.meta.hot.accept()
+  // Register the React component for Fast Refresh
+}
+```
+
+During a hot update, Fast Refresh:
+
+- Re-executes the component function
+- Preserves state in the React component tree
+- Does not reset refs or context
+
+## Self-check
+
+1. Why must HMR code be wrapped in `if (import.meta.hot)`?
+2. Is there a difference between calling `accept()` with no callback versus passing an empty callback `() => {}`?
+3. What is the execution order of `dispose()` and `accept()`? Why must dispose run before accept?
+4. If a module has both `dispose` and `accept`, do both run on a hot update? In what order?
+
+```ts filename="Exercise"
+// Implement a module with side effects that correctly handles HMR:
+// 1. On module load, register a keyboard event listener
+// 2. On hot update: remove the old listener first, then register a new one
+// 3. Use data to preserve the current key-press count so it survives hot updates
+
+export function setupKeyListener(callback: (key: string) => void) {
+  const handler = (e: KeyboardEvent) => callback(e.key)
+  document.addEventListener("keydown", handler)
+  return () => document.removeEventListener("keydown", handler)
+}
+
+// TODO: add HMR support
+// Requirements:
+// - Remove the old listener on hot update
+// - Re-register a new listener after hot update
+// - Use data to preserve the key-press count (no loss across hot updates)
+if (import.meta.hot) {
+  // TODO
+}
+```

@@ -1,0 +1,165 @@
+---
+title: "`buildApp` Hook in Practice"
+description: Use the buildApp hook introduced in Vite 7+ to coordinate multi-environment build order — ssr before client, or parallel builds — and how to share build information across environments.
+order: 8
+part: 05-environment-api
+chapter: "5.8"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. The `buildApp` hook was introduced in Vite 7 and further refined in Vite 8. This chapter is based on the
+  Vite 8.1.x official documentation concepts.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - What the `buildApp` hook does and when to use it - How to control the build order of multiple environments -
+  Collecting cross-environment information inside buildApp - How framework authors use buildApp to implement complex
+  multi-environment builds
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "DevEnvironment vs BuildEnvironment" (section 5.5) - Familiarity with async programming: Promise / async-await
+</Callout>
+
+## What is buildApp
+
+`buildApp` is a plugin hook introduced in Vite 7 and matured further in Vite 8, designed specifically for **orchestrating multi-environment builds**.
+
+Before `buildApp`, if your project had three environments (client / ssr / rsc), you had to run them separately:
+
+```bash
+vite build                  # build client
+vite build --ssr            # build ssr
+# rsc had no standard approach — each framework implemented its own
+```
+
+`buildApp` lets you describe this orchestration in code:
+
+```ts filename="my-framework-plugin.ts"
+import type { Plugin } from "vite"
+
+export function myFrameworkPlugin(): Plugin {
+  return {
+    name: "my-framework",
+    async buildApp(app) {
+      // Build in order: ssr first, then client (client may depend on ssr output)
+      await app.build("ssr")
+      await app.build("client")
+    },
+  }
+}
+```
+
+<Callout type="warning">
+  The specific parameters of the `buildApp` hook and the API of `app.build()` are still being confirmed during the RC
+  stage. The code above is for conceptual illustration — refer to official documentation.
+</Callout>
+
+## Typical scenario: sequential SSR + Client build
+
+Many SSR frameworks need to build the server-side code before the client-side code. The reason:
+
+1. The SSR output contains a route manifest
+2. The client needs to read the route manifest to perform code splitting
+
+```ts
+async buildApp(app) {
+  // Step 1: build the SSR environment
+  await app.build("ssr")
+  // SSR output is now in dist/server/
+
+  // Read the route manifest from the SSR output
+  const manifest = readRouteManifest("dist/server/route-manifest.json")
+
+  // Step 2: build the client with the route manifest
+  // (some mechanism is needed to pass the manifest to the client build)
+  await app.build("client")
+}
+```
+
+## Typical scenario: parallel builds for independent environments
+
+If two environments have no dependency on each other, they can be built in parallel:
+
+```ts
+async buildApp(app) {
+  // client and worker are independent — build in parallel
+  await Promise.all([
+    app.build("client"),
+    app.build("worker"),
+  ])
+}
+```
+
+## Framework perspective: a Next.js-like build flow
+
+```ts
+async buildApp(app) {
+  // 1. Build the RSC environment (React Server Components)
+  await app.build("rsc")
+
+  // 2. Read the server component manifest from the RSC build
+  const rscManifest = readManifest("dist/rsc/manifest.json")
+
+  // 3. Pass the manifest into the ssr build
+  await app.build("ssr")
+
+  // 4. Finally build the client (requires complete SSR + RSC manifests)
+  await app.build("client")
+}
+```
+
+## Sharing information inside buildApp
+
+```ts
+async buildApp(app) {
+  const sharedData = new Map<string, unknown>()
+
+  // After the ssr build completes, collect information
+  await app.build("ssr")
+  sharedData.set("routeManifest", readManifest())
+
+  // During the client build, plugins can access sharedData
+  // (passed via closure or another mechanism, depending on the framework)
+  await app.build("client")
+}
+```
+
+## Self-check
+
+1. Is the `buildApp` hook primarily for application developers or framework authors? Why?
+2. When is `await Promise.all([app.build("a"), app.build("b")])` appropriate versus `await app.build("a"); await app.build("b")`?
+3. Why do some frameworks need to build SSR before client, rather than the other way around?
+4. If the `buildApp` hook did not exist, how would a framework implement multi-environment build orchestration?
+
+```ts filename="Exercise"
+// Implement buildApp for a hypothetical SSR framework:
+// Environment structure:
+//   - ssr: server-side rendering entry, builds to dist/server/
+//   - client: browser code, builds to dist/client/
+//   - edge: optional Edge Middleware, builds to dist/edge/
+//
+// Build rules:
+//   - ssr must build before client (client needs ssr's manifest)
+//   - edge can build in parallel with client
+//   - if no edge environment is configured, skip the edge build
+
+import type { Plugin } from "vite"
+
+export function frameworkPlugin(): Plugin {
+  return {
+    name: "my-framework",
+    async buildApp(app) {
+      // TODO: implement the build order described above
+      // Hint: app.environments contains all configured environments
+      // app.build(envName) builds the specified environment
+    },
+  }
+}
+```

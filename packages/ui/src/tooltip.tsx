@@ -1,15 +1,15 @@
-"use client";
+"use client"
 
-import { Tooltip as Base } from "@base-ui/react/tooltip";
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import { cn } from "./lib/cn.ts";
+import { Tooltip as Base } from "@base-ui/react/tooltip"
+import type { ComponentPropsWithoutRef, ReactNode } from "react"
+import { cn } from "./lib/cn.ts"
 
-const Provider = Base.Provider;
-const Root = Base.Root;
-const Trigger = Base.Trigger;
+const Provider = Base.Provider
+const Root = Base.Root
+const Trigger = Base.Trigger
 
 interface ContentProps extends ComponentPropsWithoutRef<typeof Base.Popup> {
-  sideOffset?: number;
+  sideOffset?: number
 }
 
 function Content({ className, sideOffset = 6, children, ...rest }: ContentProps) {
@@ -21,7 +21,7 @@ function Content({ className, sideOffset = 6, children, ...rest }: ContentProps)
             "rounded-md bg-slate-900 px-2 py-1 text-xs font-medium text-slate-50 shadow-md",
             "dark:bg-slate-100 dark:text-slate-900",
             "data-[state=open]:animate-in data-[state=closed]:animate-out fade-in-0",
-            className,
+            className
           )}
           {...rest}
         >
@@ -29,7 +29,7 @@ function Content({ className, sideOffset = 6, children, ...rest }: ContentProps)
         </Base.Popup>
       </Base.Positioner>
     </Base.Portal>
-  );
+  )
 }
 
 /**
@@ -43,7 +43,7 @@ function Quick({ label, children }: { label: string; children: ReactNode }) {
       <Trigger render={children as never} />
       <Content>{label}</Content>
     </Root>
-  );
+  )
 }
 
 export const Tooltip = {
@@ -52,4 +52,4 @@ export const Tooltip = {
   Trigger,
   Content,
   Quick,
-};
+}

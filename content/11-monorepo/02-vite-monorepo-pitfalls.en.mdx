@@ -1,0 +1,188 @@
+---
+title: Vite + Monorepo Pitfalls
+description: Using Vite inside a monorepo comes with a handful of well-known pitfalls — pre-bundling failures across packages, source-import packages needing transpilePackages, and symlink resolution issues. Here's every one of them so you don't have to learn the hard way.
+order: 2
+part: 11-monorepo
+chapter: "11.2"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Why dependency pre-bundling sometimes breaks in a monorepo - What special handling source-import packages need - The
+  symlink resolution problem and how to fix it - How to use `resolve.alias` inside a monorepo
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "pnpm Workspace Basics" (section 11.1) - Understand dependency pre-bundling (section 1.3)
+</Callout>
+
+## Pitfall 1: Workspace Packages Are Not Pre-bundled
+
+**Problem**: Your local `packages/ui` is TypeScript source (the `main` field points to `src/index.ts`). Vite does not pre-bundle it, so every transform re-compiles it from scratch.
+
+**Root cause**: Vite's pre-bundling only processes packages inside `node_modules`. Workspace packages exist in `node_modules` via symlinks, but Vite recognizes them as local packages and skips pre-bundling.
+
+**Fix 1**: Use `transpilePackages` in Next.js
+
+```ts filename="apps/web/next.config.ts"
+export default {
+  transpilePackages: ["@vite-mastery/ui", "@vite-mastery/mdx-components"],
+}
+```
+
+**Fix 2**: Use `optimizeDeps.include` in your Vite config
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    include: ["@vite-mastery/ui > react"], // include transitive dependencies
+  },
+})
+```
+
+**Fix 3**: Use `resolve.alias` to point directly to src/
+
+```ts filename="vite.config.ts"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  resolve: {
+    alias: {
+      "@vite-mastery/ui": resolve("../../packages/ui/src"),
+    },
+  },
+})
+```
+
+## Pitfall 2: Symlink Resolution Issues
+
+**Problem**: pnpm manages workspace packages using symlinks, but sometimes Vite's module resolution cannot follow them correctly.
+
+**Symptom**: The same package gets resolved as two different modules (causing `instanceof` failures, React context not being shared, etc.).
+
+**Root cause**: The symlink path and the real path are cached as separate modules.
+
+**Fix**: Enable symlink resolution in `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  resolve: {
+    // Resolve symlinks to their real paths
+    preserveSymlinks: false, // this is the default; usually no change needed
+  },
+  server: {
+    fs: {
+      // Allow access to all package files in the monorepo
+      allow: ["../.."],
+    },
+  },
+})
+```
+
+## Pitfall 3: CSS Variables Not Working Across Packages
+
+**Problem**: `packages/tailwind-config/theme.css` defines CSS variables, but they have no effect when used inside `packages/ui`.
+
+**Root cause**: CSS variables must be defined in the DOM, but the package itself does not import the CSS file — the consuming app is responsible for that.
+
+**Fix**: Explicitly import the CSS in `apps/web/app/globals.css`:
+
+```css filename="apps/web/app/globals.css"
+@import "@vite-mastery/tailwind-config/theme.css";
+/* ↑ ensures CSS variables are injected at the application level */
+```
+
+## Pitfall 4: HMR Not Propagating Across Packages
+
+**Problem**: You edit `packages/ui/src/Button.tsx`, but the page in `apps/web` does not HMR-update.
+
+**Root cause**: Vite only watches files under `apps/web/` — it does not watch `packages/`.
+
+**Fix**: Configure `server.watch`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  server: {
+    watch: {
+      // Watch the packages/ directory
+      // (under pnpm workspace, symlinked into node_modules/.pnpm)
+      followSymlinks: true,
+    },
+  },
+})
+```
+
+Alternatively, run `vite build --watch` inside `packages/ui` to keep its build output up to date, and have `apps/web` consume the built output.
+
+## Pitfall 5: TypeScript Cannot Find Types
+
+**Problem**: A workspace package has `"main": "src/index.ts"` but no `"types"` field, so TypeScript cannot locate its types.
+
+**Fix**: Declare the types path correctly in `package.json`:
+
+```json filename="packages/ui/package.json"
+{
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts" // point directly to the TS source
+    }
+  }
+}
+```
+
+Or configure path mappings in the root `tsconfig.json`:
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "paths": {
+      "@vite-mastery/ui": ["./packages/ui/src/index.ts"]
+    }
+  }
+}
+```
+
+## Self-check
+
+1. Why does Vite not pre-bundle local packages in a workspace?
+2. Why can pnpm's symlink mechanism sometimes result in two instances of the same package?
+3. What does the `server.fs.allow` configuration do? What happens if you omit it?
+4. What is the root cause of HMR not propagating across packages in a monorepo?
+
+```ts filename="Exercise"
+// Your monorepo has the following structure:
+// apps/web ← Next.js application
+// packages/ui ← component library (src/index.tsx, not compiled)
+// packages/utils ← utility functions (src/index.ts, not compiled)
+//
+// apps/web is experiencing these problems:
+// 1. Editing packages/ui/src/Button.tsx does not trigger HMR in the browser
+// 2. TypeScript reports type errors when using @vite-mastery/ui in apps/web
+// 3. packages/ui uses functions from packages/utils, but gets a "not found" error
+//
+// Write a fix for each problem:
+
+// apps/web/next.config.ts
+export default {
+  // TODO: fix problem 1
+}
+
+// apps/web/tsconfig.json
+{
+  "compilerOptions": {
+    // TODO: fix problem 2
+  }
+}
+
+// packages/ui/vite.config.ts
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  // TODO: fix problem 3
+})
+```

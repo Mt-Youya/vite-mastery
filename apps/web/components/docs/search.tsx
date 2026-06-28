@@ -3,6 +3,7 @@
 import { Search01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { Dialog, IconButton } from "@vite-mastery/ui"
+import { useTranslations } from "next-intl"
 import Link from "next/link"
 import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
@@ -55,6 +56,7 @@ function loadPagefind(): Promise<PagefindApi> {
  * Dev 模式下索引不存在,UI 显示提示文案。
  */
 export function Search({ compact = false }: { compact?: boolean } = {}) {
+  const t = useTranslations("docs.search")
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const [results, setResults] = useState<PagefindResult[] | null>(null)
@@ -102,14 +104,14 @@ export function Search({ compact = false }: { compact?: boolean } = {}) {
   return (
     <>
       {compact ? (
-        <IconButton aria-label="搜索文档" variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        <IconButton aria-label={t("label")} variant="ghost" size="sm" onClick={() => setOpen(true)}>
           <HugeiconsIcon icon={Search01Icon} className="size-4" strokeWidth={1.5} aria-hidden />
         </IconButton>
       ) : (
         <button
           type="button"
           onClick={() => setOpen(true)}
-          aria-label="搜索文档"
+          aria-label={t("label")}
           className={cn(
             "flex h-9 w-full max-w-xs items-center gap-2 rounded-md border border-border bg-bg-elevated px-3",
             "text-sm text-fg-subtle",
@@ -118,20 +120,20 @@ export function Search({ compact = false }: { compact?: boolean } = {}) {
           )}
         >
           <HugeiconsIcon icon={Search01Icon} className="size-4" strokeWidth={1.5} aria-hidden />
-          <span className="flex-1 text-left">搜索</span>
+          <span className="flex-1 text-left">{t("shortcutLabel")}</span>
           <kbd className="font-mono text-[10px] text-fg-subtle">⌘K</kbd>
         </button>
       )}
 
       <Dialog.Root open={open} onOpenChange={setOpen}>
-        <Dialog.Content title="全站搜索" closable className="max-w-2xl">
+        <Dialog.Content title={t("dialogTitle")} closable className="max-w-2xl">
           <Dialog.Body>
             <input
               autoFocus
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="输入关键词,例如 'transform hook'…"
+              placeholder={t("placeholder")}
               className={cn(
                 "h-11 w-full rounded-md border border-border bg-bg px-3 text-base",
                 "focus-visible:outline-none focus-visible:[box-shadow:var(--shadow-focus)]"
@@ -141,12 +143,14 @@ export function Search({ compact = false }: { compact?: boolean } = {}) {
             <div className="mt-4 min-h-40">
               {status === "no-index" ? (
                 <p className="rounded-md border border-dashed border-border p-4 text-sm text-fg-muted">
-                  搜索索引尚未生成。在 <code className="font-mono text-xs">pnpm build</code> 后 Pagefind 会自动生成。
+                  {t("noIndexPrefix")}
+                  <code className="font-mono text-xs">pnpm build</code>
+                  {t("noIndexSuffix")}
                 </p>
               ) : status === "loading" ? (
-                <p className="text-sm text-fg-muted">搜索中…</p>
+                <p className="text-sm text-fg-muted">{t("loading")}</p>
               ) : status === "no-results" ? (
-                <p className="text-sm text-fg-muted">没有匹配的结果。</p>
+                <p className="text-sm text-fg-muted">{t("noResults")}</p>
               ) : results && results.length > 0 ? (
                 <ul className="divide-y divide-border">
                   {results.map((r) => (
@@ -167,8 +171,11 @@ export function Search({ compact = false }: { compact?: boolean } = {}) {
                 </ul>
               ) : !query ? (
                 <p className="text-sm text-fg-subtle">
-                  提示:支持英文术语(如 <code className="font-mono text-xs">resolveId</code>
-                  )与中文(如 <code className="font-mono text-xs">依赖预构建</code>)。
+                  {t("hintPrefix")}
+                  <code className="font-mono text-xs">resolveId</code>
+                  {t("hintMiddle")}
+                  <code className="font-mono text-xs">依赖预构建</code>
+                  {t("hintSuffix")}
                 </p>
               ) : null}
             </div>

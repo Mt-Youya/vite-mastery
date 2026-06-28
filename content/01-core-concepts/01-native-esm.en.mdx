@@ -1,0 +1,224 @@
+---
+title: Native ESM and Browser-Native Modules
+description: The foundation of Vite — what are browser-native ES Modules? Where does the `<script type="module">` boundary sit? Why can Vite's dev server start without bundling?
+order: 1
+part: 01-core-concepts
+chapter: "1.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How browser-native ES Modules work
+  - The core differences between `<script type="module">` and a plain `<script>`
+  - How CORS / cross-origin restrictions affect ESM
+  - Why Vite doesn't need to pre-bundle all code before starting the dev server
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic JavaScript syntax (`import` / `export` keywords) - Know what an HTTP request is
+</Callout>
+
+## Starting from an HTML file
+
+Open the browser DevTools and look at the Network panel — what do you see?
+
+```html filename="index.html"
+<!doctype html>
+<html>
+  <body>
+    <!-- Traditional approach: a pre-bundled single file -->
+    <script src="/bundle.js"></script>
+
+    <!-- ESM approach: load source modules directly -->
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
+```
+
+The Network requests for these two approaches look completely different:
+
+- **Traditional approach**: 1 request loads `bundle.js`, all code already merged inside
+- **ESM approach**: loads `main.ts` first, the browser parses it, finds `import` statements, fires new requests… recursive loading
+
+Vite's dev server exploits this recursive loading mechanism to push "on-demand transform" to the extreme.
+
+## Three key characteristics of ES Modules
+
+### Characteristic 1: Static import paths
+
+ES Module `import` paths must be **static strings** — they cannot be runtime expressions:
+
+```ts
+// ✅ Valid: path is a static string
+import { useState } from "react"
+import utils from "./utils.ts"
+
+// ❌ Invalid: path is a dynamic expression (not allowed at ESM top-level)
+import utils from `./utils.${mode}.ts`  // syntax error
+```
+
+This restriction looks like a constraint, but it is actually an **advantage**: because paths are static, browsers and build tools can analyze dependencies without executing the code, enabling tree-shaking.
+
+### Characteristic 2: Strict scope isolation
+
+Every ES Module file has its own **independent module scope**. Top-level declarations do not pollute the global scope:
+
+```ts filename="a.ts"
+// This x lives only in a.ts's module scope
+const x = 42
+```
+
+```ts filename="b.ts"
+// x from a.ts is not accessible here
+console.log(x) // ReferenceError: x is not defined
+```
+
+By contrast, variables declared in a traditional `<script>` are attached to `window` by default.
+
+### Characteristic 3: CORS restrictions
+
+When the browser loads an ES Module it enforces strict **CORS (Cross-Origin Resource Sharing)** rules — in other words, **you cannot open an HTML file directly with the `file://` protocol**:
+
+```bash
+# ❌ Will throw a cross-origin error
+open index.html
+
+# ✅ You need an HTTP server
+npx serve .
+# or
+pnpm dev  # Vite dev server
+```
+
+This is why Vite must start a local HTTP server instead of letting you double-click the HTML file.
+
+## How the browser resolves ESM requests
+
+When the browser encounters `<script type="module" src="/src/main.ts">`:
+
+```text
+1. Browser sends GET /src/main.ts
+         │
+2. Server returns the content of main.ts
+   (Vite compiles TypeScript and performs JSX transform at this step)
+         │
+3. Browser parses main.ts and finds:
+   import { useState } from "react"
+   import App from "./App.tsx"
+         │
+4. Browser fires requests concurrently:
+   GET /node_modules/.vite/deps/react.js  (pre-bundled cache)
+   GET /src/App.tsx
+         │
+5. For each new module, repeat steps 2–4
+```
+
+This process is **tree-recursive**, but the browser requests modules in parallel as much as possible.
+
+## Why Vite's dev server doesn't need to bundle
+
+Once you understand how ESM works, Vite's design becomes obvious:
+
+**No upfront bundling needed**, because:
+
+1. The browser resolves `import` statements and fires requests on its own
+2. Vite only needs to **transform modules on demand** as requests arrive
+3. Each module is transformed only once (results are cached)
+
+```text
+Traditional bundler:              Vite dev server:
+
+At build time:                    At build time:
+  Analyze all modules →             (almost nothing)
+  Merge → Optimize
+  → bundle.js                     Startup time: ~ms
+  Startup time: tens of seconds
+
+                                  At request time:
+                                    On-demand transform
+                                    → return single module
+```
+
+## Node.js ESM vs browser ESM
+
+One commonly confused point: Node.js also supports ESM, but with some differences:
+
+| Dimension                            | Browser ESM                       | Node.js ESM                                   |
+| ------------------------------------ | --------------------------------- | --------------------------------------------- |
+| File extension                       | Can be omitted (server must help) | Recommended to write in full (`.js` / `.mjs`) |
+| `"type": "module"` in `package.json` | Not applicable                    | Must be set to use ESM                        |
+| `__dirname` / `__filename`           | Does not exist                    | Does not exist (use `import.meta.url`)        |
+| `require()`                          | Does not exist                    | Cannot be used inside an ESM file             |
+| Bare specifiers (`import "react"`)   | Server must resolve               | Node.js looks up `node_modules`               |
+
+Vite handles both: the dev server serves ESM to the browser, and in SSR scenarios it executes ESM inside the Node.js environment.
+
+## Bare Module Imports
+
+`import "react"` is **invalid** in the browser:
+
+```ts
+// ❌ The browser doesn't know where to find "react"
+import { useState } from "react"
+```
+
+The ESM specification requires import paths to be one of:
+
+- Starting with `/` (absolute path)
+- Starting with `./` or `../` (relative path)
+- A full URL
+
+This is why Vite needs **dependency pre-bundling**: it rewrites bare module imports like `"react"` into paths the browser can understand during dev:
+
+```ts
+// After Vite rewrites:
+import { useState } from "/node_modules/.vite/deps/react.js"
+```
+
+The next section covers dependency pre-bundling in detail.
+
+## Import Map (the native bare-module solution for modern browsers)
+
+`<script type="importmap">` is the standard browser-native solution for bare module imports:
+
+```html
+<script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@19",
+      "react-dom": "https://esm.sh/react-dom@19"
+    }
+  }
+</script>
+
+<script type="module">
+  import { useState } from "react" // now valid
+</script>
+```
+
+Vite does not currently use import maps; instead it rewrites bare import paths through Rolldown during dev. This is because import maps do not support all the features Vite needs (such as HMR).
+
+## Self-check
+
+1. Why must ES Module `import` paths be static strings? What advantages does this constraint bring?
+2. What error does `<script type="module">` throw when you open an HTML file with the `file://` protocol? Why?
+3. What does the browser do when it encounters `import { useState } from "react"`? How does Vite make this work in the browser?
+4. If the same `<script type="module">` file is imported multiple times, does the browser request it once or multiple times?
+
+```ts filename="Exercise"
+// In which scenario(s) will the code below cause an error? Explain why.
+// Scenario A: under Vite dev server
+// Scenario B: opened directly with file://
+// Scenario C: executed with Node.js
+
+import { add } from "./math.ts" // no explicit .ts extension
+
+const result = add(1, 2)
+console.log(result)
+
+// Also: is this dynamic import valid? Why?
+const mod = await import(`./utils-${Math.random()}.ts`)
+```

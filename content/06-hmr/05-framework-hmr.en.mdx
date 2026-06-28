@@ -1,0 +1,229 @@
+---
+title: "How Frameworks Implement HMR"
+description: Source-level mechanics of React Fast Refresh (OXC implementation) and Vue HMR — how frameworks use Vite's HMR API to perform component-level hot updates without losing state.
+order: 5
+part: 06-hmr
+chapter: "6.5"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How React Fast Refresh is implemented in Vite 8 (OXC version) - How Vue HMR preserves component state - The division
+  of responsibilities between framework HMR and Vite HMR - Why HMR sometimes causes state loss (and how to avoid it)
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "The `import.meta.hot` API" (section 6.2) - Basic familiarity with React or Vue components
+</Callout>
+
+## Division of Responsibilities
+
+Vite's HMR handles **transport**: detecting file changes, determining affected modules, and notifying the browser to reload them.
+
+**Framework HMR** handles **application**: given new component code, how to apply it to the running UI without unmounting the entire component tree.
+
+```text
+File changes
+    │
+    ▼
+Vite: determine affected modules, send WebSocket message
+    │
+    ▼
+Framework HMR runtime: receive message, perform component hot swap
+    │
+    ├── React: Fast Refresh → update component function, preserve state
+    └── Vue: HMR API → re-render SFC, preserve data/setup state
+```
+
+## React Fast Refresh: OXC Implementation
+
+Vite 8's `@vitejs/plugin-react` v6 implements React Fast Refresh using OXC (no more Babel):
+
+### What the plugin does
+
+```ts
+// @vitejs/plugin-react v6 processing of Button.tsx (simplified)
+
+// Your code:
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  return <button onClick={() => setCount(c => c+1)}>{label} {count}</button>
+}
+
+// After plugin injection (simplified):
+import RefreshRuntime from "/@react-refresh"
+
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  return <button onClick={() => setCount(c => c+1)}>{label} {count}</button>
+}
+
+// Register this component for Fast Refresh
+RefreshRuntime.register(Button, "Button")
+
+if (import.meta.hot) {
+  // Self-accept
+  import.meta.hot.accept(() => {
+    RefreshRuntime.performReactRefresh()
+  })
+}
+```
+
+### Fast Refresh rules
+
+Fast Refresh is not unconditional. State is preserved only when:
+
+```ts
+// ✅ State preserved: only render logic changed
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  return <button style={{ color: "red" }}>{label} {count}</button>
+  //            ↑ color changed, but state is preserved
+}
+
+// ❌ State lost: hooks order or count changed
+export function Button({ label }) {
+  const [count, setCount] = useState(0)
+  const [extra, setExtra] = useState("")  // ← new hook added, state resets
+  return <button>{label}</button>
+}
+
+// ❌ State lost: file exports non-component content
+export const API_URL = "https://..."  // ← non-component export, whole module refreshes
+export function Button() { /* ... */ }
+```
+
+**Practical rule**: don't mix non-component code into React component files. If a file has both components and constants, split them into separate files.
+
+### Differences between v6 and v5
+
+```text
+v5 (@vitejs/plugin-react):
+  - Uses Babel for transform
+  - babel-plugin-react-refresh injects HMR code
+  - Requires Babel-related packages
+
+v6 (@vitejs/plugin-react):
+  - Uses OXC (Rust) for transform
+  - OXC has built-in React refresh transform
+  - No Babel needed, faster startup
+  - API is identical to v5 (vite.config.ts usage unchanged)
+```
+
+<V7Note title="Vite 7: using @vitejs/plugin-react v5">
+  In the Vite 7 ecosystem, `@vitejs/plugin-react` v5 is still mainstream. v5 uses Babel to implement Fast Refresh.
+
+To migrate to v6 (with Vite 8): just upgrade the package version, no config changes needed:
+
+```bash
+pnpm update @vitejs/plugin-react
+```
+
+If your project has custom Babel configuration (to support special syntax), v6 requires a separate Rolldown + Babel integration setup.
+
+</V7Note>
+
+## Vue HMR: Hot Updates for SFCs
+
+Vue SFC (Single File Component) HMR is implemented by `@vitejs/plugin-vue`:
+
+```vue
+<!-- Button.vue -->
+<template>
+  <button :style="{ color }">{{ count }}</button>
+</template>
+
+<script setup>
+import { ref } from "vue"
+const count = ref(0)
+const color = ref("red")
+</script>
+```
+
+After compilation, plugin-vue injects HMR code:
+
+```ts
+// Compiled output (simplified)
+import { defineComponent, ref } from "vue"
+import { createHotContext } from "/@vite/client"
+
+const __hmrId__ = "Button.vue"
+const __hot__ = createHotContext(__hmrId__)
+
+// Component options
+const Button = defineComponent({
+  setup() {
+    const count = ref(0)
+    const color = ref("red")
+    return { count, color }
+  },
+  // ...
+})
+
+// Vue HMR API
+if (__hot__) {
+  __hot__.accept((newModule) => {
+    // Hot update: re-register the component
+    if (newModule) {
+      __hot__.data.Button = newModule.default
+    }
+  })
+}
+```
+
+Vue's HMR runtime can preserve `ref` and `reactive` values — as long as the component structure has not changed in a breaking way.
+
+## When a Full Page Reload Still Occurs
+
+Even with framework HMR in place, certain situations still trigger a full page reload:
+
+| Reason                       | When it occurs                                      |
+| ---------------------------- | --------------------------------------------------- |
+| No HMR boundary              | No `accept()` found anywhere up the module graph    |
+| Route config changed         | Route file modified, cannot hot-update, must reload |
+| Main entry modified          | `src/main.tsx` changed                              |
+| Breaking component structure | Hooks count/order changed (React)                   |
+| Plugin explicitly triggers   | `server.hot.send({ type: "full-reload" })`          |
+
+## Self-check
+
+1. How does React Fast Refresh update component code without losing state?
+2. Why does defining non-component constants in a React component file cause HMR to fail? How do you fix it?
+3. What is the core difference between `@vitejs/plugin-react` v6 and v5? What impact does it have on developers?
+4. When the `<style>` block of a Vue SFC changes, does it trigger a full component HMR or only a CSS update?
+
+```ts filename="Exercise"
+// Analyze the HMR behavior of this React file under each modification scenario below:
+
+// src/counter.tsx
+const THRESHOLD = 100  // ← constant
+export const formatCount = (n: number) => `${n} times`  // ← utility function
+
+export function Counter() {
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState("default")  // ← second state
+
+  return (
+    <div>
+      <p>{formatCount(count)}</p>
+      <button onClick={() => setCount(c => c + 1)}>+1</button>
+    </div>
+  )
+}
+
+// Analyze the HMR behavior of each modification:
+// A: Change the text format inside <p> ("times" → "count")
+// B: Delete `const [name, setName] = useState("default")`
+// C: Change the value of THRESHOLD
+// D: Delete formatCount and move it to another file
+// E: Add a third useState to Counter
+
+// For each case:
+// 1. Will HMR succeed?
+// 2. Will the value of count be preserved?
+// 3. If HMR fails, what happens instead?
+```

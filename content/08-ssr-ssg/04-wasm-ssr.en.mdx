@@ -1,0 +1,141 @@
+---
+title: Wasm SSR (New in Vite 8)
+description: Running WebAssembly in an SSR environment — Vite 8 provides native Wasm SSR support, letting high-performance algorithms written in Rust/Go/C++ run directly inside Node.js SSR.
+order: 4
+part: 08-ssr-ssg
+chapter: "8.4"
+difficulty: 4
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Vite 8's Wasm SSR support - Loading and running `.wasm` files in a Node.js SSR environment - Performance use cases
+  and limitations of Wasm SSR - Comparison with client-side Wasm
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of WebAssembly concepts - Read "SSR API in the Vite 8 Era" (section 8.1)
+</Callout>
+
+## Why Use Wasm in SSR
+
+Typical browser use cases for WebAssembly:
+
+- Image/video processing (ffmpeg.wasm)
+- Cryptographic algorithms
+- Physics simulations, game engines
+
+**Wasm in SSR** use cases:
+
+- Server-side image processing (as an alternative to sharp)
+- High-performance Markdown parsing
+- Server-side encryption (faster than Node.js native implementations)
+- SQL parsers and data processing written in Rust
+
+## Vite 8's Wasm SSR Support
+
+On the client side, Vite has always supported Wasm:
+
+```ts
+import init, { encode } from "./codec.wasm"
+await init()
+const result = encode("hello")
+```
+
+In SSR environments, Vite 8 extends Wasm support to Node.js:
+
+```ts
+// entry-server.tsx
+import init, { processImage } from "./image-processor.wasm"
+
+// Vite 8: initialization and invocation work correctly in SSR environments too
+await init()
+
+export async function render(url: string) {
+  // Call the Wasm function on the server
+  const processedBuffer = await processImage(rawImageBuffer)
+  // ...
+}
+```
+
+## Configuring Wasm SSR
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  ssr: {
+    // Don't externalize .wasm files
+    noExternal: [/\.wasm$/],
+  },
+  optimizeDeps: {
+    // Process wasm during the pre-bundling phase
+    include: ["my-wasm-package"],
+  },
+})
+```
+
+## Real-world Example: Markdown Parsing
+
+```ts filename="entry-server.tsx"
+// Using a Markdown parser written in Rust (10x faster than marked)
+import init, { renderMarkdown } from "./markdown-parser.wasm"
+
+let wasmInitialized = false
+
+async function ensureWasmInitialized() {
+  if (!wasmInitialized) {
+    await init()
+    wasmInitialized = true
+  }
+}
+
+export async function render(url: string) {
+  await ensureWasmInitialized()
+
+  const markdownContent = await fetchContent(url)
+  // Call Wasm to render Markdown inside Node.js SSR
+  const htmlContent = renderMarkdown(markdownContent)
+
+  return renderToString(<Article html={htmlContent} />)
+}
+```
+
+## Wasm SSR vs Client Wasm
+
+| Dimension             | Client Wasm              | SSR Wasm                     |
+| --------------------- | ------------------------ | ---------------------------- |
+| Runtime environment   | Browser                  | Node.js                      |
+| Initialization timing | On page load             | On server startup            |
+| Memory sharing        | One instance per user    | Shared across all requests   |
+| Network overhead      | User must download .wasm | Loaded locally on the server |
+| Best for              | Interactive processing   | Static content generation    |
+
+**Initialize once on the server, shared by all requests** — this is the core advantage of SSR Wasm.
+
+## Limitations and Caveats
+
+1. **Not all Wasm works in SSR**: Wasm that depends on DOM / browser APIs cannot run in Node.js
+2. **Memory management**: in a long-running SSR server, Wasm memory leaks are a real concern
+3. **Node.js Wasm API**: Node.js's `WebAssembly` API is largely compatible with the browser, but there are subtle differences
+
+## Self-check
+
+1. Why does using Wasm in an SSR environment save more memory than using it on the client?
+2. What kinds of Wasm modules are **not suitable** for running in SSR?
+3. When should you initialize Wasm in SSR? Why use a `wasmInitialized` flag?
+4. Compared to Node.js native implementations (e.g., sharp for image processing), what are the trade-offs of the Wasm version?
+
+```ts filename="Exercise"
+// Design an SSR service that uses a Wasm module to process requests:
+// Scenario: server-side real-time SVG chart generation (using chart-engine.wasm written in Rust)
+// Requirements:
+// 1. Initialize Wasm when the server starts (not on every request)
+// 2. Accept data on each request and return an SVG string
+// 3. Handle concurrent requests correctly (Wasm is single-threaded)
+
+// Think about:
+// - If Wasm is single-threaded, will multiple concurrent requests cause problems?
+// - How can a request queue solve the concurrency issue?
+```

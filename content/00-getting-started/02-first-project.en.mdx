@@ -1,0 +1,74 @@
+---
+title: A working Vite project in five minutes
+description: Scaffold a React + TS project with create-vite and learn what every file in the directory means.
+order: 2
+part: 00-getting-started
+chapter: "0.2"
+difficulty: 1
+readingTime: 5
+updatedAt: "2026-06-25"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="Prerequisites">
+  - Node 24+ and pnpm 11+ installed - Basic command-line familiarity
+</Callout>
+
+## Scaffolding
+
+```bash
+pnpm create vite@latest hello-vite --template react-ts
+cd hello-vite
+pnpm install
+pnpm dev
+```
+
+Open `http://localhost:5173` and you should see the default Vite welcome page. **A few things are worth noticing**:
+
+- Cold start took under a second, and we did nothing to optimize Vite
+- Edit a string in `src/App.tsx` and the browser updates without a refresh (HMR)
+- The project root has no `webpack.config.js`-style monster
+
+## Directory anatomy
+
+```text
+hello-vite/
+├── index.html         ← Vite's entry — not a JS file under src
+├── vite.config.ts     ← config entry
+├── package.json
+├── tsconfig.json
+├── src/
+│   ├── main.tsx       ← React mount point
+│   ├── App.tsx
+│   └── vite-env.d.ts  ← global types Vite injects
+└── public/            ← static assets that bypass the build
+```
+
+The most counter-intuitive bit: **`index.html` sits at the project root, not under `public/`**. Vite treats `index.html` as the entry node of the module graph. The line `<script type="module" src="/src/main.tsx">` is where Vite finds every source file from.
+
+## What one line of config buys you
+
+```ts
+// vite.config.ts
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+Once `@vitejs/plugin-react` is installed, you get for free:
+
+- React Fast Refresh (component state preserved during HMR)
+- JSX compilation
+- Automatic `React` import (Vite 8+)
+
+We'll take this plugin apart later.
+
+## Self-check
+
+1. Why is `index.html` at the project root rather than inside `public/`?
+2. After `pnpm dev`, the Network panel shows lots of `?t=xxxxx` query strings. What are they?
+3. Without any plugin, can Vite compile `.tsx` files? Why?

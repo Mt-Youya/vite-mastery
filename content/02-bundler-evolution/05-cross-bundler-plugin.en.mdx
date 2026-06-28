@@ -1,0 +1,261 @@
+---
+title: "In Practice: Writing Cross-Bundler Compatible Plugins"
+description: Using the code from example project 5, implement a plugin that runs correctly on both Rollup and Rolldown — full coverage of compatibility strategies, runtime detection, and testing methods.
+order: 5
+part: 02-bundler-evolution
+chapter: "2.5"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Design principles for cross-bundler plugins - Techniques for detecting the current bundler environment at runtime -
+  How to make the same code run correctly on both Rollup and Rolldown - Companion example project:
+  `examples/plugin-rollup-rolldown-compat`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Plugin API Compatibility Layer" (section 2.4) - Complete the "Virtual Modules Plugin" example (section 3.4)
+</Callout>
+
+## Why Cross-Bundler Compatibility Matters
+
+If you only write plugins for your own projects, you generally only need to care about the current Vite version. But if you want to publish to npm for the community, you need to consider:
+
+- Your target users may still be on Vite 7 (Rollup engine)
+- Or they may be using Rollup directly, without going through Vite
+
+The core principle of cross-bundler compatible plugins: **only use APIs supported by both; handle differences with runtime detection and branching**.
+
+## Three-Layer Compatibility Strategy
+
+### Strategy 1: Use only the common API (safest)
+
+If your plugin only needs the following hooks, you almost never need to do any compatibility work:
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite" // or import type { Plugin } from "rollup"
+
+export function safePlugin(): Plugin {
+  return {
+    name: "my-safe-plugin",
+    // These hooks behave identically in both Rollup and Rolldown
+    resolveId(id) {
+      /* ... */
+    },
+    load(id) {
+      /* ... */
+    },
+    transform(code, id) {
+      /* ... */
+    },
+    buildStart() {
+      /* ... */
+    },
+    generateBundle(_, bundle) {
+      /* ... */
+    },
+  }
+}
+```
+
+If the plugin's functionality only requires these hooks, writing it against the Rollup API will run on both sides without modification.
+
+### Strategy 2: Runtime detection (conditional use of new features)
+
+When you want to use Rolldown-specific functionality (like `chunk.environmentName`) while maintaining Rollup compatibility:
+
+```ts filename="plugin.ts"
+import type { Plugin, RenderedChunk } from "rollup"
+
+/** Detect whether a chunk contains Rolldown-extended fields */
+function isRolldownChunk(chunk: RenderedChunk): boolean {
+  return "environmentName" in chunk
+}
+
+export function bundlerAwarePlugin(): Plugin {
+  return {
+    name: "vite-plugin-bundler-aware",
+    renderChunk(code, chunk) {
+      if (isRolldownChunk(chunk)) {
+        // Rolldown path: extended fields are available
+        const env = (chunk as RenderedChunk & { environmentName?: string }).environmentName
+        console.log(`[Rolldown] chunk ${chunk.fileName} belongs to environment: ${env}`)
+      } else {
+        // Rollup path: use only standard fields
+        console.log(`[Rollup] chunk ${chunk.fileName}`)
+      }
+      return null
+    },
+  }
+}
+```
+
+### Strategy 3: Plugin factory + version adapter (most flexible)
+
+For cases with larger behavioral differences, wrap in a factory function and let the caller specify the mode:
+
+```ts filename="plugin.ts"
+interface CompatPluginOptions {
+  /** Explicitly specify bundler type, skipping runtime detection */
+  bundler?: "rollup" | "rolldown" | "auto"
+}
+
+export function compatPlugin(options: CompatPluginOptions = {}): Plugin {
+  const { bundler = "auto" } = options
+  let resolvedBundler: "rollup" | "rolldown" | null = null
+
+  return {
+    name: "vite-plugin-compat",
+    buildStart() {
+      if (bundler !== "auto") {
+        resolvedBundler = bundler
+        return
+      }
+      // Auto-detect: Rolldown provides specific meta fields
+      // Note: this is illustrative; exact detection depends on the Rolldown version
+      resolvedBundler = "rolldown" // defaults to Rolldown in Vite 8
+    },
+    transform(code, id) {
+      if (resolvedBundler === "rolldown") {
+        return transformForRolldown(code, id)
+      }
+      return transformForRollup(code, id)
+    },
+  }
+}
+
+function transformForRolldown(code: string, id: string) {
+  // Rolldown-specific optimized path
+  return null
+}
+
+function transformForRollup(code: string, id: string) {
+  // Rollup compatibility path
+  return null
+}
+```
+
+## Example Project: Bundle Analyzer Plugin
+
+`examples/plugin-rollup-rolldown-compat` implements a bundle analysis plugin that demonstrates all three strategies in combination.
+
+```bash
+cd examples/plugin-rollup-rolldown-compat
+pnpm install
+pnpm build    # Vite 8 (Rolldown)
+```
+
+Core implementation (simplified):
+
+```ts filename="examples/plugin-rollup-rolldown-compat/src/plugin.ts"
+import type { Plugin, OutputBundle } from "vite"
+
+interface AnalyzerOptions {
+  sizeThreshold?: number
+}
+
+export function bundleAnalyzer(options: AnalyzerOptions = {}): Plugin {
+  const { sizeThreshold = 100 * 1024 } = options
+
+  return {
+    name: "vite-plugin-bundle-analyzer",
+    apply: "build",
+
+    // Uses only generateBundle — this hook behaves identically in Rollup and Rolldown
+    generateBundle(_outputOptions, bundle: OutputBundle) {
+      const chunks = Object.entries(bundle).filter(([, c]) => c.type === "chunk")
+
+      console.log("\n📦 Bundle Analysis Report")
+      for (const [fileName, chunk] of chunks) {
+        if (chunk.type !== "chunk") continue
+        const size = Buffer.byteLength(chunk.code, "utf-8")
+        const warn = size > sizeThreshold ? " ⚠️" : ""
+        console.log(`  ${fileName}: ${(size / 1024).toFixed(1)} KB${warn}`)
+      }
+    },
+  }
+}
+```
+
+This plugin is "naturally compatible" because it **uses only the most stable part of the common API**: `generateBundle` plus the basic properties of the `bundle` object.
+
+## Testing Cross-Bundler Compatibility
+
+### Local testing
+
+In `examples/plugin-rollup-rolldown-compat`, you can test against different environments by modifying the Vite version in `vite.config.ts`:
+
+```bash
+# Test with Vite 8 (Rolldown)
+pnpm build
+
+# Check the output: inspect the dist/ artifacts and compare console output
+```
+
+Refer to `compatibility-matrix.md` for known behavioral differences.
+
+### Key test scenarios
+
+1. **resolve behavior**: does the plugin's `resolveId` fire correctly on both sides
+2. **transform order**: does the execution order of multiple plugins' `transform` hooks match expectations
+3. **generateBundle output**: is the bundle structure generated by both sides consistent
+4. **error handling**: does calling `this.error()` inside the plugin behave consistently on both sides
+
+## Recommendations for Publishing Cross-Bundler Plugins
+
+If you want to publish your plugin to npm:
+
+```json filename="package.json"
+{
+  "name": "my-plugin",
+  "peerDependencies": {
+    "rollup": ">=3.0.0",
+    "vite": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "rollup": { "optional": true },
+    "vite": { "optional": true }
+  }
+}
+```
+
+State the supported version range clearly in your README:
+
+```markdown
+## Compatibility
+
+| Tool                  | Supported versions          |
+| --------------------- | --------------------------- |
+| Vite                  | 4.x / 5.x / 6.x / 7.x / 8.x |
+| Rollup                | 3.x / 4.x                   |
+| Rolldown (via Vite 8) | 8.x                         |
+```
+
+## Self-check
+
+1. What is the main limitation of the "use only the common API" strategy? When is runtime detection necessary?
+2. Why are `resolveId` / `load` / `transform` the preferred hooks for cross-bundler plugins?
+3. If a plugin needs to access `chunk.environmentName` (Rolldown-specific) without crashing on Rollup, what is the correct approach?
+4. Why is it recommended to declare both rollup and vite as `peerDependencies` rather than `devDependencies`?
+
+```ts filename="Exercise"
+// Implement a cross-bundler plugin: vite-plugin-banner
+// Purpose: add a comment banner to the top of each output chunk
+// Requirement: must work on both Rollup and Rolldown
+
+import type { Plugin } from "rollup"
+
+interface BannerOptions {
+  banner: string // e.g. "/* Built with love */"
+}
+
+export function bannerPlugin(options: BannerOptions): Plugin {
+  // TODO: implement
+  // Hint: the renderChunk hook is supported in both Rollup and Rolldown,
+  // and returning { code, map } format is fully consistent between the two
+}
+```

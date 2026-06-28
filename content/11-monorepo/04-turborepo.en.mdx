@@ -1,0 +1,216 @@
+---
+title: Turborepo Task Orchestration
+description: Turborepo makes monorepo builds smart — dependency-aware task ordering, remote caching, and parallel execution. What is the core difference from pnpm -r run build?
+order: 4
+part: 11-monorepo
+chapter: "11.4"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The core difference between Turborepo and `pnpm -r run` - Defining tasks in `turbo.json`: inputs / outputs /
+  dependsOn - Local cache and remote cache - Pipeline: dependency relationships between tasks
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "pnpm Workspace Basics" (section 11.1)
+</Callout>
+
+## Why You Need Turborepo
+
+Problems with `pnpm -r run build`:
+
+1. **No caching**: rebuilds everything every time, even if nothing changed
+2. **Dumb ordering**: `-r` runs packages in alphabetical directory order, ignoring dependency relationships
+3. **No parallelism**: executes sequentially by default
+
+Turborepo solves all three:
+
+```text
+pnpm -r run build:
+
+packages/ui/build    ← may run before packages/utils/build (wrong order)
+packages/utils/build
+apps/web/build
+
+Turborepo (turbo build):
+
+packages/utils/build ← runs first (because ui depends on utils)
+packages/ui/build    ← runs after utils completes
+apps/web/build       ← runs after ui completes (parallelizing where possible)
+
+If nothing changed:
+All tasks hit the cache and finish instantly!
+```
+
+## turbo.json Configuration
+
+```json filename="turbo.json"
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      // "^build" means: before running this task,
+      // first run build for all packages this package depends on
+      "dependsOn": ["^build"],
+
+      // Output directories: Turborepo caches these
+      "outputs": ["dist/**", ".next/**", "build/**"],
+
+      // Inputs that affect the cache: rebuilds only when these files change
+      // (omit to use all files as inputs)
+      "inputs": ["src/**", "package.json", "tsconfig.json"]
+    },
+
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+      // No outputs needed (typecheck produces no artifacts)
+    },
+
+    "lint": {
+      // lint does not depend on the build output of other packages
+      "dependsOn": []
+    },
+
+    "dev": {
+      // dev is not cached and is a persistent task (never exits)
+      "cache": false,
+      "persistent": true
+      // dev only runs for apps/; packages/ do not need to re-run dev
+    },
+
+    "clean": {
+      "cache": false
+    }
+  }
+}
+```
+
+## The `dependsOn` Relationship
+
+```json
+"build": {
+  "dependsOn": ["^build"]
+}
+```
+
+What `^build` means:
+
+- For each package, before running its `build`
+- First run `build` for every **package it depends on**
+
+```text
+apps/web depends on packages/ui, which depends on packages/utils
+
+turbo build apps/web:
+1. packages/utils build    ← first
+2. packages/ui build       ← after utils completes
+3. apps/web build          ← after ui completes
+```
+
+If `dependsOn` is omitted or set to `[]`, tasks across packages **run in parallel**.
+
+## How Caching Works
+
+Turborepo computes a hash for each task:
+
+```text
+task hash = hash(
+  input files (determined by inputs),
+  output file paths (outputs),
+  environment variables (env),
+  task configuration
+)
+```
+
+When the hash hits the cache:
+
+- **Local cache**: restores the previous output files instantly
+- **Remote cache**: downloads the previous output from the cloud — shared across the team
+
+## Remote Cache
+
+Configure Vercel remote cache:
+
+```bash
+# Log in to Vercel
+npx turbo link
+```
+
+Or self-host a cache server using the `turbo-remote-cache` package.
+
+Once configured, different developers' local machines share the build cache:
+
+```bash
+# Developer A runs a build
+turbo build  # → output cached to remote
+
+# Developer B pulls the code and builds
+turbo build  # → hits the remote cache, finishes instantly
+```
+
+## Common Commands
+
+```bash
+# Build all packages
+turbo build
+
+# Build only a specific package (and its dependencies)
+turbo build --filter @my/web
+
+# Show the task execution graph (dry run, no actual execution)
+turbo build --dry-run
+
+# Clear the local cache
+turbo clean
+
+# Watch task progress in real time
+turbo build --ui stream
+```
+
+## Self-check
+
+1. What does Turborepo's cache hash depend on? Under what conditions does the cache become invalid?
+2. What is the difference between `dependsOn: ["^build"]` and `dependsOn: ["build"]`?
+3. Why should the `dev` task have `cache: false` and `persistent: true`?
+4. What benefit does remote caching provide for team collaboration?
+
+```json filename="Exercise"
+// Design a turbo.json for the following scenario:
+// Tasks:
+// - build: generate artifacts
+// - test: run unit tests (depends on build)
+// - e2e: run end-to-end tests (depends on test)
+// - lint: code linting (does not depend on other tasks)
+// - docs: generate documentation (depends on build)
+//
+// Special requirements:
+// - When build hits the cache, test should also hit the cache
+// - e2e is too slow — do not cache it
+// - lint can run in parallel with build
+
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "build": {
+      // TODO
+    },
+    "test": {
+      // TODO
+    },
+    "e2e": {
+      // TODO
+    },
+    "lint": {
+      // TODO
+    },
+    "docs": {
+      // TODO
+    }
+  }
+}
+```

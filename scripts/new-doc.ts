@@ -142,23 +142,40 @@ TODO 正文内容。
   const partDir = path.join(CONTENT_DIR, part.id)
   if (!fs.existsSync(partDir)) fs.mkdirSync(partDir, { recursive: true })
 
-  // 查找当前最大 order 确定文件前缀
-  const existing = fs.existsSync(partDir) ? fs.readdirSync(partDir).filter((f) => f.endsWith(".mdx")) : []
+  /** 查找当前最大 order 确定文件前缀,只看 `.zh.mdx`(EN 与 ZH 同 prefix)。 */
+  const existing = fs.existsSync(partDir) ? fs.readdirSync(partDir).filter((f) => f.endsWith(".zh.mdx")) : []
   const maxNum = existing.reduce((max, f) => {
     const n = parseInt(f.split("-")[0] ?? "0", 10)
     return isNaN(n) ? max : Math.max(max, n)
   }, 0)
   const prefix = String(maxNum + 1).padStart(2, "0")
-  const fileName = `${prefix}-${fileSlug}.mdx`
-  const filePath = path.join(partDir, fileName)
+  const baseName = `${prefix}-${fileSlug}`
 
-  if (fs.existsSync(filePath)) {
-    console.error(`❌ 文件已存在: ${filePath}`)
-    process.exit(1)
+  /** 同步生成 zh + en 两份。EN 占位:正文区域填 TODO + 复用 frontmatter。 */
+  const zhPath = path.join(partDir, `${baseName}.zh.mdx`)
+  const enPath = path.join(partDir, `${baseName}.en.mdx`)
+
+  for (const [p, label] of [
+    [zhPath, "ZH"],
+    [enPath, "EN"],
+  ] as const) {
+    if (fs.existsSync(p)) {
+      console.error(`❌ 文件已存在(${label}): ${p}`)
+      process.exit(1)
+    }
   }
 
-  fs.writeFileSync(filePath, content, "utf-8")
-  console.log(`\n✅ 已生成: content/${part.id}/${fileName}`)
+  const enContent = content.replace(
+    /^---[\s\S]*?---/,
+    (front) =>
+      front + "\n\n<!-- TODO: translate to English. Until translated, the ZH version will be served as fallback. -->\n"
+  )
+
+  fs.writeFileSync(zhPath, content, "utf-8")
+  fs.writeFileSync(enPath, enContent, "utf-8")
+  console.log(`\n✅ 已生成:`)
+  console.log(`   content/${part.id}/${baseName}.zh.mdx`)
+  console.log(`   content/${part.id}/${baseName}.en.mdx (TODO 占位)`)
   console.log(`   字数模板约 200 字,记得填充实际内容后跑 pnpm check:content\n`)
   rl.close()
 }

@@ -1,0 +1,162 @@
+---
+title: Rolldown Architecture Deep Dive
+description: How does Rolldown work internally? What do the three stages — OXC parsing, module graph construction, and chunk generation — each do? Where do the architectural differences with Rollup lie?
+order: 3
+part: 02-bundler-evolution
+chapter: "2.3"
+difficulty: 3
+readingTime: 15
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The three main stages of Rolldown's build process - Where OXC Parser fits in the overall architecture - Key
+  architectural differences between Rolldown and Rollup - Why a Rust implementation matters so much for performance
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "What Is Rolldown" (section 2.2) - Familiarity with basic compiler concepts: parse → analyze → generate
+</Callout>
+
+## Comparing the Two Architectures
+
+Before diving into Rolldown's internals, take a moment to feel the architectural difference between Vite 7 and Vite 8 at a glance:
+
+<BundlerCompare />
+
+On the left is Vite 7's dual engine — esbuild handles dev transforms, Rollup handles build bundling, and the two are completely independent. On the right is Vite 8's unified Rolldown architecture.
+
+## Rolldown's Three Core Stages
+
+Rolldown's execution can be broken down into three main stages:
+
+### Stage 1: Parsing and Module Graph Construction
+
+**Input**: entry file path
+
+**What Rolldown does**:
+
+1. Calls OXC Parser to parse the entry file, producing an AST
+2. Extracts all `import` declarations from the AST
+3. Runs the resolve flow for each `import` path (triggering the `resolveId` hook)
+4. For each successfully resolved module, runs load (triggering the `load` hook) + parse
+5. Recursively processes dependencies until all modules have been parsed
+
+This process builds a **Module Graph** — a directed graph of all modules in the project and their dependency relationships.
+
+```text
+Entry: src/main.tsx
+  │
+  ├── resolve: "react" → node_modules/react/index.js
+  ├── resolve: "./App" → src/App.tsx
+  │     ├── resolve: "./Button" → src/Button.tsx
+  │     └── resolve: "./styles.css" → src/styles.css
+  └── resolve: "virtual:env" → \0virtual:env (handled by plugin)
+```
+
+### Stage 2: Transform
+
+Once the module graph is built, Rolldown runs the transform pipeline on each module:
+
+1. Triggers all plugins' `transform(code, id)` hooks (executed sequentially)
+2. OXC Transformer handles TypeScript type-stripping
+3. For JSX, calls the corresponding transform (e.g., `@vitejs/plugin-react`)
+4. Handles `import.meta.*` injections (e.g., `import.meta.env`, `import.meta.hot`)
+
+**In dev mode**, Rolldown executes transforms on demand — only modules actually requested by the browser are transformed; unrequested modules are left alone. This is the fundamental reason cold starts are so fast.
+
+**In build mode**, Rolldown fully transforms all modules, preparing them for tree-shaking and chunk generation.
+
+### Stage 3: Chunk Generation and Optimization (build only)
+
+This stage only runs during `vite build`:
+
+1. **Tree-shaking** — based on the module graph and `export` / `import` analysis, marks and removes unused code
+2. **Chunk splitting** — based on dynamic `import()` boundaries and `rollupOptions.output.manualChunks` configuration, decides how to pack modules into different chunk files
+3. **Minification** — OXC Minifier compresses code (removes whitespace, shortens variable names, etc.)
+4. **Asset processing** — CSS extraction, image hash fingerprinting, static asset copying
+
+Hook execution order:
+
+```text
+buildStart → resolveId/load/transform (per module) → buildEnd
+→ renderStart → renderChunk (per chunk) → generateBundle → writeBundle → closeBundle
+```
+
+## OXC's Place in the Architecture
+
+OXC is not an external dependency of Rolldown — it is Rolldown's internal core:
+
+```text
+Rolldown process
+  │
+  ├── OXC Parser      — handles all JS/TS AST parsing
+  ├── OXC Transformer — handles TS type-stripping, basic JSX support
+  ├── OXC Minifier    — handles code minification in the build stage
+  └── Rolldown Core   — module graph, resolve logic, chunk algorithm, plugin hooks
+```
+
+OXC is implemented in Rust and runs in the same process as Rolldown, with no need for cross-process communication. This is fundamentally different from Vite 7, where esbuild ran as a separate process (via child_process or WASM).
+
+<V7Note title="Vite 7: esbuild as an external process">
+  In Vite 7, esbuild ran as a standalone Go binary. Vite communicated with it via the JavaScript API of the `esbuild` npm package. Every transform involved the overhead of serialization → IPC → deserialization.
+
+Rolldown embeds OXC directly in the same Rust process, eliminating IPC overhead. For projects with many small files, this difference is especially noticeable in the dev stage.
+
+</V7Note>
+
+## Architectural Differences from Rollup
+
+Rolldown deliberately mirrors Rollup's plugin API, but the underlying architecture is fundamentally different:
+
+| Dimension      | Rollup                    | Rolldown                                       |
+| -------------- | ------------------------- | ---------------------------------------------- |
+| Implementation | JavaScript                | Rust                                           |
+| Parser         | Acorn (JS)                | OXC Parser (Rust)                              |
+| Concurrency    | Single-threaded + Promise | Multi-threaded (Rayon)                         |
+| Tree-shaking   | Based on Acorn AST        | Based on OXC AST                               |
+| Plugin API     | Rollup Plugin native      | Compatibility layer (translates to Rust calls) |
+
+Rolldown uses a compatibility layer to translate JavaScript plugin hook calls into internal Rust operations. This means:
+
+- The plugin API is transparent to users (the syntax is identical)
+- Performance overhead is concentrated at the JS ↔ Rust boundary, not in parsing and analysis itself
+- As Rolldown iterates, certain hook behavior details may have minor differences from Rollup
+
+## Self-check
+
+1. Across Rolldown's three stages, what is the main difference between dev mode and build mode, and in which stage does it occur? Why?
+2. OXC Parser is integrated inside the Rolldown process. What practical advantages does this have over Vite 7's external esbuild process architecture?
+3. Is Rolldown's module graph construction depth-first or breadth-first? How does this affect the call order of the `resolveId` hook?
+4. Why is Rolldown's plugin API described as a "compatibility layer"? What potential risks does this layer introduce?
+
+```ts filename="Exercise"
+// Analyze the following code. In the build stage, which hooks will Rolldown trigger and in what order?
+// (Assume resolveId and load use default behavior; transform has one user plugin)
+
+// vite.config.ts
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: "src/main.ts",
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+        },
+      },
+    },
+  },
+  plugins: [myTransformPlugin()],
+})
+
+// src/main.ts
+import React from "react"
+import { App } from "./App"
+
+// Questions:
+// 1. How many times will renderChunk be called? (Hint: there is a manualChunks config)
+// 2. Does generateBundle come before or after renderChunk?
+// 3. At which stage is myTransformPlugin's transform hook called?
+```

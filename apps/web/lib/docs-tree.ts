@@ -5,19 +5,45 @@
  *     └─ 0.1 为什么需要 Vite
  *     └─ 0.2 五分钟跑通第一个 Vite 项目
  *   PART 01 · ...
+ *
+ * 加上 locale fallback:对每个 baseSlug,优先取目标 locale 的文档;
+ * 缺失时回落到 CONTENT_FALLBACK_LOCALE,同时把 `isFallback: true` 标在节点上,
+ * sidebar / 文档页可以用它显示提示徽章。
  */
 
+import { CONTENT_FALLBACK_LOCALE, type Locale } from "@/i18n/config"
 import { PARTS } from "./site-config"
 import type { Doc } from "content-collections"
 
-export type DocItem = Doc
+export type DocItem = Doc & { isFallback?: boolean }
 
 export interface DocsTreeNode {
   part: (typeof PARTS)[number]
   docs: DocItem[]
 }
 
-/** 把 content-collections 的 docs 数组按 Part 分组、按 order 排序,过滤掉 draft */
+/**
+ * 给定 locale,从全集中挑出该 locale 的文档;缺失时回落到 CONTENT_FALLBACK_LOCALE。
+ * 返回的每个 DocItem 都带 `isFallback` 标记。
+ */
+export function pickDocsForLocale(allDocs: Doc[], locale: Locale): DocItem[] {
+  const bySlug = new Map<string, { primary?: Doc; fallback?: Doc }>()
+  for (const doc of allDocs) {
+    const bucket = bySlug.get(doc.slug) ?? {}
+    if (doc.locale === locale) bucket.primary = doc
+    if (doc.locale === CONTENT_FALLBACK_LOCALE) bucket.fallback = doc
+    bySlug.set(doc.slug, bucket)
+  }
+  const out: DocItem[] = []
+  for (const { primary, fallback } of bySlug.values()) {
+    const chosen = primary ?? fallback
+    if (!chosen) continue
+    out.push({ ...chosen, isFallback: !primary && Boolean(fallback) })
+  }
+  return out
+}
+
+/** 把(已按 locale 过滤过的)docs 数组按 Part 分组、按 order 排序,过滤掉 draft */
 export function buildDocsTree(docs: DocItem[]): DocsTreeNode[] {
   return PARTS.map((part) => ({
     part,
@@ -44,12 +70,18 @@ export function findDocWithSiblings(
   }
 }
 
-/** 给面包屑用:slug → [Part 标题, doc 标题] */
-export function getBreadcrumb(doc: DocItem): { label: string; href?: string }[] {
-  const part = PARTS.find((p) => p.id === doc.part)
+/**
+ * 给面包屑用 —— part 标题和「文档」根标题由调用方按当前 locale 提供。
+ */
+export function getBreadcrumb(
+  doc: DocItem,
+  partTitle: string,
+  partNo: string,
+  docsRootLabel: string
+): { label: string; href?: string }[] {
   return [
-    { label: "文档", href: "/docs" },
-    ...(part ? [{ label: `Part ${part.no} · ${part.title}`, href: `/docs/${part.id}` }] : []),
+    { label: docsRootLabel, href: "/docs" },
+    { label: `Part ${partNo} · ${partTitle}`, href: `/docs/${doc.part}` },
     { label: doc.title },
   ]
 }

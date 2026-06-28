@@ -1,0 +1,252 @@
+---
+title: Vue + Vite 8
+description: The compilation pipeline for Vue 3 Single File Components (SFC) in Vite 8 — how @vitejs/plugin-vue works, Vue Macros, CSS v-bind, and the internals of `<script setup>`.
+order: 2
+part: 09-framework-integration
+chapter: "9.2"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - How `@vitejs/plugin-vue` works
+  - The Vue SFC compilation pipeline (template / script / style as three separate blocks)
+  - What `<script setup>` compiles down to
+  - How CSS v-bind is implemented
+  - Recommended Vue 3 + TypeScript configuration
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic knowledge of Vue 3 - Understanding of Vue SFC (Single File Component) structure
+</Callout>
+
+## The Role of @vitejs/plugin-vue
+
+Vue SFC (`.vue` files) are not standard JavaScript — browsers cannot execute them directly. `@vitejs/plugin-vue` compiles `.vue` files into JavaScript inside the `transform` hook:
+
+```vue
+<!-- Button.vue -->
+<template>
+  <button :class="classes" :style="{ color }">{{ label }}</button>
+</template>
+
+<script setup lang="ts">
+import { computed } from "vue"
+const props = defineProps<{ label: string; variant?: "primary" | "secondary" }>()
+const classes = computed(() => `btn btn-${props.variant ?? "primary"}`)
+const color = ref("blue")
+</script>
+
+<style scoped>
+.btn {
+  padding: 8px 16px;
+}
+</style>
+```
+
+Compiled output (simplified):
+
+```ts
+// Compiled output of Button.vue
+import { computed, ref } from "vue"
+
+// The script setup content is extracted as a setup() function
+const __sfc__ = {
+  __name: "Button",
+  props: { label: String, variant: String },
+  setup(props) {
+    const classes = computed(() => `btn btn-${props.variant ?? "primary"}`)
+    const color = ref("blue")
+    return { classes, color }
+  },
+  render: /* render function compiled from template */
+}
+
+// Scoped styles injection (hash ID prevents conflicts)
+__sfc__.__scopeId = "data-v-HASH"
+
+export default __sfc__
+```
+
+## How Each SFC Block Is Processed
+
+### `<template>` — Compiled to a Render Function
+
+```vue
+<template>
+  <div v-if="show">{{ message }}</div>
+</template>
+```
+
+Compiled output:
+
+```ts
+import {
+  createElementVNode as _createElementVNode,
+  openBlock as _openBlock,
+  createElementBlock as _createElementBlock,
+  createCommentVNode as _createCommentVNode,
+} from "vue"
+
+function render({ show, message }) {
+  return show ? (_openBlock(), _createElementBlock("div", null, message)) : _createCommentVNode("v-if", true)
+}
+```
+
+### `<script setup>` — Compiled to a setup() Function
+
+`<script setup>` is syntactic sugar introduced in Vue 3.2+. After compilation:
+
+```vue
+<script setup>
+import { ref } from "vue"
+const count = ref(0)
+defineProps<{ title: string }>()
+</script>
+```
+
+Is equivalent to:
+
+```ts
+import { ref } from "vue"
+
+export default {
+  props: { title: String },
+  setup(props) {
+    const count = ref(0)
+    return { count }
+  },
+}
+```
+
+### `<style scoped>` — Hash + Attribute Selector
+
+```vue
+<style scoped>
+.button {
+  color: red;
+}
+</style>
+```
+
+Compiled output:
+
+```css
+/* Each SFC gets a unique hash */
+.button[data-v-1a2b3c4d] {
+  color: red;
+}
+```
+
+The component's root element also receives the `data-v-1a2b3c4d` attribute.
+
+## How CSS `v-bind` Works
+
+```vue
+<script setup>
+const color = ref("blue")
+</script>
+
+<style scoped>
+.button {
+  color: v-bind(color);  /* dynamically binds the color variable */
+}
+```
+
+Compiled output:
+
+```ts
+// Injects the v-bind CSS variable onto the component's root element
+import { useCssVars } from "vue"
+
+useCssVars((ctx) => ({
+  "1a2b3c4d-color": ctx.color,
+}))
+```
+
+```css
+.button[data-v-1a2b3c4d] {
+  color: var(--1a2b3c4d-color); /* references the CSS variable */
+}
+```
+
+## Recommended Configuration
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import vue from "@vitejs/plugin-vue"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [
+    vue({
+      // Handle custom blocks (e.g., <i18n> blocks)
+      customElement: false, // Do not compile SFCs as Custom Elements
+    }),
+  ],
+  resolve: {
+    alias: {
+      "@": resolve("src"),
+    },
+  },
+})
+```
+
+## Recommended TypeScript Configuration
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "jsx": "preserve",
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"]
+}
+```
+
+## Self-check
+
+1. How does Vite process the `<template>` block in a Vue SFC? What does it ultimately become?
+2. How does `<style scoped>` achieve style isolation? What are its limitations?
+3. How does `v-bind(color)` work in the DOM? When the value of `color` changes, how does the CSS respond?
+4. What advantages does `<script setup>` have over the Options API `setup()` function?
+
+```vue filename="Exercise">
+<!-- Write the "compiled output" (JavaScript version) for the following SFC: -->
+
+<template>
+  <div class="card" :class="{ 'card--dark': dark }">
+    <h2 v-if="title">{{ title }}</h2>
+    <slot />
+  </div>
+</template>
+
+<script setup lang="ts">
+withDefaults(
+  defineProps<{
+    title?: string
+    dark?: boolean
+  }>(),
+  { dark: false }
+)
+</script>
+
+<style scoped>
+.card {
+  padding: 16px;
+}
+.card--dark {
+  background: #1a1a1a;
+  color: white;
+}
+</style>
+
+<!-- Write the equivalent Options API version, then sketch the rough structure of the compiled output -->
+```

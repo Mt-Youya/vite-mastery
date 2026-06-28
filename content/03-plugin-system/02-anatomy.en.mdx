@@ -1,0 +1,233 @@
+---
+title: "Plugin Anatomy: What's Inside a Plugin Object"
+description: Starting from TypeScript types, this article walks through every field in a Vite plugin object — name, enforce, apply, and hooks — everything you need to understand before writing your first plugin.
+order: 2
+part: 03-plugin-system
+chapter: "3.2"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The complete structure of a Vite plugin object (TypeScript types) - The meaning of the three control fields: `name`,
+  `enforce`, and `apply` - Two categories of hooks: build hooks and Vite-only hooks - The three hook invocation
+  conventions: parallel, sequential, and first
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Vite Plugins vs Rollup Plugins" (section 3.1) - Basic familiarity with TypeScript interface syntax
+</Callout>
+
+## A plugin is just a plain object
+
+A Vite plugin is fundamentally **a function that returns a plain JavaScript object**:
+
+```ts filename="my-plugin.ts"
+import type { Plugin } from "vite"
+
+function myPlugin(): Plugin {
+  return {
+    name: "vite-plugin-my", // required
+    enforce: "pre", // optional: execution order
+    apply: "build", // optional: only run during build
+
+    // hook functions below
+    buildStart() {
+      console.log("Build started!")
+    },
+
+    transform(code, id) {
+      if (!id.endsWith(".ts")) return null
+      return code.replace("__VERSION__", "8.1.0")
+    },
+  }
+}
+```
+
+Why a function returning an object instead of exporting the object directly? **To accept configuration options**:
+
+```ts filename="my-plugin.ts"
+interface MyPluginOptions {
+  version: string
+  verbose?: boolean
+}
+
+function myPlugin(options: MyPluginOptions): Plugin {
+  const { version, verbose = false } = options
+  return {
+    name: "vite-plugin-my",
+    transform(code, id) {
+      if (verbose) console.log("processing", id)
+      return code.replace("__VERSION__", version)
+    },
+  }
+}
+```
+
+## `name` — plugin name
+
+`name` is the only required field. The convention is `vite-plugin-xxx` (Vite-specific) or `rollup-plugin-xxx` (Rollup-compatible).
+
+Vite uses `name` for error tracing — when a hook throws, the stack trace shows which plugin caused it. A non-standard name makes debugging painful.
+
+## `enforce` — execution order control
+
+Vite plugins run in three ordered groups:
+
+```text
+enforce: "pre"  →  Vite built-in alias plugin  →  user plugins (no enforce)  →  Vite built-in core plugins  →  enforce: "post"
+```
+
+| Value    | Meaning                      | Typical use case                             |
+| -------- | ---------------------------- | -------------------------------------------- |
+| `"pre"`  | Before most built-in plugins | Custom path resolution, source preprocessing |
+| _(none)_ | Normal order                 | Most plugins                                 |
+| `"post"` | After most built-in plugins  | Analyzing output, injecting polyfills        |
+
+<Callout type="warning">
+  `enforce` only controls the relative order **among user plugins**. It cannot make a user plugin run before all of
+  Vite's built-in plugins. Core plugins like `vite:resolve` and `vite:load-fallback` have their own guaranteed priority.
+</Callout>
+
+<V7Note title="enforce behavior is the same in Vite 7 and Vite 8">
+  The semantics of the `enforce` field have been consistent since Vite 2. Vite 8 made no changes to it.
+</V7Note>
+
+## `apply` — phase restriction
+
+`apply` controls which phase the plugin runs in:
+
+```ts
+// Only run during the dev server phase
+apply: "serve"
+
+// Only run during the build phase
+apply: "build"
+
+// Custom condition (most flexible)
+apply(config, { command }) {
+  // Only run in build production mode
+  return command === "build" && config.mode === "production"
+}
+```
+
+Omitting `apply` means the plugin runs in both dev and build.
+
+A typical example: image optimization plugins usually only run during `build` (returning the original image in dev is faster):
+
+```ts filename="image-optimizer.ts"
+import type { Plugin } from "vite"
+
+export function imageOptimizer(): Plugin {
+  return {
+    name: "vite-plugin-image-optimizer",
+    apply: "build", // this plugin is completely skipped in the dev server
+    async generateBundle(_, bundle) {
+      // compression logic...
+    },
+  }
+}
+```
+
+## Two categories of hooks
+
+### Build hooks (Rollup-compatible)
+
+These hooks come from the Rollup API. Rolldown is backward-compatible with them, and they can be reused in standalone Rollup projects:
+
+| Hook             | When it fires                      |
+| ---------------- | ---------------------------------- |
+| `buildStart`     | Before the build starts            |
+| `resolveId`      | When resolving each `import` path  |
+| `load`           | When reading module content        |
+| `transform`      | When transforming module source    |
+| `moduleParsed`   | After a module's AST is parsed     |
+| `buildEnd`       | When the build ends                |
+| `renderChunk`    | When each output chunk is rendered |
+| `generateBundle` | After all chunks are generated     |
+| `writeBundle`    | After chunks are written to disk   |
+| `closeBundle`    | After the build pipeline closes    |
+
+### Vite-only hooks
+
+These hooks are only valid in a Vite environment:
+
+| Hook                     | When it fires                                       |
+| ------------------------ | --------------------------------------------------- |
+| `config`                 | Before config is read; can modify config            |
+| `configResolved`         | After config is finalized; read-only                |
+| `configureServer`        | After the dev server is created; can add middleware |
+| `configurePreviewServer` | After the preview server is created                 |
+| `transformIndexHtml`     | When processing index.html                          |
+| `handleHotUpdate`        | When an HMR update fires                            |
+
+Click the HookExplorer below to see the full signature of each hook:
+
+<HookExplorer
+  filter={[
+    "config",
+    "configResolved",
+    "configureServer",
+    "buildStart",
+    "resolveId",
+    "load",
+    "transform",
+    "buildEnd",
+    "generateBundle",
+  ]}
+/>
+
+## Three hook invocation conventions
+
+Vite/Rolldown uses different concurrency strategies for different hooks:
+
+### Parallel
+
+Multiple plugins' hooks with the same name **execute simultaneously** without waiting for each other.
+
+Used for: operations that don't depend on other plugins' output, such as `buildStart` and `buildEnd`.
+
+```ts
+// The buildStart hooks of these three plugins execute concurrently
+plugins: [pluginA(), pluginB(), pluginC()]
+```
+
+### Sequential
+
+Hooks execute **one after another** in plugin array order; the next one only runs after the previous one completes.
+
+Used for: hooks with side effects that require a guaranteed execution order, such as `transform`.
+
+### First
+
+Hooks execute in order, and **the first plugin to return a non-null value wins**; subsequent plugins are not called.
+
+Used for: `resolveId` and `load` — once a path is resolved, there's no need to keep searching.
+
+```ts
+// pluginA.resolveId returned an ID
+// → pluginB.resolveId will not be called
+plugins: [pluginA(), pluginB()]
+```
+
+## Self-check
+
+1. Why is a Vite plugin typically a **function** returning an object rather than a directly exported object?
+2. Does `enforce: "pre"` guarantee your plugin runs before `vite:resolve`? Why or why not?
+3. Which `apply` value should an image compression plugin use? What's the reasoning?
+4. What invocation convention does `resolveId` use? What are the benefits of this design?
+
+```ts filename="Exercise"
+// Implement a plugin that satisfies the following requirements:
+// 1. Only runs in build production mode
+// 2. Prints the current time when the build starts
+// 3. After all chunks are generated, counts and prints the total number of chunks
+import type { Plugin } from "vite"
+
+export function buildReporter(): Plugin {
+  // TODO
+}
+```

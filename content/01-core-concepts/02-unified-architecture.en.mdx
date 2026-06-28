@@ -1,0 +1,211 @@
+---
+title: Vite 8's Unified Architecture
+description: How does Rolldown unify the dev and build phases? What is the architectural evolution compared to the dual-engine era of Vite 5/6/7?
+order: 2
+part: 01-core-concepts
+chapter: "1.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The architectural evolution across Vite versions (dual-engine → unified engine) - The role Rolldown plays in Vite 8
+  - The practical impact of unifying dev and build for developers - Concrete changes in Vite 8 compared to Vite 7
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Native ESM and Browser-Native Modules" (section 1.1) - Basic familiarity with the concept of a bundler (no
+  deep knowledge required)
+</Callout>
+
+## Architectural evolution timeline
+
+To understand Vite 8's architecture, start with the timeline:
+
+```text
+Vite 2–6 (2021–2025)
+  Dev:   esbuild (Go)  → single-file transform, blazing fast
+  Build: Rollup (JS)   → full bundle, tree-shaking
+  Issue: two phases use different engines, behavior is inconsistent
+
+Vite 7 (2025-06)
+  Dev:   esbuild (Go)            → same as above
+  Build: Rollup (JS)             → same as above
+  Added: rolldown-vite experiment → early access to Rolldown
+  Issue: dual-engine still exists
+
+Vite 8 (2026-03, stable)
+  Dev:   Rolldown (Rust) → transform
+  Build: Rolldown (Rust) → full bundle
+  Result: single unified engine! dev/build behavior is consistent
+```
+
+## Why the two phases needed to be unified
+
+In Vite 7 and earlier, developers frequently ran into situations like this:
+
+```bash
+pnpm dev   # ✅ everything works
+pnpm build # ❌ some import path resolution fails
+```
+
+Or the reverse:
+
+```bash
+pnpm build # ✅ output is correct
+pnpm dev   # ❌ some plugin hook never fires
+```
+
+The root cause of these bugs was the dual-engine setup:
+
+- esbuild's resolve logic ≠ Rollup's `resolveId` hook
+- Rollup's `generateBundle` does not fire during dev (dev goes through esbuild)
+- The two transform pipelines each have their own source map generation rules
+
+After Vite 8 unified both phases with Rolldown, **the same plugin system and the same transform pipeline run in both dev and build**. This eliminates the inconsistency at the root.
+
+<V7Note title="Vite 7: painful scenarios from the dual-engine era">
+  In Vite 7, the following plugin hooks **do not fire** during the dev phase:
+  - `generateBundle` — Rollup's output-generation hook; esbuild has no equivalent concept
+  - `renderChunk` — same reason
+  - `writeBundle` — same reason
+
+If your plugin relied on these hooks for analysis or injection, the functionality was incomplete during dev and only took effect at build time. Vite 8 fixes this.
+
+</V7Note>
+
+## Vite 8's internal architecture diagram
+
+```text
+                     Vite 8 Dev Server
+                    ┌─────────────────────────────────┐
+                    │                                 │
+Browser request     │   ┌───────────────────────┐     │
+GET /src/App.tsx  ──┼──▶│   Rolldown Transform  │     │
+                    │   │   Pipeline            │     │
+                    │   │  ① resolveId hooks    │     │
+                    │   │  ② load hooks         │     │
+                    │   │  ③ transform hooks    │     │
+                    │   │  ④ OXC TS/JSX compile │     │
+                    │   └────────────┬──────────┘     │
+                    │                │                │
+                    │          return ESM             │
+                    └─────────────────────────────────┘
+                                     │
+                                     ▼
+                              Browser renders
+
+                     Vite 8 Build (pnpm build)
+                    ┌─────────────────────────────────┐
+                    │                                 │
+                    │   ┌───────────────────────┐     │
+All source files ───┼──▶│   Rolldown Bundle     │     │
+                    │   │   Pipeline            │     │
+                    │   │  ① module graph analysis    │
+                    │   │  ② tree-shaking       │     │
+                    │   │  ③ code splitting     │     │
+                    │   │  ④ OXC minify         │     │
+                    │   └────────────┬──────────┘     │
+                    │                │                │
+                    │           dist/ output          │
+                    └─────────────────────────────────┘
+```
+
+Both phases share **the same Plugin Hook system**. Write a plugin once — it works in both dev and build.
+
+## New defaults in Vite 8
+
+Compared to Vite 7, Vite 8 changes several defaults:
+
+| Config                 | Vite 7 default              | Vite 8 default                          |
+| ---------------------- | --------------------------- | --------------------------------------- |
+| Bundler                | esbuild + Rollup            | Rolldown                                |
+| CSS Minifier           | esbuild                     | **lightningcss**                        |
+| Default target         | `baseline-widely-available` | `baseline-widely-available` (unchanged) |
+| `@vitejs/plugin-react` | v5 (Babel)                  | **v6 (OXC Refresh)**                    |
+| Devtools               | none                        | **built-in `devtools` option**          |
+
+### lightningcss replaces esbuild CSS minification
+
+The CSS processing pipeline in Vite 8:
+
+```text
+.css file
+  ↓
+PostCSS (if configured)
+  ↓
+lightningcss (minify + prefix)  ← added as a regular dependency in Vite 8
+  ↓
+output CSS
+```
+
+`lightningcss` is implemented in Rust and provides more complete CSS minification than esbuild (supports more modern CSS syntax).
+
+### `@vitejs/plugin-react` v6
+
+The `vite.config.ts` for a React project looks essentially the same:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()], // same syntax
+})
+```
+
+But v6 internally:
+
+- React Fast Refresh is powered by **OXC** (v5 used Babel)
+- Babel is no longer a dependency, cold start is faster
+- React Compiler requires separate configuration (not auto-integrated)
+
+## Developer perspective: what changes in Vite 8
+
+### What you won't notice (transparent upgrade)
+
+- `vite.config.ts` syntax is identical
+- Plugin API is backward-compatible with Rollup
+- `pnpm dev` / `pnpm build` commands are unchanged
+- `import.meta.env` / `import.meta.hot` are unchanged
+
+### What you will notice
+
+- **Faster cold start**: Rolldown's dependency pre-bundling is faster than esbuild's
+- **More consistent dev/build**: no more mysterious "works in dev but breaks in build" bugs
+- **Smaller CSS output**: lightningcss achieves a higher compression ratio
+- **More complete plugin hooks**: hooks that previously only fired during build now also fire during dev
+
+## Self-check
+
+1. What are the two specific engines in Vite 7's "dual-engine" setup? Which phase does each handle?
+2. Why do some plugin hooks not fire during the dev phase in Vite 7? How does Vite 8 solve this?
+3. After upgrading to Vite 8, do you need to change anything in `vite.config.ts`?
+4. What is the core difference between `@vitejs/plugin-react` v6 and v5?
+
+```ts filename="Exercise"
+// What is wrong with this plugin in Vite 7 dev mode?
+// Does the problem still exist after upgrading to Vite 8?
+function analyzeBundlePlugin(): Plugin {
+  const stats: { name: string; size: number }[] = []
+
+  return {
+    name: "vite-plugin-analyze",
+    generateBundle(_, bundle) {
+      for (const [name, chunk] of Object.entries(bundle)) {
+        if (chunk.type === "chunk") {
+          stats.push({ name, size: chunk.code.length })
+        }
+      }
+      console.table(stats)
+    },
+  }
+}
+
+// Question 1: during vite dev, will console.table be called?
+// Question 2: during vite build?
+// Question 3: do both answers change under Vite 8?
+```

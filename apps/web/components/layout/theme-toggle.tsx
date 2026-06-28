@@ -3,17 +3,19 @@
 import { ComputerIcon, Moon02Icon, SunIcon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import { IconButton, Popover } from "@vite-mastery/ui"
-import { useTheme } from "next-themes"
+import { useTranslations } from "next-intl"
 import { useEffect, useState } from "react"
+import { useTheme } from "@/components/layout/theme-provider"
 import { cn } from "@/lib/utils"
 
 const OPTIONS = [
-  { value: "light", label: "亮色", icon: SunIcon },
-  { value: "dark", label: "暗色", icon: Moon02Icon },
-  { value: "system", label: "跟随系统", icon: ComputerIcon },
+  { value: "light", labelKey: "themeLight", icon: SunIcon },
+  { value: "dark", labelKey: "themeDark", icon: Moon02Icon },
+  { value: "system", labelKey: "themeSystem", icon: ComputerIcon },
 ] as const
 
 export function ThemeToggle() {
+  const t = useTranslations("ui")
   const { theme, setTheme, resolvedTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
 
@@ -25,13 +27,13 @@ export function ThemeToggle() {
     <Popover.Root>
       <Popover.Trigger
         render={
-          <IconButton aria-label="切换主题" variant="ghost" size="sm">
+          <IconButton aria-label={t("toggleTheme")} variant="ghost" size="sm">
             <HugeiconsIcon icon={CurrentIcon} className="size-4" strokeWidth={1.5} aria-hidden />
           </IconButton>
         }
       />
       <Popover.Content className="w-40 p-1">
-        <div className="flex flex-col gap-0.5" role="radiogroup" aria-label="主题">
+        <div className="flex flex-col gap-0.5" role="radiogroup" aria-label={t("toggleTheme")}>
           {OPTIONS.map((opt) => {
             const active = theme === opt.value
             return (
@@ -50,7 +52,7 @@ export function ThemeToggle() {
                 )}
               >
                 <HugeiconsIcon icon={opt.icon} className="size-4" strokeWidth={1.5} aria-hidden />
-                {opt.label}
+                {t(opt.labelKey)}
               </button>
             )
           })}

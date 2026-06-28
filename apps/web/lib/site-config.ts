@@ -1,16 +1,20 @@
 /**
- * 站点级常量与文案。集中放在一处,避免散在组件里。
+ * 站点级常量 —— 只保留不会被翻译的"事实数据"。
+ *
+ * 所有面向用户的中/英文文案(title / description / summary / blurb / outcome 等)
+ * 已迁移到 `apps/web/messages/{zh,en}.json`,通过 next-intl 的 t() 在组件层取用。
+ *
+ * 这里保留:品牌名/URL/作者署名/章节结构数据/实战项目结构数据。
  */
 
 export const SITE = {
   name: "vite-mastery",
-  title: "vite-mastery · 搞懂 Vite 8,从 Rolldown 到 Environment API",
-  playgroundUrl: process.env.NEXT_PUBLIC_PLAYGROUND_URL ?? "http://localhost:5173",
-  description:
-    "中文社区第一份系统化的 Vite 8 学习指南,深挖 Rolldown 架构、Environment API、Hooks 与 HMR。读完能写出生产级插件。",
+  playgroundUrl: (() => {
+    const raw = process.env.NEXT_PUBLIC_PLAYGROUND_URL ?? "http://localhost:5173"
+    return /^https?:\/\//.test(raw) ? raw : `https://${raw}`
+  })(),
   author: {
     name: "Cyrus Doyle",
-    bio: "前端工程师 · 关心构建工具与开发者体验",
     handle: "@yonjay",
   },
   url: "https://vite-mastery.dev",
@@ -18,214 +22,54 @@ export const SITE = {
   ogImage: "/opengraph-image",
 } as const
 
-/** 14 个 Part 的元数据 —— sidebar / 首页章节预览共用 */
+/**
+ * 14 个 Part 的结构性元数据 —— 不含 title / summary,它们在 messages.parts.<id> 取。
+ * sidebar / 首页章节预览共用。
+ */
 export const PARTS = [
-  {
-    id: "00-getting-started",
-    no: "00",
-    title: "入门铺垫",
-    summary: "Vite 8 时代的承诺,五分钟跑通第一个项目。",
-    chapters: 4,
-    difficulty: 1,
-  },
-  {
-    id: "01-core-concepts",
-    no: "01",
-    title: "核心概念",
-    summary: "Native ESM、Rolldown 统一架构、依赖预构建、Module Graph。",
-    chapters: 4,
-    difficulty: 2,
-  },
-  {
-    id: "02-bundler-evolution",
-    no: "02",
-    title: "Bundler 演进史",
-    summary: "esbuild + Rollup 双引擎遗产到 Rolldown 的接力与兼容层。",
-    chapters: 5,
-    difficulty: 3,
-    spotlight: true,
-  },
-  {
-    id: "03-plugin-system",
-    no: "03",
-    title: "插件系统",
-    summary: "Vite / Rolldown / Rollup 三套 API 关系、enforce 顺序、内置 Devtools。",
-    chapters: 6,
-    difficulty: 2,
-    spotlight: true,
-  },
-  {
-    id: "04-hooks-deep-dive",
-    no: "04",
-    title: "Hooks 深度解析",
-    summary: "通用 / Vite 独有 / Rolldown 扩展 hooks 全景与时序差异。",
-    chapters: 9,
-    difficulty: 3,
-    spotlight: true,
-  },
-  {
-    id: "05-environment-api",
-    no: "05",
-    title: "Environment API",
-    summary: "client / ssr 之外的多环境模型,框架适配与 RSC-like 实战。",
-    chapters: 10,
-    difficulty: 4,
-    spotlight: true,
-  },
-  {
-    id: "06-hmr",
-    no: "06",
-    title: "HMR 热更新",
-    summary: "WebSocket 协议、import.meta.hot、HotChannel 多环境分发。",
-    chapters: 6,
-    difficulty: 3,
-    spotlight: true,
-  },
-  {
-    id: "07-build-pipeline",
-    no: "07",
-    title: "生产构建",
-    summary: "Rolldown chunking、lightningcss、baseline target、Module Federation。",
-    chapters: 7,
-    difficulty: 2,
-  },
-  {
-    id: "08-ssr-ssg",
-    no: "08",
-    title: "SSR & SSG",
-    summary: "基于 Env API 的新 SSR 模型,手写 SSR,Wasm SSR。",
-    chapters: 4,
-    difficulty: 3,
-  },
-  {
-    id: "09-framework-integration",
-    no: "09",
-    title: "框架集成",
-    summary: "React v6(Oxc)/ Vue / Svelte / Solid + meta 框架对比。",
-    chapters: 6,
-    difficulty: 2,
-  },
-  {
-    id: "10-library-mode",
-    no: "10",
-    title: "库模式",
-    summary: "build.lib 全解、类型声明、跨框架组件库实战。",
-    chapters: 3,
-    difficulty: 2,
-  },
-  {
-    id: "11-monorepo",
-    no: "11",
-    title: "Monorepo 工程化",
-    summary: "pnpm workspace、依赖预构建跨包、Turborepo 缓存策略。",
-    chapters: 4,
-    difficulty: 2,
-  },
-  {
-    id: "12-performance",
-    no: "12",
-    title: "性能优化",
-    summary: "冷启动、Vite 8 Devtools、HMR 诊断、tree-shaking。",
-    chapters: 6,
-    difficulty: 3,
-  },
-  {
-    id: "13-real-world-plugins",
-    no: "13",
-    title: "真实世界插件赏析",
-    summary: "auto-import / plugin-pages / plugin-react v6 源码导读。",
-    chapters: 4,
-    difficulty: 4,
-  },
+  { id: "00-getting-started", no: "00", chapters: 4, difficulty: 1 },
+  { id: "01-core-concepts", no: "01", chapters: 4, difficulty: 2 },
+  { id: "02-bundler-evolution", no: "02", chapters: 5, difficulty: 3, spotlight: true },
+  { id: "03-plugin-system", no: "03", chapters: 6, difficulty: 2, spotlight: true },
+  { id: "04-hooks-deep-dive", no: "04", chapters: 9, difficulty: 3, spotlight: true },
+  { id: "05-environment-api", no: "05", chapters: 10, difficulty: 4, spotlight: true },
+  { id: "06-hmr", no: "06", chapters: 6, difficulty: 3, spotlight: true },
+  { id: "07-build-pipeline", no: "07", chapters: 7, difficulty: 2 },
+  { id: "08-ssr-ssg", no: "08", chapters: 4, difficulty: 3 },
+  { id: "09-framework-integration", no: "09", chapters: 6, difficulty: 2 },
+  { id: "10-library-mode", no: "10", chapters: 3, difficulty: 2 },
+  { id: "11-monorepo", no: "11", chapters: 4, difficulty: 2 },
+  { id: "12-performance", no: "12", chapters: 6, difficulty: 3 },
+  { id: "13-real-world-plugins", no: "13", chapters: 4, difficulty: 4 },
 ] as const
 
-/** 10 个实战项目元数据 —— 顺序按 PLAN.md §五,不按章节号排 */
+/**
+ * 10 个实战项目结构数据 —— title / blurb / outcome 走 messages.examplesData.<id>。
+ * 顺序按 PLAN.md §五,不按章节号排。
+ */
 export const EXAMPLES = [
-  {
-    id: "plugin-virtual-modules",
-    title: "虚拟模块插件",
-    chapter: "3.4",
-    difficulty: 1,
-    blurb: "用 resolveId + load 凭空生成一个模块",
-    outcome: "一个可发布的 npm 插件雏形",
-  },
-  {
-    id: "plugin-md-loader",
-    title: "Markdown 加载器",
-    chapter: "4.8",
-    difficulty: 2,
-    blurb: "把 .md 文件变成可热更的 React 组件",
-    outcome: "完整的 loader,可发到 npm",
-  },
-  {
-    id: "plugin-i18n",
-    title: "i18n 自动注入",
-    chapter: "4.9",
-    difficulty: 2,
-    blurb: "transformIndexHtml + resolveId 组合",
-    outcome: "实用工具插件,真实生产可用",
-  },
-  {
-    id: "plugin-image-optimizer",
-    title: "图片优化插件",
-    chapter: "7.7",
-    difficulty: 3,
-    blurb: "集成 sharp,自动生成 webp / avif",
-    outcome: "生产级插件,带缓存与并行",
-  },
-  {
-    id: "plugin-rollup-rolldown-compat",
-    title: "Rollup/Rolldown 双兼容插件",
-    chapter: "2.5",
-    difficulty: 3,
-    blurb: "一份代码同时跑通 Rollup 与 Rolldown",
-    outcome: "跨 bundler 的可发布插件",
-  },
-  {
-    id: "env-api-rsc-demo",
-    title: "Env API + RSC 多环境构建",
-    chapter: "5.10",
-    difficulty: 4,
-    blurb: "用 Environment API 拆出 RSC-like 多环境",
-    outcome: "全站独家硬核内容,吃透 Env API 的全部威力",
-  },
-  {
-    id: "ssr-with-env-api",
-    title: "手写 SSR(Env API)",
-    chapter: "8.2",
-    difficulty: 3,
-    blurb: "用 Env API 从零拼出 SSR 应用",
-    outcome: "理解 Env API 下 SSR 的全部机制",
-  },
-  {
-    id: "library-mode-demo",
-    title: "跨框架组件库",
-    chapter: "10.3",
-    difficulty: 3,
-    blurb: "一次构建,产出 React/Vue/Svelte/Solid 适配",
-    outcome: "可发布的组件库脚手架",
-  },
-  {
-    id: "monorepo-template",
-    title: "Monorepo 模板",
-    chapter: "11.3",
-    difficulty: 2,
-    blurb: "复刻本站结构:apps + packages + content",
-    outcome: "下一个项目的起点",
-  },
-  {
-    id: "plugin-auto-import",
-    title: "简化版 auto-import",
-    chapter: "13.4",
-    difficulty: 4,
-    blurb: "对标 unplugin-auto-import 的核心机制",
-    outcome: "综合性插件,Hooks 大乱炖",
-  },
+  { id: "plugin-virtual-modules", chapter: "3.4", difficulty: 1 },
+  { id: "plugin-md-loader", chapter: "4.8", difficulty: 2 },
+  { id: "plugin-i18n", chapter: "4.9", difficulty: 2 },
+  { id: "plugin-image-optimizer", chapter: "7.7", difficulty: 3 },
+  { id: "plugin-rollup-rolldown-compat", chapter: "2.5", difficulty: 3 },
+  { id: "env-api-rsc-demo", chapter: "5.10", difficulty: 4 },
+  { id: "ssr-with-env-api", chapter: "8.2", difficulty: 3 },
+  { id: "library-mode-demo", chapter: "10.3", difficulty: 3 },
+  { id: "monorepo-template", chapter: "11.3", difficulty: 2 },
+  { id: "plugin-auto-import", chapter: "13.4", difficulty: 4 },
 ] as const
 
+/**
+ * 主导航条目 —— label 走 messages.nav.<id>。
+ * `localizedHref(href, locale)` 拼成 `/zh/docs` / `/en/docs`,在组件里用。
+ */
 export const NAV_LINKS = [
-  { href: "/docs", label: "文档" },
-  { href: "/examples", label: "实战项目" },
-  { href: "/playground", label: "Playground" },
-  { href: "/about", label: "关于" },
+  { id: "docs", href: "/docs" },
+  { id: "examples", href: "/examples" },
+  { id: "playground", href: "/playground" },
+  { id: "about", href: "/about" },
 ] as const
+
+export type PartMeta = (typeof PARTS)[number]
+export type ExampleMeta = (typeof EXAMPLES)[number]

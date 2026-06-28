@@ -1,0 +1,430 @@
+{
+  "site": {
+    "title": "vite-mastery · Master Vite 8, from Rolldown to the Environment API",
+    "description": "An in-depth guide to Vite 8 — Rolldown architecture, the Environment API, hooks and HMR. Finish it and you can ship production-grade plugins.",
+    "shortTagline": "An in-depth Vite guide",
+    "authorBio": "Frontend engineer · obsessed with build tools and DX"
+  },
+  "nav": {
+    "docs": "Docs",
+    "examples": "Examples",
+    "playground": "Playground",
+    "about": "About",
+    "ariaPrimary": "Primary navigation",
+    "mobileMenuTitle": "Navigation",
+    "mobileMenuDescription": "A Vite 8 deep-dive guide",
+    "openMenu": "Open navigation menu",
+    "github": "GitHub"
+  },
+  "footer": {
+    "groups": {
+      "content": "Content",
+      "resources": "Resources",
+      "about": "About"
+    },
+    "links": {
+      "docs": "Docs",
+      "examples": "Examples",
+      "changelog": "Changelog",
+      "viteDocs": "Vite docs",
+      "rollupDocs": "Rollup docs",
+      "repo": "GitHub repo",
+      "origin": "Why this site",
+      "author": "Author",
+      "feedback": "Feedback & errata"
+    },
+    "copyright": "© {year} {author}. Content licensed CC BY-NC-SA 4.0, code under MIT."
+  },
+  "lang": {
+    "switcher": "Switch language",
+    "current": "Current language: {lang}",
+    "zh": "中文",
+    "en": "English"
+  },
+  "home": {
+    "hero": {
+      "titleA": "Master Vite 8,",
+      "titleB": "from Rolldown to the Environment API.",
+      "subtitle": "A systematic guide that opens up Rolldown internals, the Environment API and hook timing. Finish it and you can ship production-grade Vite 8 plugins.",
+      "ctaPrimary": "Open chapter one",
+      "ctaSecondary": "View on GitHub"
+    },
+    "whyVite": {
+      "eyebrow": "Why read this guide",
+      "title": "Between \"I can use it\" and \"I get why\", this guide closes the gap.",
+      "lead": "Most Vite tutorials stop at the config surface. This guide opens every black box behind it.",
+      "questions": [
+        { "q": "Why doesn't Vite bundle in dev mode?", "a": "ESM + native browser imports · Part 1" },
+        { "q": "When exactly do resolveId / load / transform fire?", "a": "Hook timing · Part 3" },
+        { "q": "What does the WebSocket protocol behind import.meta.hot look like?", "a": "HMR protocol · Part 4" },
+        { "q": "How do pre / default / post change plugin behavior?", "a": "Plugin order · Part 2" },
+        { "q": "Why does build use Rollup instead of esbuild?", "a": "Dual-engine architecture · Part 1" }
+      ]
+    },
+    "partsOverview": {
+      "title": "Fourteen parts — from getting started to source-code walk-throughs.",
+      "lead": "The spine covers bundler evolution, plugins, hooks, the Environment API and HMR. Supporting parts handle framework integration, library mode, SSR, performance and monorepos.",
+      "spotlightTag": "Spine",
+      "partLabel": "PART",
+      "chapterCount": "{count} chapters",
+      "difficultyAria": "Difficulty {level} of 4"
+    },
+    "examplesBento": {
+      "eyebrow": "Ten hands-on projects",
+      "title": "Not just understand — ship.",
+      "allLink": "All projects",
+      "outcomeLabel": "Outcome: {outcome}"
+    },
+    "authorIntro": {
+      "eyebrow": "About the author",
+      "quote": "\"The guide I wish I had two years ago.\"",
+      "bio": "Jay (Yonjay) is a frontend engineer who has spent years on build tools and developer experience. This guide started from one observation: Vite is everywhere, but resources that explain how it actually works internally are rare."
+    },
+    "finalCta": {
+      "title": "Ready to go deep on Vite?",
+      "lead": "Starts with \"Why we need Vite\". Twelve parts, a thousand-plus sections — end to end.",
+      "cta": "Open chapter one"
+    }
+  },
+  "about": {
+    "metaTitle": "About",
+    "metaDescription": "About vite-mastery — why this guide exists, who the author is, and how to contribute.",
+    "eyebrow": "About this site",
+    "title": "Why write this guide?",
+    "intro1": "In March 2026, Vite 8 shipped. It brought the unified Rolldown bundler, the Environment API, a built-in devtools surface and more — yet most tutorials still stop at the Vite 5 era: editing vite.config.ts, tweaking plugin options, running build.",
+    "intro2Strong": "This site does one thing",
+    "intro2": ": it opens the core black boxes of Vite 8 and explains them.",
+    "promiseTitle": "Promises",
+    "promises": [
+      "Every code sample targets Vite 8.1.x and actually runs",
+      "Vite 7 differences live inside <V7Note> blocks — the main text stays on Vite 8",
+      "Environment API content is marked as RC, no made-up APIs",
+      "Ten companion projects take you from reading to shipping"
+    ],
+    "authorTitle": "Author",
+    "authorIntro": "Working on build tools and developer experience for a long time. This guide is part personal learning log for Vite 8, part attempt to help other engineers actually understand how Vite works.",
+    "contributeTitle": "How to contribute",
+    "contributeIntro": "Spotted an error, got a better explanation, want to add a new project? You're welcome to:",
+    "contributePr": "Open an issue or PR",
+    "contributeContact": "Reach the author directly: {handle}",
+    "stackTitle": "Stack",
+    "stackIntro": "The site itself is a working sample of the Vite 8 ecosystem:",
+    "stack": [
+      "Next.js 16 App Router + TypeScript 6",
+      "Tailwind CSS v4 (CSS-first)",
+      "pnpm workspace + Turborepo",
+      "content-collections + MDX",
+      "Shiki with twoslash",
+      "Deployed on Vercel"
+    ],
+    "ctaDocs": "Start reading the docs",
+    "ctaRepo": "GitHub →"
+  },
+  "playground": {
+    "metaTitle": "Playground",
+    "metaDescription": "Run Vite 8 plugin experiments directly in the browser — powered by WebContainer, no local setup needed.",
+    "eyebrow": "Live sandbox",
+    "title": "Playground",
+    "subtitle": "Powered by WebContainer — a real Vite 8 dev server in the browser. Edit and watch it react, no local install required.",
+    "ctaOpen": "Open Playground",
+    "ctaTutorial": "Companion tutorial",
+    "devHintPrefix": "Dev mode: first run ",
+    "devHintSuffix": " to boot the Playground (:5173)",
+    "sourceNotePrefix": "The Playground is a standalone Vite app — source in ",
+    "sourceNoteSuffix": ".",
+    "sourceLink": "View source →",
+    "features": [
+      { "icon": "⚡", "title": "Zero-config boot", "desc": "Full Node.js inside the browser — open and go" },
+      {
+        "icon": "🔌",
+        "title": "Plugin sandbox",
+        "desc": "Edit vite.config.ts and plugin code live, see the effect immediately"
+      },
+      { "icon": "📦", "title": "Real pnpm install", "desc": "WebContainer runs the real pnpm — not a mock" },
+      { "icon": "🔄", "title": "HMR end to end", "desc": "Edit a source file and the preview hot-updates instantly" }
+    ]
+  },
+  "examplesPage": {
+    "metaTitle": "Examples",
+    "metaDescription": "Ten companion projects: virtual modules, Markdown loaders, image optimizers, SSR, component libraries and more.",
+    "eyebrow": "Hands-on projects",
+    "title": "Not just understand — ship.",
+    "lead": "Ten progressive projects — from a minimal virtual-module plugin to a full cross-framework component library and an Environment-API multi-target build.",
+    "outcomeLabel": "Outcome: {outcome}",
+    "chapterLabel": "ch.{chapter}",
+    "difficultyAria": "Difficulty {level} of 4",
+    "sourceNotePrefix": "Project source lives under ",
+    "sourceNoteMiddle": ". Each project has stepped code under ",
+    "sourceNoteAlso": " and a completed version in ",
+    "sourceNoteSuffix": ".",
+    "sourceLink": "View source on GitHub →"
+  },
+  "docsIndex": {
+    "eyebrow": "Docs",
+    "title": "Start here",
+    "lead": "Twelve parts arranged in reading order. Follow them top-down; the spine (Plugins / Hooks / HMR) is the heart of the guide.",
+    "partLabel": "PART",
+    "progress": "{done} / {total} chapters"
+  },
+  "docs": {
+    "sidebarAriaLabel": "Doc chapters",
+    "tocAriaLabel": "On this page",
+    "tocTitle": "On this page",
+    "breadcrumbAriaLabel": "Breadcrumb",
+    "breadcrumbDocsRoot": "Docs",
+    "draftLabel": "Coming soon",
+    "draftBlock": "This chapter is still being written. Check back soon.",
+    "meta": {
+      "difficulty": "{chapter} · difficulty {level}/4",
+      "withReading": "{chapter} · difficulty {level}/4 · {minutes} min read"
+    },
+    "pager": {
+      "prev": "Previous",
+      "next": "Next",
+      "ariaLabel": "Previous and next"
+    },
+    "search": {
+      "label": "Search docs",
+      "placeholder": "Type a keyword, e.g. 'transform hook'…",
+      "shortcutLabel": "Search",
+      "dialogTitle": "Site search",
+      "noIndexPrefix": "Search index not built yet. Pagefind generates it after ",
+      "noIndexSuffix": ".",
+      "loading": "Searching…",
+      "noResults": "No matches.",
+      "hintPrefix": "Tip: both English terms (like ",
+      "hintMiddle": ") and Chinese (like ",
+      "hintSuffix": ") work."
+    },
+    "fallbackBanner": {
+      "title": "No English version yet",
+      "body": "The content below is shown in Chinese. Contributions welcome on GitHub."
+    },
+    "versionBadgeAria": "Sample targets Vite {version}",
+    "stability": {
+      "stable": { "label": "Stable", "aria": "Stable API" },
+      "rc": { "label": "RC", "aria": "Release candidate API — may change in future minor versions" },
+      "experimental": { "label": "Experimental", "aria": "Experimental API — use with care in production" }
+    }
+  },
+  "showcase": {
+    "eyebrow": "Showcase",
+    "title": "Interactive components",
+    "lead": "All eight MDX interactive components shipped in Phase 5.",
+    "all": "All",
+    "components": {
+      "v7-note": {
+        "label": "V7Note",
+        "short": "Vite 7 diff block",
+        "desc": "Collapsible block that flags Vite 7 vs Vite 8 behavior differences inline in the article."
+      },
+      "bundler-compare": {
+        "label": "BundlerCompare",
+        "short": "Dual-engine compare",
+        "desc": "Side-by-side architecture diagram: Vite 7 dual engine (esbuild+Rollup) vs Vite 8 Rolldown."
+      },
+      "hook-explorer": {
+        "label": "HookExplorer",
+        "short": "Hook timing browser",
+        "desc": "Interactive Vite/Rolldown hook timeline — click a hook to see its signature and example."
+      },
+      "plugin-pipeline": {
+        "label": "PluginPipeline",
+        "short": "Plugin order visualizer",
+        "desc": "Visualize plugin execution order grouped by pre/normal/post and which hooks they touch."
+      },
+      "hmr-demo": {
+        "label": "HmrDemo",
+        "short": "HMR protocol demo",
+        "desc": "HMR protocol playground — edit code in CodeMirror and watch the simulated WebSocket traffic."
+      },
+      "environment-explorer": {
+        "label": "EnvironmentExplorer",
+        "short": "Multi-environment boundaries",
+        "desc": "Visualize the Environment API isolation between client / ssr / rsc module graphs."
+      },
+      "config-playground": {
+        "label": "ConfigPlayground",
+        "short": "Config sandbox",
+        "desc": "Interactive vite.config.ts editor that derives the resulting build output in real time."
+      },
+      "dep-graph": {
+        "label": "DepGraph",
+        "short": "Module graph viewer",
+        "desc": "Module Graph visualization — click a node to inspect its import / importer relationships."
+      }
+    },
+    "demos": {
+      "v7-note": {
+        "title": "Collapsible behavior diff",
+        "firstTitle": "Vite 7: dev and build used different engines",
+        "firstIntroBefore": "In Vite 7, dev mode used ",
+        "firstIntroMiddle": " for transform, while build mode used ",
+        "firstIntroAfter": " for bundling. The two engines showed differences in:",
+        "firstItems": [
+          "Some Rollup plugins did not run in dev because esbuild did not execute Rollup hooks.",
+          "treeshake only affected build; dev did not tree-shake modules.",
+          "CommonJS modules were handled by vite:commonjs in dev and by @rollup/plugin-commonjs in build."
+        ],
+        "firstMigration": "Migration to Vite 8: Rolldown unifies the two stages, so these differences disappear. Check whether your plugin relied on esbuild-specific behavior.",
+        "secondTitle": "Vite 7: import.meta.glob did not support eager + as together",
+        "secondBefore": "In Vite 7.x, ",
+        "secondCode": "import.meta.glob(\"**\", { eager: true, as: 'raw' })",
+        "secondAfter": " could throw. You needed to import eagerly first, then read the content manually.",
+        "secondMigration": "Vite 8 fixes this combination, so both options can be used together.",
+        "defaultTitle": "Vite 7 behavior difference",
+        "defaultBody": "This is a V7Note with an explicit English title, matching the component's default usage pattern for short one-line diffs."
+      },
+      "bundler-compare": {
+        "title": "Dual-engine architecture comparison",
+        "description": "Click or hover nodes to highlight data flow. Left: Vite 7 esbuild + Rollup dual engine; right: Vite 8 Rolldown unified engine."
+      },
+      "hook-explorer": {
+        "title": "Hook timing browser",
+        "description": "Click a hook name to inspect trigger timing, parameter signature, sample code and Rolldown compatibility.",
+        "filterHint": "Use filter to show only specific hooks:"
+      },
+      "plugin-pipeline": {
+        "title": "Plugin execution order",
+        "description": "Hover a plugin card to highlight other plugins that share the same hook.",
+        "customTitle": "Custom plugin list:",
+        "checkerDescription": "TypeScript type checking",
+        "reactDescription": "React + Fast Refresh",
+        "pwaDescription": "PWA service worker injection"
+      },
+      "hmr-demo": {
+        "title": "HMR protocol demo",
+        "description": "Edit any code in the left editor; the right panel shows simulated Vite HMR WebSocket payloads in real time."
+      },
+      "environment-explorer": {
+        "title": "Multi-environment module boundaries",
+        "description": "Visualize client / ssr / rsc module graphs and isolation boundaries. Click a module to see where it appears and who imports it."
+      },
+      "config-playground": {
+        "title": "Config playground",
+        "description": "Edit vite.config.ts on the left and watch the inferred build output change on the right. Try outDir, assetsDir, sourcemap and manualChunks."
+      },
+      "dep-graph": {
+        "title": "Module Graph visualization",
+        "description": "An interactive dependency graph rendered with @xyflow/react. Drag, zoom and click nodes to inspect import / importer relationships."
+      }
+    }
+  },
+  "ui": {
+    "openInNewTab": "Open in new tab",
+    "toggleTheme": "Toggle theme",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "themeSystem": "System"
+  },
+  "parts": {
+    "00-getting-started": {
+      "title": "Getting started",
+      "summary": "What Vite 8 promises, and a working project in five minutes."
+    },
+    "01-core-concepts": {
+      "title": "Core concepts",
+      "summary": "Native ESM, the unified Rolldown architecture, dep pre-bundling, the module graph."
+    },
+    "02-bundler-evolution": {
+      "title": "Bundler evolution",
+      "summary": "From the esbuild + Rollup dual-engine legacy to Rolldown — handoff and compatibility layer."
+    },
+    "03-plugin-system": {
+      "title": "Plugin system",
+      "summary": "How Vite / Rolldown / Rollup APIs relate, enforce ordering, and the built-in devtools."
+    },
+    "04-hooks-deep-dive": {
+      "title": "Hooks deep dive",
+      "summary": "Universal / Vite-only / Rolldown-extension hooks — the full picture and timing differences."
+    },
+    "05-environment-api": {
+      "title": "Environment API",
+      "summary": "Multi-environment models beyond client / ssr, framework adapters and RSC-like patterns."
+    },
+    "06-hmr": {
+      "title": "HMR",
+      "summary": "The WebSocket protocol, import.meta.hot, and HotChannel dispatching across environments."
+    },
+    "07-build-pipeline": {
+      "title": "Production build",
+      "summary": "Rolldown chunking, lightningcss, baseline targets, Module Federation."
+    },
+    "08-ssr-ssg": {
+      "title": "SSR & SSG",
+      "summary": "The new SSR model built on the Environment API, hand-rolled SSR, Wasm SSR."
+    },
+    "09-framework-integration": {
+      "title": "Framework integration",
+      "summary": "React v6 (Oxc) / Vue / Svelte / Solid + meta-framework comparison."
+    },
+    "10-library-mode": {
+      "title": "Library mode",
+      "summary": "build.lib in full, type declarations, a cross-framework component library."
+    },
+    "11-monorepo": {
+      "title": "Monorepo engineering",
+      "summary": "pnpm workspace, cross-package dep pre-bundling, Turborepo caching strategy."
+    },
+    "12-performance": {
+      "title": "Performance",
+      "summary": "Cold start, Vite 8 devtools, HMR diagnostics, tree-shaking."
+    },
+    "13-real-world-plugins": {
+      "title": "Real-world plugins",
+      "summary": "Source-code reading: auto-import / plugin-pages / plugin-react v6."
+    }
+  },
+  "examplesData": {
+    "plugin-virtual-modules": {
+      "title": "Virtual module plugin",
+      "blurb": "Conjure a module from thin air with resolveId + load",
+      "outcome": "A publishable npm plugin scaffold"
+    },
+    "plugin-md-loader": {
+      "title": "Markdown loader",
+      "blurb": "Turn .md files into hot-reloadable React components",
+      "outcome": "A complete loader, npm-ready"
+    },
+    "plugin-i18n": {
+      "title": "Auto i18n injection",
+      "blurb": "transformIndexHtml + resolveId combo",
+      "outcome": "A production-ready utility plugin"
+    },
+    "plugin-image-optimizer": {
+      "title": "Image optimizer plugin",
+      "blurb": "Wire up sharp, emit webp / avif automatically",
+      "outcome": "A production-grade plugin with caching and parallel work"
+    },
+    "plugin-rollup-rolldown-compat": {
+      "title": "Rollup/Rolldown compat plugin",
+      "blurb": "One codebase, runs on both Rollup and Rolldown",
+      "outcome": "A cross-bundler publishable plugin"
+    },
+    "env-api-rsc-demo": {
+      "title": "Env API + RSC multi-env build",
+      "blurb": "Use the Environment API to split out RSC-like environments",
+      "outcome": "Exclusive deep content — the full power of the Env API"
+    },
+    "ssr-with-env-api": {
+      "title": "Hand-rolled SSR (Env API)",
+      "blurb": "Build an SSR app from scratch on top of the Env API",
+      "outcome": "Full understanding of SSR under the Env API"
+    },
+    "library-mode-demo": {
+      "title": "Cross-framework component library",
+      "blurb": "One build, React/Vue/Svelte/Solid adapters out",
+      "outcome": "A publishable component library scaffold"
+    },
+    "monorepo-template": {
+      "title": "Monorepo template",
+      "blurb": "Mirror this site's structure: apps + packages + content",
+      "outcome": "A starting point for your next project"
+    },
+    "plugin-auto-import": {
+      "title": "Mini auto-import",
+      "blurb": "The core mechanics of unplugin-auto-import",
+      "outcome": "A composite plugin that exercises most of the hook surface"
+    }
+  }
+}

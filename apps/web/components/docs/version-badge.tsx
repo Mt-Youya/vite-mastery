@@ -7,13 +7,15 @@ import { cn } from "@/lib/utils"
 export interface VersionBadgeProps {
   /** 形如 "8.1" / "8.0" / "7.3" */
   version: string
+  /** 由调用方按 locale 提供完整 aria 文本。 */
+  ariaLabel: string
   className?: string
 }
 
-export function VersionBadge({ version, className }: VersionBadgeProps) {
+export function VersionBadge({ version, ariaLabel, className }: VersionBadgeProps) {
   return (
     <span
-      aria-label={`示例基于 Vite ${version}`}
+      aria-label={ariaLabel}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5",
         "border border-brand-600/40 bg-brand-50/40",

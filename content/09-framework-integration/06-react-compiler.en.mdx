@@ -1,0 +1,201 @@
+---
+title: How to Integrate React Compiler
+description: "How to integrate React Compiler (automatic memoization) in Vite 8 — the `reactCompilerOptions` configuration, how it works alongside `@rolldown/plugin-babel`, and when it is worth enabling."
+order: 6
+part: 09-framework-integration
+chapter: "9.6"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="warning">
+  React Compiler is currently in RC. The configuration below follows the official documentation for Vite 8.1.x and
+  `@vitejs/plugin-react` v6.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - What problem React Compiler solves (automatic memoization) - How to integrate it in Vite 8 + `@vitejs/plugin-react`
+  v6 - Its relationship with OXC and Babel - When React Compiler is worth enabling
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Familiarity with React's `useMemo` / `useCallback` / `memo` - Read "React + Vite 8" (section 9.1)
+</Callout>
+
+## What Is React Compiler
+
+React Compiler (formerly React Forget) is a compiler developed by Meta that automatically adds memoization to React components at build time:
+
+**Without React Compiler:**
+
+```tsx
+// Manually using useMemo / useCallback to prevent unnecessary renders
+function ExpensiveList({ items, filter }: Props) {
+  const filtered = useMemo(() => items.filter((item) => item.category === filter), [items, filter])
+
+  const handleClick = useCallback(
+    (id: string) => {
+      onSelect(id)
+    },
+    [onSelect]
+  )
+
+  return <List items={filtered} onClick={handleClick} />
+}
+```
+
+**With React Compiler:**
+
+```tsx
+// No need to write useMemo / useCallback manually! The compiler handles it
+function ExpensiveList({ items, filter }: Props) {
+  const filtered = items.filter((item) => item.category === filter)
+  const handleClick = (id: string) => onSelect(id)
+  return <List items={filtered} onClick={handleClick} />
+}
+// ↑ The compiler analyzes dependencies and injects the necessary memoization automatically
+```
+
+## Integrating in Vite 8
+
+### Install Dependencies
+
+```bash
+pnpm add -D babel-plugin-react-compiler @babel/core
+```
+
+### Configure vite.config.ts
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [
+    react({
+      // v6 uses OXC by default; enabling the Compiler requires additional Babel configuration
+      babel: {
+        plugins: [
+          [
+            "babel-plugin-react-compiler",
+            {
+              target: "19",
+            },
+          ],
+        ],
+      },
+    }),
+  ],
+})
+```
+
+### Verification
+
+Check the console for Compiler-related output during the build:
+
+```bash
+pnpm build
+
+# You should see something like:
+# Compiled N components with React Compiler
+```
+
+## Division of Labor Between OXC and Babel
+
+Once React Compiler is enabled, the plugin's processing pipeline becomes:
+
+```text
+.tsx file
+    │
+    ▼ Babel (React Compiler)
+  Automatic memoization analysis + injection
+    │
+    ▼ OXC
+  JSX → JS transform
+  TypeScript type stripping
+    │
+    ▼
+  Final JS
+```
+
+Both run simultaneously: Babel handles only the memoization injection, while OXC handles all other transforms. Performance impact: Babel makes each file's transform slightly slower, but the runtime performance gains from memoization are usually worth it.
+
+## When It Is Worth Enabling
+
+| Scenario                                                | Worth enabling?                                   |
+| ------------------------------------------------------- | ------------------------------------------------- |
+| Heavy manual use of useMemo / useCallback               | ✅ Can reduce manual optimization                 |
+| Component re-renders are a clear performance bottleneck | ✅ May yield noticeable improvement               |
+| Small app / prototype                                   | ❓ Adds build overhead, limited benefit           |
+| Already has lots of useMemo and performs well           | ❓ Limited effect, migration cost may not pay off |
+| Using Class Components                                  | ❌ React Compiler does not support them           |
+| Code violates React rules                               | ❌ Must fix violations first                      |
+
+## React Compiler's Limitations
+
+The Compiler skips components that violate React rules:
+
+- Directly mutating Props
+- Calling hooks inside `if` statements
+- Calling hooks inside loops
+
+Before enabling, run `eslint-plugin-react-compiler` to audit your code:
+
+```bash
+pnpm add -D eslint-plugin-react-compiler
+
+# .eslintrc.js
+rules: {
+  "react-compiler/react-compiler": "error"
+}
+```
+
+## Self-check
+
+1. What problem does React Compiler solve? Why is it called "automatic memoization"?
+2. After enabling React Compiler, do you need to remove your existing `useMemo` / `useCallback` calls?
+3. Why does `@vitejs/plugin-react` v6 still need Babel when React Compiler is enabled?
+4. What kinds of code can React Compiler not handle?
+
+```tsx filename="Exercise"
+// Which of the following components can React Compiler correctly optimize?
+// Which cannot? Explain your reasoning.
+
+// Component A:
+function A({ items }) {
+  const result = items.map((i) => i * 2)
+  return (
+    <ul>
+      {result.map((n) => (
+        <li key={n}>{n}</li>
+      ))}
+    </ul>
+  )
+}
+
+// Component B:
+function B({ condition, data }) {
+  // Violation: conditional hook
+  if (condition) {
+    const [state, setState] = useState(0)
+  }
+  return <div>{data}</div>
+}
+
+// Component C:
+class C extends React.Component {
+  render() {
+    return <div>{this.props.value}</div>
+  }
+}
+
+// Component D:
+function D({ data, onUpdate }) {
+  const processed = expensiveComputation(data)
+  const handleClick = () => onUpdate(processed)
+  return <button onClick={handleClick}>{processed}</button>
+}
+```

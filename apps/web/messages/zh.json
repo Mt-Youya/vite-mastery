@@ -1,0 +1,405 @@
+{
+  "site": {
+    "title": "vite-mastery · 搞懂 Vite 8,从 Rolldown 到 Environment API",
+    "description": "中文社区第一份系统化的 Vite 8 学习指南,深挖 Rolldown 架构、Environment API、Hooks 与 HMR。读完能写出生产级插件。",
+    "shortTagline": "中文社区第一份 Vite 深度指南",
+    "authorBio": "前端工程师 · 关心构建工具与开发者体验"
+  },
+  "nav": {
+    "docs": "文档",
+    "examples": "实战项目",
+    "playground": "Playground",
+    "about": "关于",
+    "ariaPrimary": "主导航",
+    "mobileMenuTitle": "导航",
+    "mobileMenuDescription": "Vite 8 中文学习指南",
+    "openMenu": "打开导航菜单",
+    "github": "GitHub"
+  },
+  "footer": {
+    "groups": {
+      "content": "内容",
+      "resources": "资源",
+      "about": "关于"
+    },
+    "links": {
+      "docs": "文档",
+      "examples": "实战项目",
+      "changelog": "变更日志",
+      "viteDocs": "Vite 官方文档",
+      "rollupDocs": "Rollup 文档",
+      "repo": "GitHub 仓库",
+      "origin": "项目缘起",
+      "author": "作者",
+      "feedback": "反馈与勘误"
+    },
+    "copyright": "© {year} {author}. 内容采用 CC BY-NC-SA 4.0,代码采用 MIT 许可证。"
+  },
+  "lang": {
+    "switcher": "切换语言",
+    "current": "当前语言:{lang}",
+    "zh": "中文",
+    "en": "English"
+  },
+  "home": {
+    "hero": {
+      "titleA": "搞懂 Vite 8,",
+      "titleB": "从 Rolldown 到 Environment API。",
+      "subtitle": "一份系统化的中文指南,深挖 Rolldown 架构、Environment API 与 Hooks 时序。读完能写出生产级 Vite 8 插件。",
+      "ctaPrimary": "开始第一章",
+      "ctaSecondary": "在 GitHub 上查看"
+    },
+    "whyVite": {
+      "eyebrow": "为什么读这本书",
+      "title": "「会用」和「懂为什么」之间,差着这本书。",
+      "lead": "中文社区的 Vite 教程大多停在配置层面。本指南把那些\"黑盒\"全部拆开。",
+      "questions": [
+        { "q": "为什么 Vite 在 dev 模式不打包?", "a": "ESM + 浏览器原生 import · Part 1" },
+        { "q": "resolveId / load / transform 各自什么时机触发?", "a": "Hooks 时序图 · Part 3" },
+        { "q": "import.meta.hot 背后的 WebSocket 协议长什么样?", "a": "HMR 协议拆解 · Part 4" },
+        { "q": "pre / 默认 / post 顺序如何影响插件行为?", "a": "插件执行顺序 · Part 2" },
+        { "q": "为什么 build 用 Rollup 而不是 esbuild?", "a": "双引擎架构 · Part 1" }
+      ]
+    },
+    "partsOverview": {
+      "title": "十四章,把 Vite 8 从入门带到源码导读。",
+      "lead": "主轴覆盖 Bundler 演进、插件、Hooks、Environment API 与 HMR;辅助章节兜底框架集成、库模式、SSR、性能优化与 Monorepo。",
+      "spotlightTag": "主轴",
+      "partLabel": "PART",
+      "chapterCount": "{count} 节",
+      "difficultyAria": "难度 {level} / 4"
+    },
+    "examplesBento": {
+      "eyebrow": "十个实战项目",
+      "title": "不只是看懂,要能写出来。",
+      "allLink": "全部项目",
+      "outcomeLabel": "产出:{outcome}"
+    },
+    "authorIntro": {
+      "eyebrow": "关于作者",
+      "quote": "「写一份自己希望两年前能读到的指南。」",
+      "bio": "Jay(Yonjay)是一位前端工程师,长期在做构建工具与开发者体验。这本指南源于一个观察:Vite 已经普及,但真正理解它内部机制的中文资料非常稀少。"
+    },
+    "finalCta": {
+      "title": "准备好深入 Vite 了吗?",
+      "lead": "从「为什么需要 Vite」开始,十二章一千多个段落,带你走完全链路。",
+      "cta": "打开第一章"
+    }
+  },
+  "about": {
+    "metaTitle": "关于",
+    "metaDescription": "关于 vite-mastery——为什么写这个指南、作者是谁、如何贡献。",
+    "eyebrow": "关于本站",
+    "title": "为什么要写这个指南?",
+    "intro1": "2026 年 3 月,Vite 8 正式发布。它带来了 Rolldown 统一打包器、Environment API、内置 Devtools 等重磅变化——但中文社区的 Vite 教程大多还停留在 Vite 5 时代:配置 vite.config.ts、调 plugin 选项、跑 build。",
+    "intro2Strong": "本站只做一件事",
+    "intro2": ":把 Vite 8 的核心黑盒拆开,讲清楚。",
+    "promiseTitle": "核心承诺",
+    "promises": [
+      "所有代码示例基于 Vite 8.1.x,真实可跑",
+      "Vite 7 差异统一用 <V7Note> 折叠标注,正文只讲 Vite 8",
+      "Environment API 相关内容标注 RC 阶段,不乱编 API",
+      "10 个配套实战项目,带你从看懂到写出来"
+    ],
+    "authorTitle": "作者",
+    "authorIntro": "长期在折腾构建工具和开发者体验。写这个指南一方面是自己系统学习 Vite 8 的过程记录,另一方面是希望能帮助更多中文社区的工程师搞懂 Vite 的原理。",
+    "contributeTitle": "如何贡献",
+    "contributeIntro": "发现错误、有更好的解释方式、想补充实战项目?欢迎:",
+    "contributePr": "提 Issue 或 PR",
+    "contributeContact": "直接联系作者:{handle}",
+    "stackTitle": "技术栈",
+    "stackIntro": "本站本身就是一个 Vite 8 生态实践的样板:",
+    "stack": [
+      "Next.js 16 App Router + TypeScript 6",
+      "Tailwind CSS v4(CSS-first)",
+      "pnpm workspace + Turborepo",
+      "content-collections + MDX",
+      "Shiki 代码高亮(带 twoslash)",
+      "部署在 Vercel"
+    ],
+    "ctaDocs": "开始阅读文档",
+    "ctaRepo": "GitHub →"
+  },
+  "playground": {
+    "metaTitle": "Playground",
+    "metaDescription": "在浏览器里直接运行 Vite 8 插件实验——基于 WebContainer,无需本地安装任何环境。",
+    "eyebrow": "在线实验场",
+    "title": "Playground",
+    "subtitle": "基于 WebContainer——在浏览器里跑真实的 Vite 8 dev server,边改边看,无需本地安装任何东西。",
+    "ctaOpen": "打开 Playground",
+    "ctaTutorial": "配套教程",
+    "devHintPrefix": "Dev 模式:需先运行 ",
+    "devHintSuffix": " 启动 Playground(:5173)",
+    "sourceNotePrefix": "Playground 是独立部署的 Vite 应用,源码在仓库 ",
+    "sourceNoteSuffix": " 目录。",
+    "sourceLink": "查看源码 →",
+    "features": [
+      { "icon": "⚡", "title": "零配置启动", "desc": "浏览器内完整 Node.js 环境,打开即用" },
+      { "icon": "🔌", "title": "插件实验场", "desc": "实时修改 vite.config.ts 和插件代码,即时看到效果" },
+      { "icon": "📦", "title": "真实 pnpm install", "desc": "WebContainer 跑真正的 pnpm,不是 Mock" },
+      { "icon": "🔄", "title": "HMR 全程在线", "desc": "编辑源文件,预览窗口实时热更新" }
+    ]
+  },
+  "examplesPage": {
+    "metaTitle": "实战项目",
+    "metaDescription": "10 个配套实战项目,涵盖虚拟模块、Markdown 加载器、图片优化、SSR、组件库等。",
+    "eyebrow": "实战项目",
+    "title": "不只是看懂,要能写出来。",
+    "lead": "10 个循序渐进的实战项目——从最小可跑的虚拟模块插件,到完整的跨框架组件库和 Environment API 多环境构建。",
+    "outcomeLabel": "产出:{outcome}",
+    "chapterLabel": "ch.{chapter}",
+    "difficultyAria": "难度 {level} / 4",
+    "sourceNotePrefix": "各实战项目的代码在仓库的 ",
+    "sourceNoteMiddle": " 目录下。每个项目包含分步代码 ",
+    "sourceNoteAlso": " 和最终完成版 ",
+    "sourceNoteSuffix": "。",
+    "sourceLink": "在 GitHub 查看源码 →"
+  },
+  "docsIndex": {
+    "eyebrow": "文档",
+    "title": "从这里开始读",
+    "lead": "十二章按学习路径排列。建议按顺序读,主轴(Plugin / Hooks / HMR)是全书最重要的部分。",
+    "partLabel": "PART",
+    "progress": "{done} / {total} 节"
+  },
+  "docs": {
+    "sidebarAriaLabel": "文档章节",
+    "tocAriaLabel": "本页大纲",
+    "tocTitle": "本页大纲",
+    "breadcrumbAriaLabel": "面包屑",
+    "breadcrumbDocsRoot": "文档",
+    "draftLabel": "本章正在编写",
+    "draftBlock": "本章正在编写,稍后回来。",
+    "meta": {
+      "difficulty": "{chapter} · 难度 {level}/4",
+      "withReading": "{chapter} · 难度 {level}/4 · {minutes} 分钟阅读"
+    },
+    "pager": {
+      "prev": "上一篇",
+      "next": "下一篇",
+      "ariaLabel": "上下篇"
+    },
+    "search": {
+      "label": "搜索文档",
+      "placeholder": "输入关键词,例如 'transform hook'…",
+      "shortcutLabel": "搜索",
+      "dialogTitle": "全站搜索",
+      "noIndexPrefix": "搜索索引尚未生成。在 ",
+      "noIndexSuffix": " 后 Pagefind 会自动生成。",
+      "loading": "搜索中…",
+      "noResults": "没有匹配的结果。",
+      "hintPrefix": "提示:支持英文术语(如 ",
+      "hintMiddle": ")与中文(如 ",
+      "hintSuffix": ")。"
+    },
+    "fallbackBanner": {
+      "title": "本篇暂无英文版",
+      "body": "下面的内容会以中文显示。欢迎到 GitHub 贡献翻译。"
+    },
+    "versionBadgeAria": "示例基于 Vite {version}",
+    "stability": {
+      "stable": { "label": "Stable", "aria": "API 稳定" },
+      "rc": { "label": "RC", "aria": "API 处于 RC 阶段,可能在未来版本中调整" },
+      "experimental": { "label": "Experimental", "aria": "API 为实验性,生产环境慎用" }
+    }
+  },
+  "showcase": {
+    "eyebrow": "Showcase",
+    "title": "交互式组件",
+    "lead": "阶段 5 全部 8 个 MDX 交互组件 demo。",
+    "all": "全部",
+    "components": {
+      "v7-note": {
+        "label": "V7Note",
+        "short": "Vite 7 差异折叠块",
+        "desc": "Vite 7 差异折叠块,用于在正文中标注与 Vite 8 的行为差异。"
+      },
+      "bundler-compare": {
+        "label": "BundlerCompare",
+        "short": "双引擎架构对比",
+        "desc": "Vite 7 双引擎(esbuild+Rollup)vs Vite 8 Rolldown 架构对比图。"
+      },
+      "hook-explorer": {
+        "label": "HookExplorer",
+        "short": "Hook 时序查看器",
+        "desc": "Vite/Rolldown hooks 时序图查看器,点击展示签名与示例。"
+      },
+      "plugin-pipeline": {
+        "label": "PluginPipeline",
+        "short": "插件执行顺序可视化",
+        "desc": "插件执行顺序可视化,按 pre/normal/post 分组展示 hook 关系。"
+      },
+      "hmr-demo": {
+        "label": "HmrDemo",
+        "short": "HMR 协议演示",
+        "desc": "HMR 协议演示器,CodeMirror 编辑触发模拟 WebSocket 消息流。"
+      },
+      "environment-explorer": {
+        "label": "EnvironmentExplorer",
+        "short": "多环境模块边界",
+        "desc": "Environment API 多环境隔离可视化,展示 client/ssr/rsc 模块边界。"
+      },
+      "config-playground": {
+        "label": "ConfigPlayground",
+        "short": "配置实验场",
+        "desc": "vite.config.ts 交互式编辑器,实时推导产物结构。"
+      },
+      "dep-graph": {
+        "label": "DepGraph",
+        "short": "Module Graph 可视化",
+        "desc": "Module Graph 可视化,点击节点查看 import/importer 关系。"
+      }
+    },
+    "demos": {
+      "v7-note": {
+        "title": "折叠行为差异",
+        "firstTitle": "Vite 7:dev 和 build 使用不同引擎",
+        "firstIntroBefore": "在 Vite 7 中,dev 模式使用 ",
+        "firstIntroMiddle": " 做 transform,build 模式使用 ",
+        "firstIntroAfter": " 打包。两套引擎的行为差异会体现在:",
+        "firstItems": [
+          "部分 Rollup 插件在 dev 模式下无法生效(因为 esbuild 不走 Rollup 钩子)",
+          "treeshake 配置只影响 build,dev 阶段不 tree-shake",
+          "CommonJS 模块在 dev 下由 vite:commonjs 插件处理,build 下由 @rollup/plugin-commonjs 处理"
+        ],
+        "firstMigration": "迁移到 Vite 8:Rolldown 统一了两阶段,上述差异消失。检查你的插件是否依赖 esbuild 特有行为。",
+        "secondTitle": "Vite 7:import.meta.glob 不支持 eager + as 组合",
+        "secondBefore": "Vite 7.x 中,",
+        "secondCode": "import.meta.glob(\"**\", { eager: true, as: 'raw' })",
+        "secondAfter": " 会抛错。需要分两步:先 eager import,再手动读取内容。",
+        "secondMigration": "Vite 8 修复了此问题,两者可以同时使用。",
+        "defaultTitle": "Vite 7 行为差异",
+        "defaultBody": "这是一个显式传入中文标题的 V7Note,等价于组件默认标题。适合简短说明一行差异点。"
+      },
+      "bundler-compare": {
+        "title": "双引擎架构对比",
+        "description": "点击或悬停节点高亮数据流。左:Vite 7 esbuild+Rollup 双引擎;右:Vite 8 Rolldown 统一引擎。"
+      },
+      "hook-explorer": {
+        "title": "Hook 时序查看器",
+        "description": "点击左侧 hook 名称查看触发时机、参数签名、示例代码和 Rolldown 兼容性。",
+        "filterHint": "使用 filter 限制显示特定 hook:"
+      },
+      "plugin-pipeline": {
+        "title": "插件执行顺序",
+        "description": "悬停插件卡片,高亮共享同一 hook 的其他插件(橙色边框)。",
+        "customTitle": "自定义插件列表:",
+        "checkerDescription": "TypeScript 类型检查",
+        "reactDescription": "React + Fast Refresh",
+        "pwaDescription": "PWA service worker 注入"
+      },
+      "hmr-demo": {
+        "title": "HMR 协议演示",
+        "description": "在左侧编辑器中修改任意代码,右侧实时展示 Vite HMR WebSocket 报文结构(模拟)。"
+      },
+      "environment-explorer": {
+        "title": "多环境模块边界",
+        "description": "可视化展示 client / ssr / rsc 三个环境的模块图及边界隔离。点击模块查看它在哪些环境出现、importer 是谁。"
+      },
+      "config-playground": {
+        "title": "配置实验场",
+        "description": "编辑左侧 vite.config.ts,右侧实时推导产物结构变化。试试修改 outDir、assetsDir、sourcemap、manualChunks 字段。"
+      },
+      "dep-graph": {
+        "title": "Module Graph 可视化",
+        "description": "@xyflow/react 渲染的交互式依赖图。拖拽、缩放均可用。点击节点查看 import / 被谁 import。"
+      }
+    }
+  },
+  "ui": {
+    "openInNewTab": "在新标签页打开",
+    "toggleTheme": "切换主题",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "themeSystem": "跟随系统"
+  },
+  "parts": {
+    "00-getting-started": { "title": "入门铺垫", "summary": "Vite 8 时代的承诺,五分钟跑通第一个项目。" },
+    "01-core-concepts": { "title": "核心概念", "summary": "Native ESM、Rolldown 统一架构、依赖预构建、Module Graph。" },
+    "02-bundler-evolution": {
+      "title": "Bundler 演进史",
+      "summary": "esbuild + Rollup 双引擎遗产到 Rolldown 的接力与兼容层。"
+    },
+    "03-plugin-system": {
+      "title": "插件系统",
+      "summary": "Vite / Rolldown / Rollup 三套 API 关系、enforce 顺序、内置 Devtools。"
+    },
+    "04-hooks-deep-dive": {
+      "title": "Hooks 深度解析",
+      "summary": "通用 / Vite 独有 / Rolldown 扩展 hooks 全景与时序差异。"
+    },
+    "05-environment-api": {
+      "title": "Environment API",
+      "summary": "client / ssr 之外的多环境模型,框架适配与 RSC-like 实战。"
+    },
+    "06-hmr": { "title": "HMR 热更新", "summary": "WebSocket 协议、import.meta.hot、HotChannel 多环境分发。" },
+    "07-build-pipeline": {
+      "title": "生产构建",
+      "summary": "Rolldown chunking、lightningcss、baseline target、Module Federation。"
+    },
+    "08-ssr-ssg": { "title": "SSR & SSG", "summary": "基于 Env API 的新 SSR 模型,手写 SSR,Wasm SSR。" },
+    "09-framework-integration": {
+      "title": "框架集成",
+      "summary": "React v6(Oxc)/ Vue / Svelte / Solid + meta 框架对比。"
+    },
+    "10-library-mode": { "title": "库模式", "summary": "build.lib 全解、类型声明、跨框架组件库实战。" },
+    "11-monorepo": { "title": "Monorepo 工程化", "summary": "pnpm workspace、依赖预构建跨包、Turborepo 缓存策略。" },
+    "12-performance": { "title": "性能优化", "summary": "冷启动、Vite 8 Devtools、HMR 诊断、tree-shaking。" },
+    "13-real-world-plugins": {
+      "title": "真实世界插件赏析",
+      "summary": "auto-import / plugin-pages / plugin-react v6 源码导读。"
+    }
+  },
+  "examplesData": {
+    "plugin-virtual-modules": {
+      "title": "虚拟模块插件",
+      "blurb": "用 resolveId + load 凭空生成一个模块",
+      "outcome": "一个可发布的 npm 插件雏形"
+    },
+    "plugin-md-loader": {
+      "title": "Markdown 加载器",
+      "blurb": "把 .md 文件变成可热更的 React 组件",
+      "outcome": "完整的 loader,可发到 npm"
+    },
+    "plugin-i18n": {
+      "title": "i18n 自动注入",
+      "blurb": "transformIndexHtml + resolveId 组合",
+      "outcome": "实用工具插件,真实生产可用"
+    },
+    "plugin-image-optimizer": {
+      "title": "图片优化插件",
+      "blurb": "集成 sharp,自动生成 webp / avif",
+      "outcome": "生产级插件,带缓存与并行"
+    },
+    "plugin-rollup-rolldown-compat": {
+      "title": "Rollup/Rolldown 双兼容插件",
+      "blurb": "一份代码同时跑通 Rollup 与 Rolldown",
+      "outcome": "跨 bundler 的可发布插件"
+    },
+    "env-api-rsc-demo": {
+      "title": "Env API + RSC 多环境构建",
+      "blurb": "用 Environment API 拆出 RSC-like 多环境",
+      "outcome": "全站独家硬核内容,吃透 Env API 的全部威力"
+    },
+    "ssr-with-env-api": {
+      "title": "手写 SSR(Env API)",
+      "blurb": "用 Env API 从零拼出 SSR 应用",
+      "outcome": "理解 Env API 下 SSR 的全部机制"
+    },
+    "library-mode-demo": {
+      "title": "跨框架组件库",
+      "blurb": "一次构建,产出 React/Vue/Svelte/Solid 适配",
+      "outcome": "可发布的组件库脚手架"
+    },
+    "monorepo-template": {
+      "title": "Monorepo 模板",
+      "blurb": "复刻本站结构:apps + packages + content",
+      "outcome": "下一个项目的起点"
+    },
+    "plugin-auto-import": {
+      "title": "简化版 auto-import",
+      "blurb": "对标 unplugin-auto-import 的核心机制",
+      "outcome": "综合性插件,Hooks 大乱炖"
+    }
+  }
+}

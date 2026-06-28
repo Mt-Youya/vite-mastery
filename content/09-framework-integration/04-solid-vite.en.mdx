@@ -1,0 +1,187 @@
+---
+title: Solid + Vite
+description: SolidJS is the flagship of fine-grained reactivity — `vite-plugin-solid` compiles JSX into native DOM operations with no Virtual DOM and no component re-renders.
+order: 4
+part: 09-framework-integration
+chapter: "9.4"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - The fine-grained reactivity model of SolidJS - How `vite-plugin-solid` compiles Solid JSX into native DOM - The core
+  differences between Solid and React (looks like React, but works completely differently) - Recommended Solid +
+  TypeScript + Vite configuration
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic knowledge of React (since Solid's API resembles React) - Understanding of reactive programming concepts
+</Callout>
+
+## SolidJS Core Principles
+
+Solid's JSX looks like React, but the compiled output is entirely different:
+
+```tsx
+// Looks like React...
+function Counter() {
+  const [count, setCount] = createSignal(0)
+
+  return (
+    <div>
+      <p>Count: {count()}</p>
+      <button onClick={() => setCount((c) => c + 1)}>+1</button>
+    </div>
+  )
+}
+```
+
+Compiled output (simplified):
+
+```ts
+// No Virtual DOM! No component re-renders!
+function Counter() {
+  const [count, setCount] = createSignal(0)
+
+  // Solid's JSX runs only once, creating real DOM nodes
+  const div = document.createElement("div")
+  const p = document.createElement("p")
+  const button = document.createElement("button")
+
+  // Creates a reactive binding: updates only the text node when count signal changes
+  insert(p, () => `Count: ${count()}`)
+
+  button.textContent = "+1"
+  button.addEventListener("click", () => setCount((c) => c + 1))
+
+  return div
+}
+```
+
+The key difference: **Solid's component function runs only once**, unlike React where every state change triggers a re-render.
+
+## Configuration
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import solid from "vite-plugin-solid"
+
+export default defineConfig({
+  plugins: [solid()],
+})
+```
+
+TypeScript configuration:
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "strict": true
+  }
+}
+```
+
+## Solid Core APIs
+
+```tsx
+import {
+  createSignal, // basic reactive state
+  createEffect, // reactive side effect
+  createMemo, // computed value
+  Show,
+  For, // control flow components
+} from "solid-js"
+
+function App() {
+  const [count, setCount] = createSignal(0)
+  const doubled = createMemo(() => count() * 2)
+
+  createEffect(() => {
+    // Runs when count changes (reading count() establishes the dependency)
+    console.log("count:", count())
+  })
+
+  return (
+    <div>
+      {/* Show: conditional rendering (more precise than &&) */}
+      <Show when={count() > 0}>
+        <p>Count: {count()}</p>
+        <p>Doubled: {doubled()}</p>
+      </Show>
+
+      {/* For: list rendering (efficient keyed updates) */}
+      <For each={["a", "b", "c"]}>{(item) => <span>{item}</span>}</For>
+
+      <button onClick={() => setCount((c) => c + 1)}>+1</button>
+    </div>
+  )
+}
+```
+
+## Key Differences: Solid vs React
+
+| Dimension    | React                          | Solid                       |
+| ------------ | ------------------------------ | --------------------------- |
+| Update scope | Component re-render            | Signal-level precise update |
+| Component fn | Re-called on each state change | Called only once            |
+| Access state | `state`                        | `state()` (function call)   |
+| Conditional  | `&&` or ternary                | `<Show>` component          |
+| List render  | `Array.map()`                  | `<For>` component           |
+| Virtual DOM  | ✅                             | ❌ Native DOM               |
+
+## Self-check
+
+1. Why does Solid's component function run only once, while React's runs on every update?
+2. Why does `createSignal` return a function `count()` instead of a direct value `count`?
+3. What is the fundamental difference between Solid's `<Show>` component and React's `&&` conditional rendering?
+4. In Solid, what happens if you write `{count}` instead of `{count()}`?
+
+```tsx filename="Exercise"
+// Rewrite the following React code in Solid:
+
+function TodoList() {
+  const [todos, setTodos] = useState([
+    { id: 1, text: "Learn Vite", done: false },
+    { id: 2, text: "Learn Solid", done: false },
+  ])
+  const [input, setInput] = useState("")
+
+  const completedCount = useMemo(() => todos.filter((t) => t.done).length, [todos])
+
+  const addTodo = () => {
+    if (!input.trim()) return
+    setTodos([...todos, { id: Date.now(), text: input, done: false }])
+    setInput("")
+  }
+
+  return (
+    <div>
+      <p>
+        {completedCount}/{todos.length} completed
+      </p>
+      <ul>
+        {todos.map((todo) => (
+          <li key={todo.id}>
+            <input
+              type="checkbox"
+              checked={todo.done}
+              onChange={() => setTodos(todos.map((t) => (t.id === todo.id ? { ...t, done: !t.done } : t)))}
+            />
+            {todo.text}
+          </li>
+        ))}
+      </ul>
+      <input value={input} onChange={(e) => setInput(e.target.value)} />
+      <button onClick={addTodo}>Add</button>
+    </div>
+  )
+}
+```

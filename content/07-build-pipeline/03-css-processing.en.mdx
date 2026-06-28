@@ -1,0 +1,245 @@
+---
+title: CSS Processing
+description: The full CSS processing pipeline in Vite 8 — lightningcss minification, the PostCSS pipeline, CSS Modules, and how CSS-in-JS fits in. What new capabilities does lightningcss bring after replacing esbuild?
+order: 3
+part: 07-build-pipeline
+chapter: "7.3"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Vite 8's CSS processing pipeline (PostCSS → lightningcss) - New capabilities from lightningcss: nesting, color-mix,
+  and more - CSS Modules configuration - The difference between global CSS imports and scoped styles
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic CSS knowledge - Familiarity with the PostCSS concept (optional)
+</Callout>
+
+## Vite 8's CSS processing pipeline
+
+```text
+.css / .scss / .less / .styl files
+         │
+         ▼
+Preprocessor (if sass/less is configured)
+         │
+         ▼
+PostCSS (if configured)
+         │
+         ▼
+lightningcss (minification + prefixing, default in Vite 8)
+         │
+         ▼
+Output CSS
+```
+
+Vite 8 hands off both CSS minification and vendor prefix handling to **lightningcss** (implemented in Rust), replacing the previous esbuild CSS processing.
+
+## New capabilities from lightningcss
+
+lightningcss supports modern CSS features and can automatically downgrade them for older browsers:
+
+```css
+/* What you write */
+.button {
+  /* CSS nesting */
+  color: blue;
+  &:hover {
+    color: darkblue;
+  }
+
+  /* CSS color-mix */
+  background: color-mix(in oklch, blue 30%, white);
+
+  /* CSS cascade layers */
+  @layer components {
+    padding: 8px 16px;
+  }
+}
+
+/* lightningcss downgraded output (for older browsers) */
+.button {
+  color: blue;
+  background: /* downgraded to rgba(...) */;
+  padding: 8px 16px;
+}
+.button:hover {
+  color: darkblue;
+}
+```
+
+Configuring lightningcss:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  css: {
+    lightningcss: {
+      // Specify browser targets (determines which features need to be downgraded)
+      targets: {
+        chrome: 95,
+        firefox: 95,
+        safari: 15,
+      },
+    },
+  },
+  build: {
+    cssMinify: "lightningcss", // default value
+  },
+})
+```
+
+## PostCSS configuration
+
+If your project uses PostCSS (common with Tailwind CSS, etc.):
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  css: {
+    postcss: {
+      plugins: [require("tailwindcss"), require("autoprefixer")],
+    },
+  },
+})
+```
+
+Or use a `postcss.config.js` in the project root (Vite picks it up automatically):
+
+```js filename="postcss.config.js"
+export default {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+}
+```
+
+## CSS Modules
+
+Files with a `.module.css` suffix automatically enable CSS Modules:
+
+```css filename="Button.module.css"
+.button {
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+
+.primary {
+  background: blue;
+  color: white;
+}
+```
+
+```tsx filename="Button.tsx"
+import styles from "./Button.module.css"
+
+export function Button({ primary, children }) {
+  return <button className={`${styles.button} ${primary ? styles.primary : ""}`}>{children}</button>
+}
+```
+
+After building, class names are hashed: `.button` → `button_HASH`.
+
+### CSS Modules configuration
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  css: {
+    modules: {
+      // Format for generated class names
+      generateScopedName: "[name]__[local]___[hash:base64:5]",
+      // Example: Button__button___abc12
+
+      // Local class names (default): only explicitly imported classes are scoped
+      localsConvention: "camelCase", // converts .my-button to myButton
+
+      // Global classes :global(.global-class) will not be scoped
+    },
+  },
+})
+```
+
+## CSS preprocessors
+
+Install the corresponding package and Vite detects it automatically:
+
+```bash
+# SCSS
+pnpm add -D sass
+
+# Less
+pnpm add -D less
+
+# Stylus
+pnpm add -D stylus
+```
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // Globally inject SCSS variables
+        additionalData: `@use "./src/styles/variables" as *;`,
+      },
+    },
+  },
+})
+```
+
+## HMR for CSS files
+
+CSS changes are the fastest updates in Vite's HMR:
+
+- **Scoped CSS** (`<style scoped>` in Vue / CSS Modules): precisely replaces the corresponding `<style>` tag
+- **Global CSS** (`import "./global.css"`): replaces the entire stylesheet
+- Neither triggers a page refresh or loses application state
+
+## Self-check
+
+1. What is the default CSS minification tool in Vite 8? How does it differ from Vite 7?
+2. What is the difference between CSS Modules and plain CSS? When should you use CSS Modules?
+3. What does the `lightningcss.targets` configuration do?
+4. If a project uses both PostCSS and lightningcss, what is their execution order?
+
+```css filename="Exercise"
+/* Which modern CSS features does the following CSS use? */
+/* Can lightningcss handle browser downgrading for these features? */
+
+.card {
+  /* 1. CSS nesting */
+  padding: 16px;
+
+  & .title {
+    font-size: 1.5rem;
+    color: oklch(0.4 0.2 250);
+  }
+
+  /* 2. CSS custom property scope */
+  @scope {
+    :scope {
+      --bg: white;
+    }
+  }
+
+  /* 3. color-mix */
+  background: color-mix(in srgb, var(--brand-color) 20%, white);
+
+  /* 4. container queries */
+  container-type: inline-size;
+}
+
+@container (min-width: 400px) {
+  .card .title {
+    font-size: 2rem;
+  }
+}
+```

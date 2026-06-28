@@ -1,0 +1,179 @@
+---
+title: Asset Pipeline
+description: Images, fonts, JSON, WASM — how Vite handles static assets. What the ?url, ?raw, and ?inline suffixes mean, and what changes after Rolldown takes over.
+order: 2
+part: 07-build-pipeline
+chapter: "7.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The default handling of static assets (small files inline vs. large files hashed) - What the `?url`, `?raw`, and
+  `?inline` suffix modifiers do - The `assetsInlineLimit` configuration for controlling the inline threshold - How to
+  import JSON, WASM, and other special asset types
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Familiarity with basic Vite usage (Part 0)
+</Callout>
+
+## Default asset handling
+
+### Images / fonts / video
+
+```ts
+// Large files (> 4KB): copied to dist/assets/ and returned as a hashed URL
+import logo from "./logo.png"
+// logo is a string: "/assets/logo-HASH.png"
+
+// Small files (≤ 4KB): inlined directly as a base64 data URL
+import icon from "./small-icon.svg"
+// icon is a string: "data:image/svg+xml;base64,..."
+```
+
+The 4KB threshold is controlled by `build.assetsInlineLimit`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    assetsInlineLimit: 8192, // change to 8KB
+    // set to 0 to never inline (all assets copied to assets/)
+  },
+})
+```
+
+## Suffix modifiers
+
+### `?url` — force a URL return
+
+Regardless of file size, always returns a URL string (no inlining):
+
+```ts
+import logoUrl from "./logo.png?url"
+// logoUrl === "/assets/logo-HASH.png" (even if the file is small)
+
+// Useful when you need to control file size, or when you need a string URL
+const img = new Image()
+img.src = logoUrl
+```
+
+### `?raw` — return the raw file content as a string
+
+```ts
+import svgContent from "./icon.svg?raw"
+// svgContent === "<svg xmlns='...'><path .../></svg>"
+
+// Useful when you need to manipulate the SVG XML directly, or read a text file's content
+document.querySelector("#icon").innerHTML = svgContent
+```
+
+### `?inline` — force inline as base64
+
+Regardless of file size, always inlines:
+
+```ts
+import logoDataUrl from "./logo.png?inline"
+// logoDataUrl === "data:image/png;base64,iVBOR..."
+
+// Useful when you need a data URL and don't want a network request
+css: `background-image: url(${logoDataUrl})`
+```
+
+## JSON imports
+
+JSON files can be imported directly — Vite parses them automatically:
+
+```ts
+import pkg from "./package.json"
+console.log(pkg.version) // "1.0.0"
+
+// Import by field (tree-shaking friendly)
+import { version, name } from "./package.json"
+```
+
+## TypeScript / JSON types
+
+```ts
+// JSON files have automatic type inference
+import data from "./data.json"
+// data's type is inferred from the JSON structure
+
+// For more precise types, use an assertion
+import config from "./config.json" assert { type: "json" }
+```
+
+## WASM imports
+
+```ts
+// Standard import
+import init, { add } from "./math.wasm"
+await init()
+console.log(add(1, 2)) // 3
+
+// Explicit URL import (for manual instantiation)
+import wasmUrl from "./math.wasm?url"
+const response = await fetch(wasmUrl)
+const wasm = await WebAssembly.instantiate(await response.arrayBuffer())
+```
+
+## Worker imports
+
+```ts
+// Launch a Web Worker from the main thread
+import MyWorker from "./worker.ts?worker"
+const worker = new MyWorker()
+
+// Inline Worker (bundled as a blob URL, no separate file needed)
+import InlineWorker from "./worker.ts?worker&inline"
+
+// Shared Worker
+import SharedWorker from "./shared.ts?sharedworker"
+```
+
+## The `public/` directory
+
+Files in `public/` are **not processed by Vite**:
+
+- Copied directly to the `dist/` root
+- Not hash-renamed
+- Cannot be referenced via `import` (access them with URL strings)
+
+```text
+public/
+  favicon.ico    → dist/favicon.ico
+  robots.txt     → dist/robots.txt
+  manifest.json  → dist/manifest.json
+```
+
+Suitable for: special files the browser requests directly (favicon, manifest, sitemap, etc.).
+
+## Self-check
+
+1. A 3KB SVG file — will Vite inline it or copy it by default? How do you force it to remain as a file?
+2. What is the difference between `?raw` and `?url`? What type of value does each return?
+3. How do the build outputs differ between files in `public/` and files in `src/assets/`?
+4. If you need a base64 data URL for a PNG image in CSS, which modifier should you use?
+
+```ts filename="Exercise"
+// Choose the appropriate import method for each scenario:
+
+// Scenario A: Embed an SVG icon directly into the page HTML (inline SVG)
+// Scenario B: Get the URL of an image file for use in <img src>
+// Scenario C: Read the contents of an HTML template file
+// Scenario D: Load a WASM module and instantiate it manually
+// Scenario E: Force a large PNG image to be base64-inlined at build time
+
+// For each scenario:
+// 1. Choose an import method (import ... from "...?XXX")
+// 2. Explain your reasoning
+
+// Example:
+// Scenario A: import svgContent from "./icon.svg?raw"
+//   Reason: need the SVG XML string to insert directly into innerHTML
+
+// TODO: complete B / C / D / E
+```

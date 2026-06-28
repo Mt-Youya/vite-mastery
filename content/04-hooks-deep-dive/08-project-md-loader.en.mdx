@@ -1,0 +1,342 @@
+---
+title: "Project 2: Markdown Loader"
+description: Use load + transform to turn .md files into hot-reloadable React components. Build vite-plugin-md from scratch and understand the full transform pipeline.
+order: 8
+part: 04-hooks-deep-dive
+chapter: "4.8"
+difficulty: 2
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Using the `load` hook to read non-standard file contents - Using the `transform` hook to convert Markdown into React
+  component code - Adding TypeScript type declarations for custom file types - Using `handleHotUpdate` to enable HMR for
+  .md files - Companion project: `examples/plugin-md-loader`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Complete the "Virtual Modules Plugin" project (section 3.4) - Read the `transform` section of "Universal Build Hooks
+  (Part 2)" (section 4.3)
+</Callout>
+
+## Goal: Import .md Files Like Components
+
+```tsx filename="src/App.tsx"
+import Post from "./posts/hello.md"
+import Guide from "./docs/guide.md"
+
+export function App() {
+  return (
+    <div>
+      <Post /> {/* Use directly as a React component */}
+      <Guide />
+    </div>
+  )
+}
+```
+
+This is a common need in content-driven applications: content lives in `.md` files, and code imports and renders them directly.
+
+## Plugin Design
+
+The overall flow:
+
+```text
+import Post from "./posts/hello.md"
+              │
+              ▼
+resolveId("./posts/hello.md") → Resolve to absolute file path
+              │
+              ▼
+load("/abs/posts/hello.md")   → Read .md file contents
+              │
+              ▼
+transform(markdownCode, id)   → Convert Markdown to React component code
+              │
+              ▼
+The browser receives:
+  import { jsx as _jsx } from "react/jsx-runtime"
+  export default function MarkdownComponent() {
+    return _jsx("div", { dangerouslySetInnerHTML: { __html: "..." } })
+  }
+```
+
+## Step 1: Minimal Skeleton
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    // Only intercept load for .md files
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const content = readFileSync(id, "utf-8")
+      // Return the raw markdown string for now; step 2 will convert it
+      return `export default ${JSON.stringify(content)}`
+    },
+  }
+}
+```
+
+At this point, `import Post from "./hello.md"` gives you a string, not a component.
+
+## Step 2: Convert Markdown to HTML
+
+Install `marked` (a Markdown parser, already in package.json):
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const markdown = readFileSync(id, "utf-8")
+      // Convert Markdown to an HTML string
+      const html = marked(markdown) as string
+
+      // Temporary: return the HTML string directly (not yet a component)
+      return `export default ${JSON.stringify(html)}`
+    },
+  }
+}
+```
+
+## Step 3: Wrap as a React Component
+
+Wrap the HTML string into a React component:
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const markdown = readFileSync(id, "utf-8")
+      const html = marked(markdown) as string
+
+      // Generate valid React component code
+      return `
+import { createElement } from "react"
+
+export default function MarkdownComponent() {
+  return createElement("div", {
+    className: "markdown-body",
+    dangerouslySetInnerHTML: { __html: ${JSON.stringify(html)} },
+  })
+}
+`
+    },
+  }
+}
+```
+
+Use it in `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { mdLoader } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [react(), mdLoader()],
+})
+```
+
+## Step 4: Add TypeScript Type Declarations
+
+Importing `Post from "./hello.md"` directly will cause a TypeScript error. You need to declare the module type:
+
+```ts filename="src/md.d.ts"
+declare module "*.md" {
+  import type { ComponentType } from "react"
+  const Component: ComponentType
+  export default Component
+}
+```
+
+Add this file to the `include` paths in `tsconfig.json`.
+
+## Step 5: Add HMR Support
+
+Without HMR, modifying a `.md` file requires a manual page refresh. Implement automatic hot updates:
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const markdown = readFileSync(id, "utf-8")
+      const html = marked(markdown) as string
+
+      return `
+import { createElement } from "react"
+
+export default function MarkdownComponent() {
+  return createElement("div", {
+    className: "markdown-body",
+    dangerouslySetInnerHTML: { __html: ${JSON.stringify(html)} },
+  })
+}
+`
+    },
+
+    // Enable HMR for .md files
+    handleHotUpdate({ file, modules, server }) {
+      if (!file.endsWith(".md")) return
+
+      // Vite automatically puts the affected ModuleNodes in modules
+      // Returning them directly triggers HMR for those modules
+      // (Vite sends a { type: "update" } message to the browser)
+      return modules
+    },
+  }
+}
+```
+
+## Advanced: Frontmatter Support
+
+Many .md files have frontmatter (YAML header):
+
+```markdown filename="hello.md"
+---
+title: Hello World
+date: 2026-06-26
+tags: [vite, plugin]
+---
+
+# Body content
+
+...
+```
+
+Extend the plugin to support exporting frontmatter:
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { marked } from "marked"
+
+function parseFrontmatter(content: string): { data: Record<string, unknown>; body: string } {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/)
+  if (!match) return { data: {}, body: content }
+
+  // Simple YAML parsing (handles key: value format only)
+  const data: Record<string, unknown> = {}
+  for (const line of match[1].split("\n")) {
+    const colonIdx = line.indexOf(":")
+    if (colonIdx === -1) continue
+    const key = line.slice(0, colonIdx).trim()
+    const val = line
+      .slice(colonIdx + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "")
+    data[key] = val
+  }
+
+  return { data, body: match[2] }
+}
+
+export function mdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md",
+    load(id) {
+      if (!id.endsWith(".md")) return null
+
+      const content = readFileSync(id, "utf-8")
+      const { data: frontmatter, body } = parseFrontmatter(content)
+      const html = marked(body) as string
+
+      return `
+import { createElement } from "react"
+
+export const frontmatter = ${JSON.stringify(frontmatter)}
+
+export default function MarkdownComponent() {
+  return createElement("div", {
+    className: "markdown-body",
+    dangerouslySetInnerHTML: { __html: ${JSON.stringify(html)} },
+  })
+}
+`
+    },
+    handleHotUpdate({ file, modules }) {
+      if (!file.endsWith(".md")) return
+      return modules
+    },
+  }
+}
+```
+
+Usage:
+
+```tsx
+import Post, { frontmatter } from "./posts/hello.md"
+
+console.log(frontmatter.title)  // "Hello World"
+<Post />
+```
+
+## Running the Project
+
+```bash
+cd examples/plugin-md-loader
+pnpm install
+pnpm dev
+```
+
+Open `src/posts/hello.md`, modify the content, and the browser will hot-reload automatically.
+
+## Self-check
+
+1. Why does this plugin use `load` instead of `transform`? Both can work — what is the difference?
+2. Why must the returned code string be valid ES Module format?
+3. Is the `modules` parameter in `handleHotUpdate` automatically computed by Vite, or do you need to provide it manually?
+4. If you want to support `.mdx` files (with JSX), what would you need to change?
+
+```ts filename="Exercise"
+// Extend the mdLoader plugin:
+// 1. Support syntax highlighting for code blocks (using Shiki)
+// 2. Support the .mdx file extension
+// 3. Automatically add className="prose" to the generated component
+
+// Hints:
+// - Syntax highlighting: configure marked to use a custom highlight function before calling it
+// - .mdx extension: modify the file filter condition
+// - className: modify the second argument of createElement
+
+import type { Plugin } from "vite"
+
+export function enhancedMdLoader(): Plugin {
+  return {
+    name: "vite-plugin-md-enhanced",
+    // TODO
+  }
+}
+```

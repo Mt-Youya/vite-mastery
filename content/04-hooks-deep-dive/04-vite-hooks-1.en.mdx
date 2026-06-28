@@ -1,0 +1,319 @@
+---
+title: "Vite-Specific Hooks (Part 1): config / configResolved / configureServer"
+description: The server-side hooks Vite adds on top of Rollup — how to modify configuration at runtime, access the dev server instance, and add custom middleware.
+order: 4
+part: 04-hooks-deep-dive
+chapter: "4.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The `config` hook: the correct way to modify configuration before it is resolved - The `configResolved` hook: when
+  to safely read the final configuration - The `configureServer` hook: accessing the dev server instance and adding
+  middleware - Execution order and dependencies between these three hooks
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Hooks Panorama" (section 4.1) - Understand the concept of Express/Koa middleware
+</Callout>
+
+## The `config` Hook
+
+**When it fires**: After the user's config file (vite.config.ts) is read, before the final configuration is resolved.
+
+**Calling convention**: sequential; return values are deep-merged with the existing config.
+
+**Parameters**:
+
+```ts
+config(
+  config: UserConfig,            // The user-provided config (unprocessed)
+  env: { command: "serve" | "build"; mode: string; ssrBuild: boolean }
+): UserConfig | null | void | Promise<UserConfig | null | void>
+```
+
+### Configure differently based on command
+
+```ts
+import type { Plugin } from "vite"
+
+export function conditionalPlugin(): Plugin {
+  return {
+    name: "vite-plugin-conditional",
+    config(config, { command, mode }) {
+      if (command === "serve") {
+        // Config that only applies in dev
+        return {
+          server: {
+            port: 4000,
+          },
+        }
+      }
+
+      if (command === "build" && mode === "production") {
+        // Config that only applies in production builds
+        return {
+          build: {
+            sourcemap: false,
+            minify: "esbuild",
+          },
+        }
+      }
+    },
+  }
+}
+```
+
+### Injecting `define` (environment variable replacement)
+
+```ts
+config() {
+  return {
+    define: {
+      __APP_VERSION__: JSON.stringify("1.0.0"),
+      __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    },
+  }
+},
+```
+
+Keys in `define` are replaced with their corresponding value strings during the transform phase.
+
+### Injecting resolve aliases
+
+```ts
+import { resolve } from "node:path"
+
+config() {
+  return {
+    resolve: {
+      alias: {
+        "@": resolve("src"),
+        "@components": resolve("src/components"),
+      },
+    },
+  }
+},
+```
+
+### Important constraint
+
+```ts
+config(userConfig) {
+  // ❌ Mutating the userConfig object directly (sometimes works, but unreliable)
+  userConfig.define = { ...userConfig.define, __VERSION__: '"1.0"' }
+
+  // ✅ Return a new object and let Vite deep-merge it
+  return {
+    define: { __VERSION__: '"1.0"' },
+  }
+}
+```
+
+**Merge rules for return values with user config**: Vite deep-merges the plugin's return value with the user config. If the user has configured `define.FOO` and the plugin returns `{ define: { BAR: "bar" } }`, the final `define` will contain both.
+
+## The `configResolved` Hook
+
+**When it fires**: After all configuration has been merged and the final `ResolvedConfig` is generated.
+
+**Calling convention**: parallel (all plugins execute concurrently)
+
+**Parameters**:
+
+```ts
+configResolved(config: ResolvedConfig): void
+```
+
+**Difference between `ResolvedConfig` and `UserConfig`**:
+
+- `UserConfig`: The raw config written by the user; may have missing values
+- `ResolvedConfig`: The fully processed config; all defaults are filled in and paths are resolved to absolute paths
+
+### Most typical use case: caching the config reference
+
+```ts
+import type { Plugin, ResolvedConfig } from "vite"
+
+export function myPlugin(): Plugin {
+  let config: ResolvedConfig // Store the config reference
+
+  return {
+    name: "my-plugin",
+    configResolved(resolvedConfig) {
+      // Cache the final config for use in later hooks
+      config = resolvedConfig
+    },
+    transform(code, id) {
+      // Use the cached config inside transform
+      if (config.command === "build" && config.mode === "production") {
+        return { code: code.replace("__DEV__", "false"), map: null }
+      }
+      return { code: code.replace("__DEV__", "true"), map: null }
+    },
+  }
+}
+```
+
+### Reading the final resolved paths
+
+```ts
+configResolved(config) {
+  // config.root is the absolute path to the project root
+  console.log("Project root:", config.root)
+  // config.build.outDir is the absolute path to the output directory
+  console.log("Output dir:", config.build.outDir)
+  // config.resolve.alias is the fully processed alias config
+  console.log("Aliases:", config.resolve.alias)
+},
+```
+
+### Why you cannot modify config inside configResolved
+
+The parameter in `configResolved` is read-only. Attempting to modify it will cause a TypeScript error and may have no effect at runtime:
+
+```ts
+configResolved(config) {
+  // ❌ Don't do this
+  config.define["__VERSION__"] = '"2.0"'  // TypeScript error: Readonly
+
+  // ✅ If you need to modify config, use the config hook instead
+}
+```
+
+## The `configureServer` Hook
+
+**When it fires**: After the dev server is created, before built-in middleware is installed (you can inject before built-in middleware).
+
+**Condition**: Only fires during `pnpm dev` (serve mode); `pnpm build` does not trigger it.
+
+**Calling convention**: sequential
+
+**Parameters**:
+
+```ts
+configureServer(server: ViteDevServer): (() => void) | void | Promise<...>
+```
+
+**What `ViteDevServer` contains**:
+
+```ts
+interface ViteDevServer {
+  config: ResolvedConfig
+  middlewares: Connect.Server // Express-like middleware stack
+  httpServer: http.Server | null
+  watcher: FSWatcher // chokidar file watcher instance
+  moduleGraph: ModuleGraph
+  hot: HotChannel // HMR message sending
+  // ...
+}
+```
+
+### Adding custom HTTP routes
+
+```ts
+import type { Plugin } from "vite"
+
+export function apiMockPlugin(): Plugin {
+  return {
+    name: "vite-plugin-api-mock",
+    configureServer(server) {
+      // Runs before all of Vite's built-in middleware
+      server.middlewares.use("/api/health", (req, res) => {
+        res.setHeader("Content-Type", "application/json")
+        res.end(JSON.stringify({ status: "ok", timestamp: Date.now() }))
+      })
+
+      server.middlewares.use("/api/users", (req, res) => {
+        res.setHeader("Content-Type", "application/json")
+        res.end(
+          JSON.stringify([
+            { id: 1, name: "Alice" },
+            { id: 2, name: "Bob" },
+          ])
+        )
+      })
+    },
+  }
+}
+```
+
+### Injecting after built-in middleware (by returning a function)
+
+If you need to inject **after** Vite's built-in middleware, return a function:
+
+```ts
+configureServer(server) {
+  // Return a function: it will be called after all built-in middleware is installed
+  return () => {
+    server.middlewares.use((req, res, next) => {
+      // Requests that none of Vite's middleware handled end up here
+      if (req.url === "/fallback") {
+        res.end("fallback response")
+      } else {
+        next()
+      }
+    })
+  }
+},
+```
+
+### Accessing WebSocket to send HMR messages
+
+```ts
+configureServer(server) {
+  // Broadcast a custom message to all connected clients
+  setInterval(() => {
+    server.hot.send({
+      type: "custom",
+      event: "server-time",
+      data: { time: new Date().toISOString() },
+    })
+  }, 5000)
+},
+```
+
+Browser-side receiving:
+
+```ts
+// src/main.ts
+if (import.meta.hot) {
+  import.meta.hot.on("server-time", (data) => {
+    console.log("Server time:", data.time)
+  })
+}
+```
+
+## Self-check
+
+1. What is the execution order of `config` and `configResolved`? What is each suitable for?
+2. Why can't you modify config inside `configResolved`? If you need to decide your plugin's behavior based on another plugin's config, how should you do it?
+3. What is the difference between returning a function from `configureServer` versus calling `server.middlewares.use` directly?
+4. Does `configureServer` fire during `pnpm build`? If your plugin also needs to initialize during build, which hook should you use?
+
+```ts filename="Exercise"
+// Implement a development proxy plugin:
+// - Proxy all /api/* requests to http://localhost:3000
+// - Log "[proxy] GET /api/xxx" before each proxied request
+// - If the proxy request fails, return { error: "proxy failed" }
+
+import type { Plugin } from "vite"
+import { createServer } from "node:http"
+
+export function proxyPlugin(target: string): Plugin {
+  return {
+    name: "vite-plugin-proxy",
+    configureServer(server) {
+      server.middlewares.use("/api", (req, res, next) => {
+        // TODO: implement proxy logic
+        // Log request info
+        // Forward to target + req.url
+        // Handle error cases
+      })
+    },
+  }
+}
+```

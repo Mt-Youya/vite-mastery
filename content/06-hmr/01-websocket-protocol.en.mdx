@@ -1,0 +1,196 @@
+---
+title: "HMR Protocol: WebSocket Communication"
+description: Vite's hot module replacement works by exchanging messages between the client and server over WebSocket. This article dives deep into the HMR protocol — message format, connection setup, and reconnection mechanics.
+order: 1
+part: 06-hmr
+chapter: "6.1"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Vite's WebSocket-based HMR architecture - The format and types of client ↔ server messages - Connection setup,
+  heartbeat, and reconnection mechanics - How to observe HMR messages directly in browser DevTools
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of WebSocket - Familiarity with Vite's Module Graph (section 1.4)
+</Callout>
+
+## HMR Architecture Overview
+
+```text
+Browser (client)                    Node.js (Vite Dev Server)
+─────────────────────             ────────────────────────────
+import.meta.hot API               File system watcher (chokidar)
+   │                                       │
+   │                              File change event
+   │                                       │
+   │              WebSocket               Determine affected modules
+   │◄─────────────────────────────────────│
+   │   { type: "update", updates: [...] } │
+   │                                      │
+Handle HMR message
+│
+├── JS module: re-import the affected module
+├── CSS: replace <style> or <link> tag directly
+└── Other: determined by the plugin's handleHotUpdate
+```
+
+The WebSocket connection is established when the dev server starts and persists for the entire development session.
+
+## Observing HMR Messages
+
+Open Chrome DevTools → Network → filter by WS, click the WebSocket connection, and select the Messages tab to see HMR messages in real time.
+
+You can also observe them in the browser console:
+
+```ts
+// Run in the browser console
+const ws = new WebSocket("ws://localhost:5173")
+ws.onmessage = (e) => console.log(JSON.parse(e.data))
+```
+
+## Message Format
+
+All HMR messages are JSON with a top-level `type` field.
+
+### `connected` — Connection confirmed
+
+```json
+{ "type": "connected" }
+```
+
+The dev server sends this immediately after receiving the client's WebSocket connection. The client uses it to know the server is ready.
+
+### `update` — Module update
+
+```json
+{
+  "type": "update",
+  "updates": [
+    {
+      "type": "js-update",
+      "path": "/src/Button.tsx",
+      "acceptedPath": "/src/Button.tsx",
+      "timestamp": 1703145600000
+    }
+  ]
+}
+```
+
+| Field          | Meaning                                                       |
+| -------------- | ------------------------------------------------------------- |
+| `type`         | `"js-update"` or `"css-update"`                               |
+| `path`         | Path of the modified module                                   |
+| `acceptedPath` | The module that actually accepts the update (may be a parent) |
+| `timestamp`    | Timestamp used for cache busting                              |
+
+### `full-reload` — Full page reload
+
+```json
+{ "type": "full-reload", "path": "/index.html" }
+```
+
+Triggered when a module cannot do HMR — for example, when it has no `import.meta.hot.accept()`.
+
+### `custom` — Custom message
+
+```json
+{
+  "type": "custom",
+  "event": "my-plugin:data-update",
+  "data": { "key": "value" }
+}
+```
+
+Custom messages sent by plugins via `server.hot.send()`.
+
+### `error` — Build error
+
+```json
+{
+  "type": "error",
+  "err": {
+    "message": "Cannot find module './missing'",
+    "stack": "...",
+    "id": "/src/App.tsx",
+    "frame": "..."
+  }
+}
+```
+
+Shown as an error overlay when a transform fails.
+
+### `prune` — Module removed
+
+```json
+{
+  "type": "prune",
+  "paths": ["/src/old-component.tsx"]
+}
+```
+
+Sent when a module disappears from the dependency graph (file deleted, import removed).
+
+## Connection Setup and Heartbeat
+
+```ts
+// Vite client-side WebSocket connection code (simplified)
+function setupWebSocket() {
+  const ws = new WebSocket(`ws://${location.host}`, "vite-hmr")
+
+  ws.addEventListener("open", () => {
+    console.log("[vite] connected.")
+  })
+
+  ws.addEventListener("message", async ({ data }) => {
+    handleMessage(JSON.parse(data))
+  })
+
+  ws.addEventListener("close", () => {
+    // Automatically reconnect after disconnect
+    console.log("[vite] server connection lost. Polling for restart...")
+    waitForServerRestart()
+  })
+}
+```
+
+Vite uses `"vite-hmr"` as the WebSocket sub-protocol to distinguish it from other WebSocket connections.
+
+## Reconnection Mechanics
+
+When the dev server restarts (for example, after you modify `vite.config.ts`), the WebSocket connection drops. The Vite client will:
+
+1. Detect the disconnect
+2. Poll `http://localhost:5173/__vite_ping` every 500ms
+3. Wait 1 second after a successful ping, then reload the page
+
+This is why the browser refreshes automatically when you modify `vite.config.ts`.
+
+## The `<HmrDemo>` Component on This Site
+
+The `<HmrDemo>` component simulates this process: edit code on the left, and the corresponding WebSocket message stream appears on the right.
+
+<HmrDemo />
+
+## Self-check
+
+1. Under what conditions is `type: "update"` triggered versus `type: "full-reload"`?
+2. What does it mean when `acceptedPath` differs from `path`? Give a concrete example.
+3. Why does Vite use WebSocket instead of SSE (Server-Sent Events) for HMR?
+4. If there is a proxy between the browser and the dev server, could it affect the WebSocket connection? How would you configure around it?
+
+```ts filename="Exercise"
+// Write an HMR message listener in the browser console:
+// 1. Intercept all incoming HMR messages
+// 2. Filter to only type === "update" messages
+// 3. Log the file path and timestamp of each update
+
+// Hint: Vite attaches identifiers like __vite_plugin_react_preamble_installed__ to window
+// The WebSocket connection is also visible in browser DevTools
+// How can you observe HMR messages without modifying source code?
+```

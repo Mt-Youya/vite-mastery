@@ -7,14 +7,14 @@
  *   export function useMDXComponents(components) { return { ...base(), ...components }; }
  */
 
-import type { MDXComponents } from "mdx/types";
-import { Callout } from "./callout.tsx";
-import { CodeBlock } from "./code-block.tsx";
-import { CodeGroup } from "./code-group.tsx";
-import { Detail } from "./detail.tsx";
-import { Diff } from "./diff.tsx";
-import { Steps } from "./steps.tsx";
-import { Tabs } from "./tabs.tsx";
+import type { MDXComponents } from "mdx/types"
+import { Callout } from "./callout.tsx"
+import { CodeBlock } from "./code-block.tsx"
+import { CodeGroup } from "./code-group.tsx"
+import { Detail } from "./detail.tsx"
+import { Diff } from "./diff.tsx"
+import { Steps } from "./steps.tsx"
+import { Tabs } from "./tabs.tsx"
 
 export function useMDXComponents(): MDXComponents {
   return {
@@ -25,5 +25,5 @@ export function useMDXComponents(): MDXComponents {
     Diff,
     Steps,
     Tabs,
-  };
+  }
 }

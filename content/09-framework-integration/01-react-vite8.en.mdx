@@ -1,0 +1,168 @@
+---
+title: React + Vite 8
+description: "A deep dive into @vitejs/plugin-react v6 — how OXC Refresh replaces Babel, how to integrate React Compiler, and the current state of the React ecosystem in Vite 8."
+order: 1
+part: 09-framework-integration
+chapter: "9.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - The core differences between `@vitejs/plugin-react` v6 and v5 - How OXC Refresh is faster than Babel - How to enable
+  React Compiler in Vite 8 - Recommended TypeScript + React configuration
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic knowledge of React - Familiarity with Vite configuration basics (Part 0)
+</Callout>
+
+## @vitejs/plugin-react v6: The OXC Era
+
+`@vitejs/plugin-react` v6, bundled with Vite 8, is a major upgrade to React integration:
+
+| Dimension         | v5 (Vite 7 era)                    | v6 (Vite 8 era)        |
+| ----------------- | ---------------------------------- | ---------------------- |
+| Fast Refresh impl | Babel + babel-plugin-react-refresh | OXC (Rust)             |
+| Babel dependency  | ✅ Required                        | ❌ Optional            |
+| Startup speed     | Baseline                           | Noticeably faster      |
+| JSX transform     | Babel                              | OXC                    |
+| React Compiler    | Manual configuration               | `reactCompilerOptions` |
+
+**The configuration syntax is unchanged**:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+  // ↑ Identical syntax for both v5 and v6
+})
+```
+
+## How OXC Refresh Works
+
+OXC (Oxidation Compiler) implements the AST transforms required by React Fast Refresh in Rust:
+
+1. **Detect React components**: Scans the file for function declarations and expressions, identifying which ones are React components (capitalized name, returns JSX)
+2. **Inject HMR code**: Appends `import.meta.hot.accept()` and component registration at the end of each component file
+3. **Handle hooks**: Tracks hook calls to ensure Fast Refresh rules are satisfied
+
+This entire process runs in Rust — no Babel process to spawn, no AST serialization or deserialization.
+
+## Recommended TypeScript Configuration
+
+```json filename="tsconfig.json"
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true
+  }
+}
+```
+
+## Integrating React Compiler (Vite 8)
+
+React Compiler (formerly React Forget) is an automatic memoization compiler introduced in React 19. To enable it in Vite 8:
+
+<Callout type="warning">
+  React Compiler is still in RC. The configuration below follows the official documentation for Vite 8.1.x and
+  `@vitejs/plugin-react` v6.
+</Callout>
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [
+    react({
+      // Enable React Compiler
+      babel: {
+        plugins: [
+          [
+            "babel-plugin-react-compiler",
+            {
+              target: "19", // React 19
+            },
+          ],
+        ],
+      },
+    }),
+  ],
+})
+```
+
+<Callout type="tip">
+  Note: enabling React Compiler requires installing `babel-plugin-react-compiler` and Babel separately. v6 does not
+  depend on Babel by default, but React Compiler support needs it.
+</Callout>
+
+## Common Configuration Scenarios
+
+### Path Aliases
+
+```ts
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      "@": resolve("src"),
+      "@components": resolve("src/components"),
+      "@utils": resolve("src/utils"),
+    },
+  },
+})
+```
+
+### TypeScript Types for Environment Variables
+
+```ts filename="src/env.d.ts"
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string
+  readonly VITE_APP_TITLE: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+```
+
+## Self-check
+
+1. After `@vitejs/plugin-react` v6 replaced Babel with OXC, which part of the development workflow becomes faster?
+2. If your project needs certain Babel plugins (e.g., the styled-components `babel-plugin`), can you still use v6? How would you configure it?
+3. What does `"moduleResolution": "Bundler"` mean in `tsconfig.json`? How does it differ from `"Node16"`?
+4. What problem does React Compiler solve? Why does it need Babel instead of OXC?
+
+```ts filename="Exercise"
+// Configure a complete React + TypeScript + Vite 8 project with:
+// 1. Path alias: @ → src/
+// 2. Global CSS variables injected via CSS Modules or PostCSS
+// 3. Environment variable: VITE_API_BASE_URL
+// 4. Production build config: sourcemap disabled, vendor chunk splitting
+
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig(({ command }) => ({
+  plugins: [react()],
+  // TODO: complete configuration
+}))
+```

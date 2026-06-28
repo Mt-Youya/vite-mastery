@@ -1,0 +1,179 @@
+---
+title: "Source Walkthrough: `@vitejs/plugin-react` v6"
+description: The full story of the official Vite React plugin migrating from Babel to OXC — what the transform hook does, how the Fast Refresh runtime is injected, and why backward compatibility is maintained.
+order: 3
+part: 13-real-world-plugins
+chapter: "13.3"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The core transform logic of `@vitejs/plugin-react` v6 - How OXC replaces Babel for JSX handling and Fast Refresh -
+  The role of the `/@react-refresh` virtual module - The HMR runtime injection mechanism
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understand how the transform hook works (section 4.3) - Familiar with the basics of React Fast Refresh (section 6.5)
+</Callout>
+
+## Plugin Structure Overview
+
+```ts
+// Core structure of @vitejs/plugin-react v6 (simplified)
+export default function pluginReact(options?: Options): Plugin[] {
+  return [
+    // Plugin 1: Inject Fast Refresh runtime into the entry HTML
+    {
+      name: "vite:react-refresh-preamble",
+      enforce: "pre",
+      transformIndexHtml: injectRefreshRuntime,
+    },
+
+    // Plugin 2: Transform JSX + inject Fast Refresh HMR code
+    {
+      name: "vite:react-transform",
+      enforce: "pre",
+      transform: transformReact,
+    },
+  ]
+}
+```
+
+## Core Transform Flow
+
+```ts
+async function transformReact(code: string, id: string) {
+  // 1. Filter: only process React files
+  if (!id.match(/\.(jsx?|tsx?)$/)) return null
+  if (id.includes("node_modules")) return null
+
+  // 2. Check whether the file contains JSX (fast path: skip if no JSX)
+  const hasJSX = code.includes("<") || code.includes("React.createElement")
+  if (!hasJSX && !code.includes("import React")) return null
+
+  // 3. Call OXC to perform JSX transform + TypeScript type stripping
+  const transformed = await oxcTransform(code, {
+    // JSX transform config (corresponding to the React 17+ new JSX transform)
+    jsx: "react-jsx",
+    jsxImportSource: "react",
+    // TypeScript support
+    typescript: true,
+  })
+
+  // 4. Inject React Fast Refresh code
+  if (shouldInjectRefresh(transformed.code)) {
+    return injectFastRefresh(transformed)
+  }
+
+  return transformed
+}
+```
+
+## Fast Refresh Injection
+
+```ts
+function injectFastRefresh(result: TransformResult): TransformResult {
+  const { code, map } = result
+
+  // Detect which React components are in the file
+  const components = detectComponents(code)
+
+  if (components.length === 0) return result
+
+  // Inject Fast Refresh code
+  const refreshCode = `
+import RefreshRuntime from "/@react-refresh"
+
+// Register each component
+${components.map((c) => `RefreshRuntime.register(${c.name}, ${JSON.stringify(c.name)})`).join("\n")}
+
+// Accept HMR updates
+if (import.meta.hot) {
+  import.meta.hot.accept()
+  // Notify React to perform Fast Refresh
+  if (!window.$RefreshReg$) {
+    import.meta.hot.invalidate()
+  } else {
+    RefreshRuntime.performReactRefresh()
+  }
+}
+`
+
+  return {
+    code: code + "\n\n" + refreshCode,
+    map: mergeSourceMaps(map, refreshCode),
+  }
+}
+```
+
+## The `/@react-refresh` Virtual Module
+
+This is the host for the Fast Refresh runtime:
+
+```ts
+// Inject the preamble in transformIndexHtml
+function injectRefreshRuntime(html: string): string {
+  return html.replace(
+    "<head>",
+    `<head>
+<script type="module">
+import RefreshRuntime from "/@react-refresh"
+RefreshRuntime.injectIntoGlobalHook(window)
+window.$RefreshReg$ = () => {}
+window.$RefreshSig$ = () => (type) => type
+window.__vite_plugin_react_preamble_installed__ = true
+</script>`,
+  )
+}
+
+// Contents of the /@react-refresh virtual module
+// In practice it is a thin wrapper around react-refresh/runtime
+resolveId(id) {
+  if (id === "/@react-refresh") return "\0@react-refresh"
+  return null
+},
+load(id) {
+  if (id !== "\0@react-refresh") return null
+  return `
+export * from "react-refresh/runtime"
+import * as runtime from "react-refresh/runtime"
+export default runtime
+`
+},
+```
+
+## The Key to Backward Compatibility
+
+v6 maintains backward compatibility through these design choices:
+
+1. **Config API unchanged**: The options signature of `react({ ... })` is essentially the same as v5
+2. **Behavior unchanged**: The injected Fast Refresh code format is identical
+3. **Babel fallback**: If you use `babel: { plugins: [...] }`, Babel is automatically used for processing
+
+## Self-check
+
+1. Why does `@vitejs/plugin-react` v6 inject the `/@react-refresh` virtual module instead of directly importing react-refresh?
+2. What information does component detection (`detectComponents`) need? Why does it require an AST rather than regex?
+3. What does the preamble script injected by `transformIndexHtml` do? Why does it need to execute as early as possible in `<head>`?
+4. If a file contains a TypeScript generic using angle brackets `<T>`, will OXC mistakenly identify it as JSX?
+
+```ts filename="Exercise"
+// Implement a simplified React Fast Refresh injector:
+// - Detect React function components in a file (PascalCase name, returns JSX)
+// - Inject a register call for each component
+// - Inject accept code at the end of the file
+
+function injectFastRefreshSimple(code: string, id: string): string {
+  // TODO:
+  // 1. Use regex to find all export function/const Upper... components
+  // 2. Generate register statements
+  // 3. Append accept + performReactRefresh at the end
+
+  // Note: this is a simplified implementation; production needs an AST
+  return code
+}
+```

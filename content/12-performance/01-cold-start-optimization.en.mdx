@@ -1,0 +1,155 @@
+---
+title: Cold Start Optimization
+description: Why does the Vite dev server sometimes start slowly? Tuning optimizeDeps, pre-bundling strategies, and how Rolldown speeds things up — make your project fast from the very first `pnpm dev`.
+order: 1
+part: 12-performance
+chapter: "12.1"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Common causes of slow cold starts - Tuning `optimizeDeps` - Preventing second restarts by pre-declaring dependencies
+  - How Vite 8 Rolldown improves cold start time
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understanding dependency pre-bundling (section 1.3)
+</Callout>
+
+## What makes up cold start time
+
+```text
+pnpm dev time =
+  Node.js process startup  (fixed cost, ~200ms)
+  + reading vite.config.ts  (~50ms)
+  + dependency pre-bundling  (first run: a few seconds to tens of seconds; cache hit: <100ms)
+  + starting the HTTP server  (~50ms)
+  + waiting for the first request  (lazy, not counted)
+```
+
+**The biggest variable**: dependency pre-bundling time.
+
+## Why pre-bundling can be slow
+
+1. **Too many dependencies**: the project uses a large number of npm packages
+2. **CJS packages need conversion**: CommonJS → ESM requires scanning code
+3. **Nested dependencies**: deep transitive dependencies also need pre-bundling
+4. **No cache on first run**: `.vite/deps/` doesn't exist yet
+
+## Optimization tip 1: Pre-declare all dependencies
+
+Vite auto-detects dependencies by scanning your source code. But if your code uses dynamic imports, Vite may miss some packages — causing pre-bundling to happen on the first request after startup, which triggers a page reload.
+
+Declaring dependencies explicitly lets Vite pre-bundle everything in one shot:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    include: [
+      // Explicitly list all important dependencies (including dynamically imported ones)
+      "react",
+      "react-dom",
+      "react-router-dom",
+      "axios",
+      "lodash-es",
+      // Sub-paths of certain packages
+      "lodash-es/debounce",
+      "lodash-es/throttle",
+    ],
+  },
+})
+```
+
+## Optimization tip 2: Exclude packages that don't need pre-bundling
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    exclude: [
+      // Packages that are already ESM and single-file don't need pre-bundling
+      "@vite-mastery/ui", // local workspace package
+      "some-pure-esm-package", // modern ESM package
+    ],
+  },
+})
+```
+
+## Optimization tip 3: Skip local packages in a monorepo
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  optimizeDeps: {
+    exclude: [
+      // Don't pre-bundle any workspace packages
+      "@myorg/ui",
+      "@myorg/utils",
+      "@myorg/hooks",
+    ],
+  },
+  resolve: {
+    // Alias directly to source, skipping the resolve step
+    alias: {
+      "@myorg/ui": resolve("../../packages/ui/src"),
+    },
+  },
+})
+```
+
+## Vite 8 Rolldown improvements
+
+Vite 8 uses Rolldown for dependency pre-bundling. Compared to Vite 7's esbuild:
+
+- **Faster CommonJS conversion**: OXC Parser is faster than esbuild in certain scenarios
+- **Better cache utilization**: Rolldown's transform pipeline is shared with the build step, reducing duplicated work
+- **Incremental pre-bundling**: only rebuilds dependencies that have actually changed
+
+In practice: large projects may see 20–50% faster cold starts on the first run.
+
+## Debugging a slow startup
+
+```bash
+# View Vite's internal logs to find where time is spent
+DEBUG=vite:deps pnpm dev
+
+# Or use the --debug flag
+pnpm vite --debug deps
+```
+
+Sample output:
+
+```text
+vite:deps Optimizing dependencies...
+vite:deps  react     +312ms
+vite:deps  react-dom +1234ms  ← slowest package
+vite:deps  lodash-es +89ms
+```
+
+## Self-check
+
+1. Where does most of the cold start time go in Vite?
+2. Why does the page sometimes reload unexpectedly after startup? How do you prevent it?
+3. What kinds of packages are good candidates for `optimizeDeps.exclude`? What kinds are not?
+4. Why is pre-bundling faster in Vite 8 than in Vite 7?
+
+```ts filename="Exercise"
+// Analyze and optimize the cold start config for the following project:
+// - The project has 50+ npm dependencies
+// - Uses dynamic import('./heavy-chart-lib') to lazy-load a charting library
+// - It's a monorepo with 3 local workspace packages
+// - After the first startup, the browser has one unexpected reload
+
+// Original config (no optimizeDeps configuration at all):
+export default defineConfig({ plugins: [react()] })
+
+// TODO: Write the optimized configuration
+export default defineConfig({
+  plugins: [react()],
+  optimizeDeps: {
+    // TODO
+  },
+})
+```

@@ -1,0 +1,289 @@
+---
+title: "Project 4: Image Optimizer Plugin"
+description: Use generateBundle + this.emitFile to implement automatic image compression at build time — integrate sharp, convert PNG/JPEG to WebP/AVIF, and output a build report.
+order: 7
+part: 07-build-pipeline
+chapter: "7.7"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How to process images in the build output inside the `generateBundle` hook - Using `this.emitFile` to write new
+  files to the output directory - Integrating `sharp` for WebP / AVIF conversion - Processing multiple images in
+  parallel and adding a build cache - Companion project: `examples/plugin-image-optimizer`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read the section on `generateBundle` in "Build-time Hooks (Part 2)" (section 4.3) - Basic understanding of the WebP
+  / AVIF image formats
+</Callout>
+
+## Goal: automatic image optimization
+
+```bash
+pnpm build
+# After build completes:
+# ✓ logo.png → logo.webp (↓ 65%)
+# ✓ hero.jpg → hero.webp (↓ 72%)
+# ✓ hero.jpg → hero.avif (↓ 81%)
+# ✓ Processed 12 images, saved 3.2 MB
+```
+
+## Step 1: Scan the bundle for images
+
+```ts filename="src/plugin.ts"
+import type { Plugin, OutputBundle, OutputAsset } from "vite"
+
+interface ImageOptimizerOptions {
+  /** Target formats to convert to */
+  formats?: ("webp" | "avif")[]
+  /** WebP quality 0-100 */
+  webpQuality?: number
+  /** AVIF quality 0-100 */
+  avifQuality?: number
+}
+
+export function imageOptimizer(options: ImageOptimizerOptions = {}): Plugin {
+  const { formats = ["webp", "avif"], webpQuality = 80, avifQuality = 65 } = options
+
+  return {
+    name: "vite-plugin-image-optimizer",
+    apply: "build",
+
+    async generateBundle(_outputOptions, bundle: OutputBundle) {
+      // Find all image assets in the bundle
+      const imageAssets = Object.entries(bundle).filter(([fileName, chunk]): chunk is [string, OutputAsset] => {
+        return chunk.type === "asset" && /\.(png|jpe?g|gif|webp)$/i.test(fileName) && chunk.source instanceof Uint8Array
+      })
+
+      if (imageAssets.length === 0) return
+
+      console.log(`\n🖼  Image optimization: found ${imageAssets.length} image(s)`)
+
+      // TODO: Step 2 — convert using sharp
+    },
+  }
+}
+```
+
+## Step 2: Convert with sharp
+
+```ts
+// Add conversion logic inside generateBundle:
+
+async generateBundle(_outputOptions, bundle: OutputBundle) {
+  // Dynamically import sharp (avoids overhead in dev mode)
+  let sharp: typeof import("sharp")
+  try {
+    sharp = (await import("sharp")).default
+  } catch {
+    console.warn("[image-optimizer] sharp is not installed, skipping image optimization")
+    return
+  }
+
+  const imageAssets = Object.entries(bundle).filter(
+    ([, chunk]) =>
+      chunk.type === "asset" &&
+      /\.(png|jpe?g|gif)$/i.test(chunk.fileName) &&
+      chunk.source instanceof Uint8Array
+  )
+
+  if (imageAssets.length === 0) return
+
+  const stats: { file: string; original: number; optimized: number; format: string }[] = []
+
+  // Process all images in parallel
+  await Promise.all(
+    imageAssets.map(async ([fileName, chunk]) => {
+      if (chunk.type !== "asset" || !(chunk.source instanceof Uint8Array)) return
+
+      const originalSize = chunk.source.byteLength
+      const baseName = fileName.replace(/\.[^.]+$/, "")
+
+      for (const format of formats) {
+        try {
+          let optimizedBuffer: Buffer
+
+          if (format === "webp") {
+            optimizedBuffer = await sharp(chunk.source)
+              .webp({ quality: webpQuality })
+              .toBuffer()
+          } else {
+            optimizedBuffer = await sharp(chunk.source)
+              .avif({ quality: avifQuality })
+              .toBuffer()
+          }
+
+          const outputFileName = `${baseName}.${format}`
+
+          // Write the new file to the output directory
+          this.emitFile({
+            type: "asset",
+            fileName: outputFileName,
+            source: new Uint8Array(optimizedBuffer),
+          })
+
+          stats.push({
+            file: fileName,
+            original: originalSize,
+            optimized: optimizedBuffer.byteLength,
+            format,
+          })
+        } catch (e) {
+          console.warn(`[image-optimizer] Failed to process ${fileName}:`, e)
+        }
+      }
+    })
+  )
+
+  // Output optimization report
+  if (stats.length > 0) {
+    console.log("\n  Image optimization report:")
+    let totalSaved = 0
+    for (const { file, original, optimized, format } of stats) {
+      const saved = original - optimized
+      const ratio = ((saved / original) * 100).toFixed(1)
+      totalSaved += saved
+      console.log(`  ${file} → .${format}: ${formatBytes(original)} → ${formatBytes(optimized)} (↓${ratio}%)`)
+    }
+    console.log(`  Total saved: ${formatBytes(totalSaved)}\n`)
+  }
+},
+```
+
+## Step 3: Add hash-based caching
+
+Re-processing all images on every build is slow. Use a hash for caching:
+
+```ts
+import { createHash } from "node:crypto"
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs"
+import { resolve } from "node:path"
+
+function getCacheKey(buffer: Uint8Array, format: string, quality: number): string {
+  const hash = createHash("md5")
+  hash.update(buffer)
+  hash.update(format)
+  hash.update(String(quality))
+  return hash.digest("hex")
+}
+
+const CACHE_DIR = resolve("node_modules/.vite/image-cache")
+
+function getCached(key: string): Buffer | null {
+  const cachePath = resolve(CACHE_DIR, key)
+  if (existsSync(cachePath)) {
+    return readFileSync(cachePath)
+  }
+  return null
+}
+
+function setCache(key: string, data: Buffer): void {
+  mkdirSync(CACHE_DIR, { recursive: true })
+  writeFileSync(resolve(CACHE_DIR, key), data)
+}
+```
+
+Before processing each image, check the cache first:
+
+```ts
+const cacheKey = getCacheKey(chunk.source, format, quality)
+let optimizedBuffer = getCached(cacheKey)
+
+if (!optimizedBuffer) {
+  // Cache miss: run the conversion
+  const result = await sharp(chunk.source).webp({ quality }).toBuffer()
+  optimizedBuffer = result
+  setCache(cacheKey, optimizedBuffer)
+}
+```
+
+## Complete configuration example
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { imageOptimizer } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [
+    imageOptimizer({
+      formats: ["webp", "avif"],
+      webpQuality: 80,
+      avifQuality: 65,
+    }),
+  ],
+})
+```
+
+## Running the example project
+
+```bash
+cd examples/plugin-image-optimizer
+pnpm install       # installs sharp (requires node-gyp prebuilds; first run may be slow)
+pnpm build         # triggers image optimization
+```
+
+Check the `dist/assets/` directory:
+
+- Original images are preserved (for backwards compatibility)
+- `.webp` and `.avif` versions appear alongside them
+
+## Using `<picture>` in HTML to take advantage of optimized images
+
+```html
+<picture>
+  <!-- Browser tries in order: AVIF first, then WebP, then JPEG as fallback -->
+  <source srcset="/assets/hero.avif" type="image/avif" />
+  <source srcset="/assets/hero.webp" type="image/webp" />
+  <img src="/assets/hero.jpg" alt="Hero" />
+</picture>
+```
+
+## Self-check
+
+1. Why should the sharp import be placed inside `generateBundle` as a dynamic import, rather than a static import at the top of the file?
+2. Can `this.emitFile` be called inside the `transform` hook? Why or why not?
+3. This plugin sets `apply: "build"` — what does that mean? What would happen if you removed it?
+4. What are the benefits of processing all images in parallel (`Promise.all`)? What are the potential risks?
+
+```ts filename="Exercise"
+// Extend the image optimizer plugin:
+// 1. Support SVG optimization (use the svgo library to compress SVG)
+// 2. Add a build report file image-report.json
+//    containing: original size, optimized size, and savings ratio for each image
+
+import type { Plugin } from "vite"
+
+// Assume you already have an optimizeImage function
+async function optimizeImage(source: Uint8Array, format: string): Promise<Buffer> {
+  return Buffer.from(source) // placeholder
+}
+
+export function enhancedImageOptimizer(): Plugin {
+  return {
+    name: "vite-plugin-enhanced-image",
+    apply: "build",
+    async generateBundle(_, bundle) {
+      // TODO:
+      // 1. Process .png / .jpg files to webp (same as the example above)
+      // 2. Process .svg files with svgo compression
+      // 3. Use this.emitFile to generate image-report.json
+    },
+  }
+}
+```
+
+## Utility function
+
+```ts
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  return `${(bytes / 1024 ** i).toFixed(1)} ${units[i]}`
+}
+```

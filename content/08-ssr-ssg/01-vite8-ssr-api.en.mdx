@@ -1,0 +1,207 @@
+---
+title: SSR API in the Vite 8 Era
+description: The new SSR model built on Environment API — the limitations of ssrLoadModule, ModuleRunner as its replacement, and best practices for Vite 8 SSR.
+order: 1
+part: 08-ssr-ssg
+chapter: "8.1"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The recommended SSR API path in Vite 8 - The limitations of `ssrLoadModule` and Environment API as its replacement -
+  SSR build configuration (what the `--ssr` flag does) - The complete request handling flow for Vite 8 SSR
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of SSR concepts (server-side rendering + client-side hydration) - Read "Why Environment API"
+  (section 5.1)
+</Callout>
+
+## Two SSR Modes
+
+Vite supports two ways to use SSR:
+
+### Mode 1: Middleware Mode (recommended for development)
+
+```ts filename="server.js"
+import { createServer as createViteServer } from "vite"
+import express from "express"
+
+const vite = await createViteServer({
+  server: { middlewareMode: true },
+  appType: "custom", // don't auto-inject HTML
+})
+
+const app = express()
+app.use(vite.middlewares) // Vite handles static assets and HMR
+
+app.use("*", async (req, res) => {
+  const url = req.originalUrl
+
+  try {
+    // Load and execute the server entry
+    const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+    const appHtml = await render(url)
+
+    // Get index.html and inject the rendered result
+    const template = await vite.transformIndexHtml(url, readFileSync("index.html", "utf-8"))
+    const html = template.replace("<!--ssr-outlet-->", appHtml)
+
+    res.status(200).set("Content-Type", "text/html").end(html)
+  } catch (e) {
+    vite.ssrFixStacktrace(e)
+    res.status(500).end(String(e))
+  }
+})
+```
+
+### Mode 2: Pre-built SSR (recommended for production)
+
+```bash
+# Build the client side
+vite build
+
+# Build the SSR side (--ssr flag)
+vite build --ssr src/entry-server.tsx
+```
+
+Output:
+
+```text
+dist/
+  client/         ← browser-side code
+    index.html
+    assets/
+  server/         ← Node.js-side code
+    entry-server.js
+```
+
+## ssrLoadModule vs Environment API
+
+`vite.ssrLoadModule()` is Vite's traditional SSR API. It **still works** in Vite 8, but it is not the recommended approach:
+
+```ts
+// Traditional approach (still works)
+const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
+
+// Vite 8 recommended (Environment API)
+// Refer to the official documentation for the exact API
+const { render } = await runner.import("/src/entry-server.tsx")
+```
+
+The main differences between the two:
+
+- `ssrLoadModule`: re-executes on every call, no caching
+- `ModuleRunner.import()`: caches results, re-executes only when HMR updates occur
+
+## SSR Build Configuration
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+
+  build: {
+    // Configuration needed for SSR builds
+    // (note: don't put these at the top level — use conditional logic or separate config files)
+  },
+
+  ssr: {
+    // SSR-specific configuration
+    noExternal: ["some-esm-only-package"], // packages that need to be bundled into the output
+    external: ["express"], // explicitly external (Node.js built-ins are external automatically)
+    target: "node", // target is the Node.js environment
+  },
+})
+```
+
+## Error Handling and Stack Traces
+
+When an SSR error occurs, the stack trace points to the transformed code rather than the source. `ssrFixStacktrace` fixes this:
+
+```ts
+} catch (e) {
+  vite.ssrFixStacktrace(e)  // rewrite the stack trace to source line numbers
+  console.error(e)
+  res.status(500).end(String(e))
+}
+```
+
+## Complete Request Flow
+
+```text
+Browser request GET /page
+      │
+      ▼
+Express middleware
+      │
+      ▼
+ssrLoadModule("/src/entry-server.tsx")
+  → Vite executes the module in the ssr environment
+  → returns the { render } function
+      │
+      ▼
+render(url)
+  → calls React renderToString or Vue renderToString
+  → returns an HTML string
+      │
+      ▼
+transformIndexHtml(url, template)
+  → returns the Vite-processed HTML template (with asset links)
+      │
+      ▼
+template.replace("<!--ssr-outlet-->", appHtml)
+      │
+      ▼
+res.end(html)
+```
+
+## Self-check
+
+1. What is the difference between the output of `vite build` and `vite build --ssr`? Where should each be deployed?
+2. Can `ssrLoadModule` still be used in Vite 8? If so, why migrate to Environment API anyway?
+3. What does `vite.ssrFixStacktrace()` do? Why do SSR error stacks need to be fixed?
+4. In what situations do you need the `ssr.noExternal` configuration?
+
+```ts filename="Exercise"
+// Implement a simple React SSR server:
+// 1. Use vite.ssrLoadModule to load the server entry
+// 2. Render HTML (renderToString)
+// 3. Handle errors correctly (ssrFixStacktrace)
+// 4. Enable HMR in dev mode (automatically reload the module when files change)
+
+// entry-server.tsx:
+import { renderToString } from "react-dom/server"
+import { App } from "./App"
+
+export async function render(url: string): Promise<string> {
+  return renderToString(<App url={url} />)
+}
+
+// server.js (TODO: implement):
+import { createServer as createViteServer } from "vite"
+import { createServer as createHttpServer } from "node:http"
+import { readFileSync } from "node:fs"
+
+const vite = await createViteServer({ /* TODO */ })
+
+const server = createHttpServer(async (req, res) => {
+  try {
+    // TODO:
+    // 1. Call ssrLoadModule to load entry-server.tsx
+    // 2. Call render(req.url)
+    // 3. Get the HTML template and inject the rendered result
+    // 4. Return the complete HTML
+  } catch (e) {
+    // TODO: error handling
+  }
+})
+
+server.listen(3000)
+```

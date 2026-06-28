@@ -1,0 +1,201 @@
+---
+title: Module Federation (Unlocked by Rolldown)
+description: Module Federation lets multiple independently deployed applications share code at runtime — Vite 8 natively supports this capability through Rolldown. Concept introduction and basic configuration.
+order: 6
+part: 07-build-pipeline
+chapter: "7.6"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What Module Federation is and what problem it solves - How Vite 8 + Rolldown supports Module Federation - Basic
+  configuration: host and remote applications - The limitations and appropriate use cases for Module Federation
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of micro-frontend concepts (optional) - Understanding of code splitting (section 7.4)
+</Callout>
+
+## What is Module Federation
+
+Module Federation allows multiple independent JavaScript applications to share modules with each other **at runtime** — not bundled together at build time, but dynamically loaded in the browser.
+
+```text
+Application A (Host)        Application B (Remote)
+─────────────────────       ─────────────────────
+deployed at app-a.com       deployed at app-b.com
+
+A dynamically imports a component exported by B at runtime:
+await import("app-b/Button")  // loaded from a remote!
+```
+
+Primary use cases:
+
+- **Micro-frontends**: multiple teams each maintain a sub-application, assembled into a single shell app
+- **Shared component libraries**: multiple applications share the same UI components; updates don't require redeploying consumers
+
+## Using Module Federation in Vite 8
+
+Vite 8 supports Module Federation through the `@module-federation/vite` plugin:
+
+```bash
+pnpm add -D @module-federation/vite
+```
+
+### Remote application (exposing modules)
+
+```ts filename="app-b/vite.config.ts"
+import { defineConfig } from "vite"
+import { federation } from "@module-federation/vite"
+
+export default defineConfig({
+  plugins: [
+    federation({
+      name: "app-b", // remote application name
+
+      // Declare which modules this application exposes
+      exposes: {
+        "./Button": "./src/components/Button",
+        "./utils": "./src/utils/index",
+      },
+
+      // Declare which packages are shared (Host and Remote share the same instance)
+      shared: {
+        react: { singleton: true },
+        "react-dom": { singleton: true },
+      },
+    }),
+  ],
+})
+```
+
+### Host application (consuming remote modules)
+
+```ts filename="app-a/vite.config.ts"
+import { defineConfig } from "vite"
+import { federation } from "@module-federation/vite"
+
+export default defineConfig({
+  plugins: [
+    federation({
+      name: "app-a",
+
+      // Declare which remote applications to depend on
+      remotes: {
+        "app-b": "app-b@https://app-b.example.com/assets/remoteEntry.js",
+      },
+
+      shared: {
+        react: { singleton: true },
+        "react-dom": { singleton: true },
+      },
+    }),
+  ],
+})
+```
+
+### Using remote modules in the Host application
+
+```tsx filename="app-a/src/App.tsx"
+import { lazy, Suspense } from "react"
+
+// Asynchronously load a component from the Remote
+const RemoteButton = lazy(() => import("app-b/Button"))
+
+export function App() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <RemoteButton>Button from app-b</RemoteButton>
+    </Suspense>
+  )
+}
+```
+
+## Shared dependencies
+
+The `shared` configuration is the key to Module Federation — it prevents React from being bundled twice:
+
+```ts
+shared: {
+  react: {
+    singleton: true,              // only one instance allowed (prevents multi-version conflicts)
+    requiredVersion: "^19.0.0",   // version requirement
+    eager: true,                  // load eagerly (not lazily)
+  },
+}
+```
+
+If both the Host and Remote use React, `singleton: true` ensures there is only one React instance in the browser — this is critical for hooks and context.
+
+## Relationship with Webpack Module Federation
+
+Vite's `@module-federation/vite` is **compatible** with Webpack 5's Module Federation format:
+
+- Webpack 5 applications can consume Remotes built with Vite
+- Vite applications can consume Remotes built with Webpack 5
+- Both share the same configuration concepts (`name` / `exposes` / `remotes` / `shared`)
+
+## Appropriate use cases and limitations
+
+**Good fit**:
+
+- Large enterprise applications where multiple teams develop sub-applications independently
+- Modules that need to be deployed and released independently
+- Existing Webpack Module Federation architectures that need to migrate to Vite
+
+**Poor fit**:
+
+- Small applications (introduces complexity with limited benefit)
+- Scenarios with extremely high performance requirements (runtime network requests have overhead)
+- Scenarios requiring SSR (Module Federation + SSR integration is complex)
+
+## Self-check
+
+1. Both Module Federation and code splitting can load code on demand — what is their core difference?
+2. Why is `shared.react.singleton: true` important? What happens if you don't set it?
+3. Is Vite 8's Module Federation compatible with Webpack 5's Module Federation?
+4. Does a Module Federation Remote application need to be deployed separately? Or can it be deployed together with the Host application?
+
+```ts filename="Exercise"
+// Design a simple micro-frontend architecture:
+// - A Shell application (Host): navigation + route dispatch
+// - A Products application (Remote): product list and detail
+// - A Cart application (Remote): shopping cart
+
+// Write the Module Federation configuration for the Shell and Products applications:
+// Shell's vite.config.ts:
+import { federation } from "@module-federation/vite"
+
+const shellConfig = {
+  plugins: [
+    federation({
+      name: "shell",
+      remotes: {
+        // TODO: declare remote addresses for products and cart
+      },
+      shared: {
+        // TODO: declare shared react-related packages
+      },
+    }),
+  ],
+}
+
+// Products application's vite.config.ts:
+const productsConfig = {
+  plugins: [
+    federation({
+      name: "products",
+      exposes: {
+        // TODO: expose ProductList and ProductDetail components
+      },
+      shared: {
+        // TODO
+      },
+    }),
+  ],
+}
+```

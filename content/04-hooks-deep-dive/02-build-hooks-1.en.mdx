@@ -1,0 +1,301 @@
+---
+title: "Universal Build Hooks (Part 1): options / buildStart / resolveId / load"
+description: A deep dive into the first four core build hooks — from reading configuration and initializing the build, to resolving paths and loading modules. Parameters, return values, and typical usage for each hook.
+order: 2
+part: 04-hooks-deep-dive
+chapter: "4.2"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The `options` hook: when to modify Rolldown input options - Correct usage of `buildStart` and its changes in Vite 8
+  - The first-wins mechanism of `resolveId` and the `\0` prefix convention - How `load` and `resolveId` work together
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Hooks Panorama" (section 4.1) - Understand the concept of module path resolution
+</Callout>
+
+## The `options` Hook
+
+**When it fires**: When Rolldown/Rollup reads input options (build phase only).
+
+**Purpose**: Modify the input configuration passed to Rolldown.
+
+```ts
+options(inputOptions) {
+  // inputOptions contains Rolldown's complete input configuration
+  // You can modify input / external / plugins etc. here
+  return {
+    ...inputOptions,
+    treeshake: {
+      moduleSideEffects: false,
+    },
+  }
+}
+```
+
+**Note**: `options` only fires during `pnpm build`. To modify dev server behavior, use the `config` hook (covered in the next chapter).
+
+## The `buildStart` Hook
+
+**When it fires**: When the build begins. In Vite 8, it also fires when the dev server starts.
+
+**Calling convention**: parallel (all plugins execute concurrently)
+
+**Purpose**: Initialize plugin-internal state, clear caches from the previous build, pre-read config files.
+
+```ts
+buildStart() {
+  // ✅ Good for: initializing variables needed for this build
+  this.processedFiles = new Set()
+  this.startTime = Date.now()
+
+  // ✅ Good for: clearing temporary data from the last build
+  cache.clear()
+}
+```
+
+**Typical pattern: clear cache on each build**
+
+```ts
+import type { Plugin } from "vite"
+
+export function cachePlugin(): Plugin {
+  const cache = new Map<string, string>()
+
+  return {
+    name: "vite-plugin-cache",
+    buildStart() {
+      // Clear the cache at the start of each build (avoid stale data during hot updates)
+      cache.clear()
+    },
+    transform(code, id) {
+      if (cache.has(id)) return { code: cache.get(id)!, map: null }
+
+      const result = expensiveTransform(code)
+      cache.set(id, result)
+      return { code: result, map: null }
+    },
+  }
+}
+
+function expensiveTransform(code: string) {
+  return code
+}
+```
+
+<V7Note title="Vite 7: buildStart does not fire in dev">
+  In Vite 7, if your plugin uses `buildStart` for initialization, it will not execute in dev mode. This causes inconsistent behavior between dev and build.
+
+**Migrating to Vite 8**: No code changes are needed — Vite 8 automatically triggers `buildStart` when the dev server starts. However, you should check: does your `buildStart` logic have side effects that are problematic if it runs on every dev server restart?
+
+</V7Note>
+
+## The `resolveId` Hook
+
+**When it fires**: Every time a module path is resolved (fires in both dev and build).
+
+**Calling convention**: first (competitive — the first plugin to return non-null wins)
+
+**Parameters**:
+
+```ts
+resolveId(
+  source: string,      // The import path to resolve, e.g. "react" or "./utils"
+  importer?: string,   // Who is importing this path (parent module ID)
+  options: {
+    isEntry?: boolean  // Whether this is an entry module
+    // more options...
+  }
+): string | null | false | { id: string; external?: boolean }
+```
+
+**Return values**:
+
+- `string`: The resolved module ID (usually an absolute file path)
+- `null` / `undefined`: I'm not handling this; let the next plugin try
+- `false`: This module is external; don't bundle it
+- `{ id, external: true }`: Resolve to a path but mark it as external
+
+### Most common use case: virtual modules
+
+```ts
+const VIRTUAL_ID = "virtual:config"
+const RESOLVED_ID = "\0" + VIRTUAL_ID  // \0 prefix prevents filesystem misinterpretation
+
+resolveId(id) {
+  if (id === VIRTUAL_ID) return RESOLVED_ID
+  return null
+},
+load(id) {
+  if (id !== RESOLVED_ID) return null
+  return `export default ${JSON.stringify(loadConfig())}`
+},
+```
+
+### Path remapping
+
+```ts
+resolveId(id, importer) {
+  // Remap the "@/" alias to the src/ directory
+  if (id.startsWith("@/")) {
+    return id.replace("@/", "/absolute/path/to/src/")
+  }
+  return null
+},
+```
+
+### Marking as external
+
+```ts
+resolveId(id) {
+  // Tell Rolldown this package doesn't need to be bundled
+  if (id === "some-cdn-package") {
+    return { id: "https://cdn.example.com/some-package.js", external: true }
+  }
+  return null
+},
+```
+
+### Using the `importer` parameter
+
+`importer` is the path of the parent module that is importing this module. You can use it for context-aware resolution:
+
+```ts
+resolveId(id, importer) {
+  // Decide which version to resolve based on the importer's location
+  if (id === "virtual:theme") {
+    const isDark = importer?.includes("/dark/")
+    return isDark ? "\0virtual:theme-dark" : "\0virtual:theme-light"
+  }
+  return null
+},
+```
+
+## The `load` Hook
+
+**When it fires**: After module path resolution is complete, when reading module contents.
+
+**Calling convention**: first (competitive)
+
+**Parameters**:
+
+```ts
+load(
+  id: string,  // The module ID returned by resolveId
+  options?: {
+    ssr?: boolean  // Whether we're in an SSR environment
+  }
+): string | null | { code: string; map?: SourceMap }
+```
+
+### Standard pattern for virtual modules
+
+`load` and `resolveId` almost always appear together:
+
+```ts
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+export function configPlugin(): Plugin {
+  const VIRTUAL_ID = "virtual:app-config"
+  const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+  return {
+    name: "vite-plugin-config",
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // Read data from a config file and generate an ESM module
+      const configPath = resolve("app.config.json")
+      const config = JSON.parse(readFileSync(configPath, "utf-8"))
+
+      // Return valid ES Module code
+      return {
+        code: `
+export const apiUrl = ${JSON.stringify(config.apiUrl)}
+export const version = ${JSON.stringify(config.version)}
+export default ${JSON.stringify(config)}
+`,
+        // map: null means no source map is provided
+      }
+    },
+  }
+}
+```
+
+### Reading non-standard file formats
+
+`load` can also read real files, useful for handling formats Vite doesn't support natively:
+
+```ts
+load(id) {
+  // Handle .yaml files
+  if (!id.endsWith(".yaml")) return null
+
+  const content = readFileSync(id, "utf-8")
+  const parsed = parseYaml(content)
+
+  return {
+    code: `export default ${JSON.stringify(parsed)}`,
+    map: null,
+  }
+},
+```
+
+### Calling `this.addWatchFile` inside `load`
+
+If the result of `load` depends on an external file (like a config file), tell Vite to watch that file for changes:
+
+```ts
+load(id) {
+  if (id !== "\0virtual:config") return null
+
+  const configPath = "/path/to/config.json"
+
+  // 👇 Key: watch the external dependency
+  this.addWatchFile(configPath)
+
+  const config = JSON.parse(readFileSync(configPath, "utf-8"))
+  return `export default ${JSON.stringify(config)}`
+},
+```
+
+When `config.json` changes, Vite will re-execute `load` and trigger HMR.
+
+## Self-check
+
+1. What is the difference between `resolveId` returning `null` versus returning `false`?
+2. Why should virtual module IDs have a `\0` prefix? What happens if you omit it?
+3. If two plugins both handle `"virtual:foo"` in `resolveId`, which one wins? How do you control this?
+4. Why should you call `this.addWatchFile()` inside `load`? What happens if you don't?
+
+```ts filename="Exercise"
+// Implement a plugin that exposes the project root's env.yaml file as the "virtual:env" module
+// When env.yaml changes, automatically trigger HMR
+
+// Expected usage:
+// import env from "virtual:env"
+// console.log(env.API_URL)  // reads the API_URL field from the yaml
+
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+// Assume you already have a parseYaml function
+declare function parseYaml(content: string): Record<string, unknown>
+
+export function envYamlPlugin(): Plugin {
+  // TODO
+}
+```

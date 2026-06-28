@@ -1,0 +1,223 @@
+---
+title: DevEnvironment vs BuildEnvironment
+description: The two states of the Environment API — the dev-time DevEnvironment has a hot channel and module runner; the build-time BuildEnvironment focuses on output generation. What are the API differences between them?
+order: 5
+part: 05-environment-api
+chapter: "5.5"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - The responsibilities of `DevEnvironment` and `BuildEnvironment` - What unique capabilities each one has - How to
+  distinguish and use both environment states inside a plugin - Sharing an Environment configuration while handling
+  dev/build behavior separately
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Core Concepts" (section 5.2) - Read "Default Environments: client and ssr" (section 5.3)
+</Callout>
+
+## Two Environment states
+
+The same `environments.ssr` configuration instantiates different classes in dev mode versus build mode:
+
+```text
+vite dev:
+  ssr config → DevEnvironment instance
+    ├── moduleGraph (per-environment)
+    ├── hot (HotChannel)
+    └── runner (ModuleRunner)
+
+vite build:
+  ssr config → BuildEnvironment instance
+    ├── bundle (output artifacts)
+    └── (no hot / runner)
+```
+
+## DevEnvironment: capabilities in dev mode
+
+`DevEnvironment` is the Environment instance while the dev server is running:
+
+```ts
+interface DevEnvironment {
+  name: string // "client" | "ssr" | custom
+  config: ResolvedConfig
+  moduleGraph: EnvironmentModuleGraph // independent module graph
+
+  // Dev-only:
+  hot: HotChannel // HMR message channel
+  // runner: ModuleRunner         // module executor (separate interface, refer to official docs)
+
+  // Methods:
+  // transformRequest(url): manually trigger a module transform
+}
+```
+
+### Accessing DevEnvironment
+
+```ts
+configureServer(server) {
+  const ssrEnv = server.environments.ssr
+
+  // Check that the environment exists
+  if (!ssrEnv) return
+
+  // Send an HMR message to the ssr environment
+  ssrEnv.hot.send({
+    type: "custom",
+    event: "ssr:cache-clear",
+    data: {},
+  })
+}
+```
+
+### Distinguishing DevEnvironment from BuildEnvironment inside a plugin
+
+```ts
+import type { Plugin, DevEnvironment } from "vite"
+
+export function adaptivePlugin(): Plugin {
+  return {
+    name: "adaptive-plugin",
+    buildStart() {
+      // this.environment is the current Environment instance
+      const env = this.environment
+
+      if (!env) return
+
+      // Distinguish dev from build
+      if ("hot" in env) {
+        // dev mode: DevEnvironment
+        const devEnv = env as DevEnvironment
+        console.log(`[${devEnv.name}] dev mode started`)
+      } else {
+        // build mode: BuildEnvironment
+        console.log(`[${env.name}] build mode started`)
+      }
+    },
+  }
+}
+```
+
+## BuildEnvironment: capabilities in build mode
+
+`BuildEnvironment` is used during `vite build`:
+
+```ts
+interface BuildEnvironment {
+  name: string
+  config: ResolvedConfig
+
+  // Build-only:
+  // Output-related APIs — refer to official docs for specifics
+}
+```
+
+`BuildEnvironment` has no `hot` or `runner` — those concepts only make sense in a dev server.
+
+During a build, output artifacts are handled through plugin hooks like `generateBundle`, not through high-level Environment API methods.
+
+## Writing different behavior for each state
+
+```ts
+import type { Plugin } from "vite"
+
+export function dualModePlugin(): Plugin {
+  return {
+    name: "dual-mode-plugin",
+
+    // These two hooks fire in both dev and build
+    resolveId(id) {
+      /* ... */
+    },
+    load(id) {
+      /* ... */
+    },
+
+    // Dev mode only: configure the server
+    configureServer(server) {
+      // Register dev-only middleware
+      server.middlewares.use("/api/refresh", (req, res) => {
+        res.end("ok")
+      })
+    },
+
+    // Build mode only: analyze the output
+    generateBundle(_, bundle) {
+      // Analyze the build output
+      const chunks = Object.values(bundle).filter((c) => c.type === "chunk")
+      console.log(`Build produced ${chunks.length} chunks`)
+    },
+  }
+}
+```
+
+## Environment-aware transform
+
+Inside a transform, check for the presence of a hot channel to determine the current state:
+
+```ts
+transform(code, id) {
+  const env = this.environment
+  const isDevMode = env && "hot" in env
+
+  if (isDevMode) {
+    // Dev mode: inject debugging helper code
+    return {
+      code: `
+// [dev-only] development debug code
+if (import.meta.env.DEV) {
+  window.__DEBUG_MODULES__ = window.__DEBUG_MODULES__ || new Set()
+  window.__DEBUG_MODULES__.add(${JSON.stringify(id)})
+}
+${code}
+`,
+      map: null,
+    }
+  }
+
+  // Production mode: do not inject debug code
+  return null
+},
+```
+
+## Self-check
+
+1. What is the most significant difference between `DevEnvironment` and `BuildEnvironment`?
+2. Why does `BuildEnvironment` not have a `hot` property?
+3. If you need to send an HMR message inside `buildStart`, how do you check whether you are currently in dev mode?
+4. Does the `configureServer` hook fire in a `BuildEnvironment`? Why or why not?
+
+```ts filename="Exercise"
+// Implement a plugin that in dev mode:
+// - Prints "[dev] server ready: ${envName}" on each buildStart
+// - Sends a "plugin-ready" event to all client connections
+
+// And in build mode:
+// - Prints "[build] starting build for ${envName} environment" on each buildStart
+// - Prints "[build] ${envName} environment complete, N chunks total" when done
+
+import type { Plugin } from "vite"
+
+export function modeAwarePlugin(): Plugin {
+  return {
+    name: "mode-aware",
+    buildStart() {
+      // TODO: use this.environment to determine dev vs build
+    },
+    generateBundle(_, bundle) {
+      // TODO: count chunks in build mode
+    },
+  }
+}
+```

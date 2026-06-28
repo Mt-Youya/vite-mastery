@@ -1,0 +1,298 @@
+---
+title: "Project 6: RSC-like Multi-Environment Build with the Env API"
+description: A comprehensive hands-on project — use Vite 8's Environment API to build an RSC-like three-environment architecture with independent module graphs for client/ssr/rsc, and use ModuleRunner to pass data across environments.
+order: 10
+part: 05-environment-api
+chapter: "5.10"
+difficulty: 4
+readingTime: 20
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  This chapter uses Vite 8's **Environment API (RC stage)**. API details may change between versions. The project is
+  pinned to Vite `8.1.x`. Verify the official documentation for your version before using in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - How to configure three independent Environments (client / ssr / rsc) - How each environment's independent module
+  graph isolates sensitive code - Using ModuleRunner to execute server components in the rsc environment - Companion
+  hands-on project: `examples/env-api-rsc-demo`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Complete all content in the first three sections of Part 5 - Understand React basics (function components, JSX) -
+  Basic familiarity with Node.js HTTP servers
+</Callout>
+
+## Project goal
+
+Build a minimal RSC-like architecture that demonstrates the core value of the Environment API:
+
+```text
+Browser
+  └── client Environment
+        └── Regular React components (stateful, event handling)
+
+Node.js (SSR)
+  └── ssr Environment
+        └── SSR entry point, calls rsc environment to get server component output
+
+"RSC" environment (rsc)
+  └── rsc Environment
+        └── Server components (direct access to databases/filesystem)
+        └── Only allowed to use react-server exports
+```
+
+## Project structure
+
+```text
+examples/env-api-rsc-demo/
+├── vite.config.ts     ← three-environment configuration
+├── server.js          ← HTTP server + ModuleRunner
+├── src/
+│   ├── main.tsx       ← client entry
+│   ├── App.tsx        ← regular React component (client)
+│   ├── entry-server.tsx  ← ssr entry
+│   └── server-component.tsx  ← RSC-like server component
+```
+
+## Step 1: Configure three Environments
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+
+  environments: {
+    // client: browser React application
+    client: {
+      resolve: {
+        conditions: ["browser", "import"],
+      },
+    },
+
+    // ssr: Node.js SSR entry
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+        noExternal: ["react", "react-dom"],
+      },
+    },
+
+    // rsc: server component environment
+    // Note: real RSC requires the react-server condition
+    // but this simplified demo uses node
+    rsc: {
+      resolve: {
+        conditions: ["node", "import"],
+      },
+    },
+  },
+})
+```
+
+## Step 2: Server component
+
+```tsx filename="src/server-component.tsx"
+/**
+ * RSC-like server component.
+ * Only runs in the rsc environment.
+ * Can directly access databases, the filesystem, and other server-only resources.
+ */
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface Post {
+  title: string
+  content: string
+}
+
+// Simulate reading data from a database (in a real app this would be an actual DB query)
+async function getPosts(): Promise<Post[]> {
+  const dataPath = resolve("data/posts.json")
+  try {
+    return JSON.parse(readFileSync(dataPath, "utf-8")) as Post[]
+  } catch {
+    return [
+      { title: "Example Post 1", content: "This content comes from the server" },
+      { title: "Example Post 2", content: "Read directly from the filesystem" },
+    ]
+  }
+}
+
+// Server component: returns serialized JSON data (not HTML)
+export async function ServerPostList(): Promise<string> {
+  const posts = await getPosts()
+  // In real RSC this would return RSC flight format
+  // This simplified version returns JSON directly
+  return JSON.stringify(posts)
+}
+```
+
+## Step 3: SSR entry
+
+```tsx filename="src/entry-server.tsx"
+import { renderToString } from "react-dom/server"
+
+interface ServerData {
+  posts: Array<{ title: string; content: string }>
+}
+
+export async function render(url: string, serverData: ServerData): Promise<string> {
+  // Note: App here is loaded in the ssr environment
+  const { App } = await import("./App")
+
+  const appHtml = renderToString(<App posts={serverData.posts} />)
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Env API RSC Demo</title>
+  </head>
+  <body>
+    <div id="root">${appHtml}</div>
+    <script>window.__INITIAL_DATA__ = ${JSON.stringify(serverData)}</script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`
+}
+```
+
+## Step 4: HTTP Server + ModuleRunner
+
+```js filename="server.js"
+/**
+ * Dev server: demonstrates how to execute code using the ModuleRunner
+ * of different Environments.
+ *
+ * ⚠️ The exact ModuleRunner API follows the Vite 8.1.x official documentation.
+ * The code below is a conceptual illustration.
+ */
+
+import { createServer } from "node:http"
+import { createServer as createViteServer } from "vite"
+
+const vite = await createViteServer({
+  server: { middlewareMode: true },
+  appType: "custom",
+})
+
+// Concept: get the ModuleRunner for each environment
+// Actual API follows official documentation
+// const ssrRunner = getModuleRunner(vite.environments.ssr)
+// const rscRunner = getModuleRunner(vite.environments.rsc)
+
+const server = createServer(async (req, res) => {
+  try {
+    const url = req.url ?? "/"
+
+    // Step 1: execute the server component in the rsc environment
+    // const { ServerPostList } = await rscRunner.import("/src/server-component")
+    // const postsJson = await ServerPostList()
+    // const posts = JSON.parse(postsJson)
+
+    // Temporary placeholder (replace when the official API is available)
+    const posts = [{ title: "Example Post", content: "Environment API demo" }]
+
+    // Step 2: render HTML in the ssr environment
+    // const { render } = await ssrRunner.import("/src/entry-server")
+    // const html = await render(url, { posts })
+
+    // Temporary placeholder
+    const html = `<html><body><h1>Environment API Demo</h1><p>${JSON.stringify(posts)}</p></body></html>`
+
+    res.setHeader("Content-Type", "text/html; charset=utf-8")
+    res.end(await vite.transformIndexHtml(url, html))
+  } catch (e) {
+    vite.ssrFixStacktrace(e)
+    res.statusCode = 500
+    res.end(String(e))
+  }
+})
+
+server.listen(5173, () => {
+  console.log("Env API RSC Demo: http://localhost:5173")
+  console.log("⚠️  Complete ModuleRunner API follows Vite 8.1.x official documentation")
+})
+```
+
+## Key design principles
+
+### Principle 1: Each environment has its own module graph
+
+```text
+client environment:
+  ModuleGraph {
+    "/src/App.tsx" → ... (browser resolve)
+  }
+
+ssr environment:
+  ModuleGraph {
+    "/src/App.tsx" → ... (node resolve, possibly a different version)
+    "/src/entry-server.tsx" → ...
+  }
+
+rsc environment:
+  ModuleGraph {
+    "/src/server-component.tsx" → ... (node resolve)
+    "node:fs" → external
+  }
+```
+
+### Principle 2: Sensitive code isolation
+
+`server-component.tsx` contains `readFileSync` — this module should only exist in the `rsc` environment. The client can never import it:
+
+```text
+client browser → cannot import server-component.tsx
+                 (the rsc environment's module graph is invisible to the client)
+```
+
+## Running the hands-on project
+
+```bash
+cd examples/env-api-rsc-demo
+pnpm install
+pnpm dev
+```
+
+Visit `http://localhost:5173` and observe the console logs:
+
+- Logs prefixed with `[client]` come from the client environment
+- Logs prefixed with `[rsc]` come from the rsc environment
+
+## Self-check
+
+1. Why does `server-component.tsx` need its own rsc environment rather than being placed in the ssr environment?
+2. If `client/App.tsx` accidentally imports `server-component.tsx`, what happens? Can the Environment API help detect this error?
+3. When `data/posts.json` changes, which Environments' HMR is triggered?
+4. In this simplified architecture, at which step is the real React Server Components flight format replaced with plain JSON?
+
+```ts filename="Exercise"
+// Extend the project: add a boundary detection plugin.
+// If any module in the client environment attempts to import
+// /src/server-component.tsx, immediately throw an error and block it.
+
+import type { Plugin } from "vite"
+
+export function rscBoundaryPlugin(): Plugin {
+  return {
+    name: "rsc-boundary",
+    resolveId(id, importer) {
+      // TODO:
+      // 1. Detect whether the current environment is client
+      // 2. Detect whether the module being imported is server-component.tsx
+      // 3. If the boundary is violated, return a virtual module ID that will throw
+    },
+    load(id) {
+      // TODO: return code that throws an Error for the violating module
+    },
+  }
+}
+```

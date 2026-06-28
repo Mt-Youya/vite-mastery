@@ -1,0 +1,160 @@
+---
+title: How to read this site
+description: Conventions used across the guide — V7 diff blocks, difficulty rating, interactive components, code-block notation. Five minutes here saves hours later.
+order: 4
+part: 00-getting-started
+chapter: "0.4"
+difficulty: 1
+readingTime: 5
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What each Callout block means
+  - `<V7Note>` collapsible: how Vite 7 / Vite 8 differences are handled
+  - The difficulty rating ▮▮▯▯
+  - How filenames, line highlights, and diff notations work in code blocks
+</Callout>
+
+## Reading conventions at a glance
+
+The main line of this guide is **Vite 8**. Vite 7 differences never bleed into the body — they're folded into `<V7Note>` blocks. If you're still on Vite 7 (or migrating), expand them; if you started on Vite 8, you can skip them entirely.
+
+---
+
+## Callout blocks
+
+### Note (blue)
+
+<Callout type="note" title="Example: note">
+  Background, supplementary detail, things to be aware of but not urgent.
+</Callout>
+
+### Tip (orange)
+
+<Callout type="tip" title="Example: tip">
+  Lessons from real projects, non-obvious usage, small efficiency wins.
+</Callout>
+
+### Warning (yellow)
+
+<Callout type="warning" title="Example: warning">
+  Easy traps, breaking-change operations, behavior to watch closely in production.
+</Callout>
+
+### Danger (red)
+
+<Callout type="danger" title="Example: danger">
+  Operations that may cause data loss, security holes or corrupt build output. Rare.
+</Callout>
+
+---
+
+## `<V7Note>` — Vite 7 diff block
+
+The site's most important convention. Click the header below to expand:
+
+<V7Note title="Vite 7: dual-engine architecture">
+  Vite 7's dev mode uses esbuild (Go) for transform, build mode uses Rollup (JS) for bundling. Hook behavior diverges subtly between the two engines, and some Rollup plugins don't take effect in dev.
+
+**Migrating to Vite 8**: Rolldown unifies both stages, so plugins target a single API.
+
+</V7Note>
+
+**Rules**:
+
+- Where Vite 8 and Vite 7 **behave the same** → no `<V7Note>`
+- Where they **differ** → the entire diff goes inside `<V7Note>`; the body covers Vite 8 only
+- Vite 6 and earlier → **not covered** on this site
+
+---
+
+## Difficulty rating
+
+Each article's meta line carries a difficulty bar:
+
+| Marker | Meaning                                          |
+| ------ | ------------------------------------------------ |
+| ▮▯▯▯   | Beginner: know JS, copy-paste to make it work    |
+| ▮▮▯▯   | Intermediate: comfortable with build toolchains  |
+| ▮▮▮▯   | Deep: source-code-level mechanics                |
+| ▮▮▮▮   | Expert: plugin / tooling-author experience helps |
+
+---
+
+## Code-block conventions
+
+### Filename label
+
+```ts filename="vite.config.ts"
+// The filename tag in the corner tells you which file this snippet belongs to
+import { defineConfig } from "vite"
+export default defineConfig({})
+```
+
+### Line highlight
+
+```ts filename="vite.config.ts" {3-5}
+import { defineConfig } from "vite"
+export default defineConfig({
+  base: "/app/", // ← these three lines are highlighted
+  build: {
+    outDir: "output", // ← focus area
+  },
+})
+```
+
+### Diff markers
+
+```ts
+export default defineConfig({
+  build: {
+    outDir: "dist", // [!code --]
+    outDir: "output", // [!code ++]
+  },
+})
+```
+
+### Focus markers
+
+Pull attention to the key lines — everything else fades. Hover to restore visibility.
+
+```ts
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react" // [!code focus]
+
+export default defineConfig({
+  plugins: [react()],
+})
+```
+
+---
+
+## Interactive components
+
+A few components on this site are built specifically to visualize Vite internals — touch them when you see them:
+
+**HookExplorer** — click a hook name to see when it fires, its signature, an example, and its Rolldown compatibility:
+
+<HookExplorer filter={["resolveId", "load", "transform"]} />
+
+**V7Note** — demoed above.
+
+**BundlerCompare** — Vite 7 dual engine vs Vite 8 Rolldown architecture, hover to trace the data flow.
+
+---
+
+## Self-check
+
+The "Self-check" at the end of every section has two parts:
+
+1. **Concept questions** (3–5): explain core concepts in your own words
+2. **Coding question** (1): write or modify code to confirm understanding
+
+When you're stuck, don't read the answer first — run it in a side-project and the moment of clarity usually arrives there.
+
+---
+
+That's the conventions. From the next section, we head into the real material.

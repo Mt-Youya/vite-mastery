@@ -1,8 +1,11 @@
 import { withContentCollections } from "@content-collections/next"
+import createNextIntlPlugin from "next-intl/plugin"
 import type { NextConfig } from "next"
 import { fileURLToPath } from "node:url"
 
 const contentCollectionsEntry = fileURLToPath(new URL("./.content-collections/generated/index.js", import.meta.url))
+/** 把 messages 注入 + 提供 next-intl 的 server helpers。 */
+const withNextIntl = createNextIntlPlugin("./i18n/request.ts")
 
 const config: NextConfig = {
   reactStrictMode: true,
@@ -35,4 +38,12 @@ const config: NextConfig = {
   },
 }
 
-export default withContentCollections(config)
+/**
+ * `withContentCollections` 的返回类型在新版里是 `Promise<Partial<NextConfig>>`,
+ * `withNextIntl` 的入参又是同步 NextConfig —— 用一个 async 默认导出包一下,
+ * Next 16 接受 async config factory。
+ */
+export default async function nextConfig() {
+  const withContent = await withContentCollections(config)
+  return withNextIntl(withContent as NextConfig)
+}

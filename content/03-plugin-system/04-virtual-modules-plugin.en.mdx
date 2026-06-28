@@ -1,0 +1,294 @@
+---
+title: "In Practice: Virtual Module Plugins"
+description: Implement a virtual module plugin from scratch using resolveId + load, understand the \0 prefix convention, add HMR support, and learn how to publish it as a reusable npm package.
+order: 4
+part: 03-plugin-system
+chapter: "3.4"
+difficulty: 2
+readingTime: 18
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What a virtual module is and what problem it solves - The origin and necessity of the `\0` prefix convention - How
+  `resolveId` + `load` work together - Adding HMR support to a virtual module - Companion hands-on project:
+  `examples/plugin-virtual-modules`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Plugin Execution Order" (section 3.3) - Understanding the `import` resolution flow in ES Modules
+</Callout>
+
+## What is a virtual module
+
+A normal `import` corresponds to a file that actually exists on disk:
+
+```ts
+import utils from "./utils.ts" // maps to src/utils.ts
+import logo from "./logo.svg" // maps to src/logo.svg
+```
+
+A **virtual module** is a module that **does not exist on the filesystem** — its content is generated dynamically by a plugin at runtime:
+
+```ts
+import meta from "virtual:site-meta"
+//              ↑ no real file corresponds to this path
+//              ↑ content is computed on the fly by a plugin
+```
+
+### When virtual modules are the right tool
+
+- Injecting **build-time information**: current timestamp, git commit, `package.json` version
+- Exposing config file contents to runtime code without a raw JSON import (with type-safe wrappers)
+- Generating **route tables**, **i18n locale bundles**, **icon sprites**, and other data that requires scanning the filesystem
+- `import.meta.glob` is itself implemented on top of virtual modules
+
+## The `\0` prefix convention
+
+Implementing a virtual module requires two hooks working together: `resolveId` and `load`.
+
+```ts filename="plugin.ts"
+const VIRTUAL_ID = "virtual:site-meta"
+const RESOLVED_ID = "\0" + VIRTUAL_ID // = "\0virtual:site-meta"
+
+export function virtualSiteMeta(): Plugin {
+  return {
+    name: "vite-plugin-virtual-site-meta",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+      // Return the module content (an ES Module as a string)
+      return `export const buildTime = "${new Date().toISOString()}"`
+    },
+  }
+}
+```
+
+Why must you add `\0`?
+
+When `resolveId` returns an ID, Vite/Rolldown checks whether that ID is a real file path. Without the `\0` prefix, Rolldown tries to find a file named `virtual:site-meta` on the filesystem — it won't find one, and will throw an error.
+
+`\0` (the null byte) is Rolldown/Rollup's internal convention for "this is a virtual module": an ID prefixed with `\0` skips the filesystem lookup and is handed directly to the `load` hook.
+
+<Callout type="tip">
+  In JSON output or logs, `\0` may appear as `%00` or garbled text. Don't be alarmed — it's just a conventional marker
+  character.
+</Callout>
+
+<V7Note title="Virtual module behavior is the same in Vite 7">
+  The `\0` prefix convention comes from the Rollup spec. Both Vite 7 and Vite 8 follow it; there is no difference.
+</V7Note>
+
+## Full implementation: injecting build information
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
+
+const VIRTUAL_ID = "virtual:site-meta"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export interface SiteMetaOptions {
+  /** Additional fields to inject */
+  extra?: Record<string, unknown>
+}
+
+export function virtualSiteMeta(options: SiteMetaOptions = {}): Plugin {
+  return {
+    name: "vite-plugin-virtual-site-meta",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // Read the version from package.json
+      const pkg = JSON.parse(readFileSync(resolve("package.json"), "utf-8")) as { version?: string; name?: string }
+
+      const meta = {
+        buildTime: new Date().toISOString(),
+        version: pkg.version ?? "0.0.0",
+        name: pkg.name ?? "unknown",
+        ...options.extra,
+      }
+
+      // Return valid ES Module source code as a string
+      return `
+export const buildTime = ${JSON.stringify(meta.buildTime)}
+export const version = ${JSON.stringify(meta.version)}
+export const name = ${JSON.stringify(meta.name)}
+
+export default ${JSON.stringify(meta)}
+`
+    },
+  }
+}
+```
+
+Usage:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { virtualSiteMeta } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [
+    virtualSiteMeta({
+      extra: {
+        repo: "https://github.com/my/repo",
+      },
+    }),
+  ],
+})
+```
+
+```ts filename="src/main.ts"
+import meta from "virtual:site-meta"
+
+console.log(meta.buildTime) // "2026-06-26T12:00:00.000Z"
+console.log(meta.version) // "1.0.0"
+```
+
+## Type declaration file
+
+Importing a virtual module directly will cause TypeScript errors. You need to provide type declarations:
+
+```ts filename="src/virtual.d.ts"
+declare module "virtual:site-meta" {
+  export const buildTime: string
+  export const version: string
+  export const name: string
+
+  const meta: {
+    buildTime: string
+    version: string
+    name: string
+    [key: string]: unknown
+  }
+  export default meta
+}
+```
+
+Alternatively, use `generateBundle` inside the plugin to auto-generate a `.d.ts` file (see step 4 in the `examples/plugin-auto-import` hands-on project).
+
+## Multiple virtual modules
+
+A single plugin can manage multiple virtual modules:
+
+```ts filename="plugin.ts"
+const MODULES: Record<string, () => string> = {
+  "virtual:config": () => `export default ${JSON.stringify(loadConfig())}`,
+  "virtual:routes": () => `export default ${JSON.stringify(scanRoutes())}`,
+  "virtual:i18n": () => `export default ${JSON.stringify(loadLocale())}`,
+}
+
+export function multiVirtual(): Plugin {
+  return {
+    name: "vite-plugin-multi-virtual",
+    resolveId(id) {
+      if (id in MODULES) return "\0" + id
+      return null
+    },
+    load(id) {
+      const originalId = id.slice(1) // strip the \0 prefix
+      const factory = MODULES[originalId]
+      if (!factory) return null
+      return factory()
+    },
+  }
+}
+```
+
+## Adding HMR support
+
+The content of a virtual module often depends on external data (config files, locale files, route files). When those files change, the virtual module should trigger HMR.
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite"
+import { watch } from "node:fs"
+
+export function virtualConfig(): Plugin {
+  const configPath = resolve("config.json")
+
+  return {
+    name: "vite-plugin-virtual-config",
+
+    resolveId(id) {
+      if (id === "virtual:config") return "\0virtual:config"
+      return null
+    },
+
+    load(id) {
+      if (id !== "\0virtual:config") return null
+      // Tell Vite: this virtual module depends on config.json
+      this.addWatchFile(configPath)
+      return `export default ${readFileSync(configPath, "utf-8")}`
+    },
+
+    // When a file changes in the dev server, invalidate the virtual module
+    handleHotUpdate({ file, server }) {
+      if (file === configPath) {
+        const module = server.moduleGraph.getModuleById("\0virtual:config")
+        if (module) {
+          server.moduleGraph.invalidateModule(module)
+          // Tell the browser to reload this module
+          return [module]
+        }
+      }
+    },
+  }
+}
+```
+
+## Companion hands-on project
+
+`examples/plugin-virtual-modules` is the complete hands-on project for this section.
+
+After entering the project directory:
+
+```bash
+pnpm install
+pnpm dev      # see buildTime and other info in the browser
+```
+
+The full walkthrough is split into steps under `steps/`:
+
+- `steps/01-bare-plugin` — minimal skeleton with only `name`
+- `steps/02-resolveId-load` — implementing the two core hooks
+- `steps/03-hmr` — adding HMR support
+- `final/` — the complete version with type declarations
+
+## Self-check
+
+1. Why does `resolveId` return an ID with the `\0` prefix instead of returning the original `"virtual:xxx"` string directly?
+2. Why can a virtual module's `load` hook return content without reading any file?
+3. What happens when you call `this.addWatchFile(path)` inside `load`?
+4. If the external config file that a virtual module depends on changes but there is no `handleHotUpdate`, what happens?
+
+```ts filename="Exercise"
+// Implement a virtual:env plugin
+// import env from "virtual:env"
+// env should contain:
+//   - NODE_ENV: the current environment name
+//   - APP_VERSION: read from package.json
+//   - BUILD_TIME: the build timestamp (number)
+//
+// Also generate correct TypeScript type declarations for virtual:env
+
+import type { Plugin } from "vite"
+
+export function virtualEnv(): Plugin {
+  // TODO
+}
+```

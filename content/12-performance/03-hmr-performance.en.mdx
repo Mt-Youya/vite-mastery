@@ -1,0 +1,170 @@
+---
+title: HMR Performance Diagnosis
+description: HMR feeling sluggish? Use `--debug hmr` to find the bottleneck — is it a slow transform, a large module graph traversal, or WebSocket latency? Diagnose and fix the right problem.
+order: 3
+part: 12-performance
+chapter: "12.3"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The root causes of slow HMR - How to use the `--debug hmr` command - How to optimize an oversized module graph - How
+  to diagnose excessive transform time
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of how HMR works (section 6.1) - Understanding the Module Graph (section 1.4)
+</Callout>
+
+## HMR time breakdown
+
+```text
+File changed → HMR update complete
+  │
+  ├── 1. Filesystem detection delay (chokidar, usually <10ms)
+  │
+  ├── 2. Module graph traversal (finding affected modules)
+  │         Can be >100ms for complex graphs
+  │
+  ├── 3. Transform affected modules
+  │         Can be slow if plugins are involved
+  │
+  ├── 4. WebSocket message transmission (<1ms)
+  │
+  └── 5. Browser executes the hot update (depends on the framework)
+```
+
+## `--debug hmr` diagnosis
+
+```bash
+DEBUG=vite:hmr pnpm dev
+```
+
+Sample output:
+
+```text
+  vite:hmr hmr update /src/components/Button.tsx
+  vite:hmr hotModules: [
+    { url: '/src/components/Button.tsx', type: 'js-update' }
+  ] +2ms
+  vite:hmr propagate: Button.tsx → App.tsx → main.tsx +15ms
+```
+
+Watch for:
+
+- `propagate` time: module graph traversal cost (optimize if >100ms)
+- transform time: recompilation time for each module
+
+## Problem 1: Module graph too large, traversal is slow
+
+**Symptom**: long `propagate` time (hundreds of milliseconds).
+
+**Cause**: a foundational module (like `utils.ts`) is imported by many other modules, creating a massive propagation chain.
+
+**Diagnosis**:
+
+```ts
+// Check the number of importers for a module inside configureServer
+configureServer(server) {
+  server.middlewares.use("/__graph-info", (req, res) => {
+    const info = [...server.moduleGraph.idToModuleMap.values()]
+      .map(m => ({ id: m.id, importers: m.importers.size }))
+      .sort((a, b) => b.importers - a.importers)
+      .slice(0, 20)  // Top 20 most-imported modules
+
+    res.end(JSON.stringify(info, null, 2))
+  })
+}
+```
+
+**Fix**:
+
+- Split commonly used utility functions into more granular files
+- Avoid "barrel files" (a single `index.ts` that re-exports everything), which connect all modules together
+- Be mindful of boundaries when using `import.meta.glob`
+
+## Problem 2: Transform takes too long
+
+**Symptom**: after changing a file, the page takes 500ms+ to update.
+
+**Diagnosis**: add timing instrumentation inside the transform hook:
+
+```ts
+transform(code, id) {
+  const start = performance.now()
+
+  const result = doExpensiveWork(code)
+
+  const elapsed = performance.now() - start
+  if (elapsed > 50) {
+    console.warn(`[slow-plugin] ${id}: ${elapsed.toFixed(0)}ms`)
+  }
+
+  return result
+},
+```
+
+**Common causes**:
+
+- A plugin performs unnecessary full AST parsing
+- A regular expression runs slowly on large files
+- Synchronous I/O operations are being called
+
+## Problem 3: Unnecessary HMR propagation
+
+**Symptom**: changing one small file triggers a large-scale module update.
+
+**Diagnosis**: use `handleHotUpdate` to print propagation details:
+
+```ts
+handleHotUpdate({ file, modules }) {
+  console.log(`[HMR] ${file} triggered ${modules.length} module updates`)
+  modules.forEach(m => console.log(`  - ${m.id}`))
+  return modules
+},
+```
+
+**Fix**:
+
+- Filter out unnecessary modules inside `handleHotUpdate`
+- Replace module-level HMR with custom events
+- Check whether "global state" is causing all modules to depend on the same base module
+
+## Problem 4: Slow execution in the browser
+
+React Fast Refresh needs to diff the old and new component trees during an HMR update. This can be slow for large component trees.
+
+**Fix**:
+
+- Make sure component files don't mix in non-component code (which causes the entire file to reload)
+- Use `React.memo` to reduce unnecessary re-renders
+- Split large components into smaller files
+
+## Self-check
+
+1. Which phases make up HMR time? Which is most likely to become a bottleneck?
+2. Why do barrel files (`index.ts` that re-exports everything) cause slow HMR propagation?
+3. How do you use `handleHotUpdate` to block unnecessary HMR propagation?
+4. Why does modifying `store.ts` sometimes cause all page components to HMR update?
+
+```ts filename="Exercise"
+// Diagnose the HMR performance problem in the following scenario:
+// - The project has 200+ components
+// - After modifying any component, HMR always takes 800ms+
+// - The module graph shows src/index.ts has 180+ importers
+//
+// 1. What is the problem?
+// 2. Write a handleHotUpdate to print propagation details
+// 3. How would you refactor src/index.ts to fix this?
+
+// Current src/index.ts (the problematic barrel file):
+export { Button } from "./components/Button"
+export { Input } from "./components/Input"
+// ... exports 100+ components
+
+// TODO: How would you refactor to reduce HMR propagation?
+```

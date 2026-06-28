@@ -1,0 +1,188 @@
+---
+title: Rolldown's Role in the Vite 8 Build
+description: What changes in the build configuration after the production build switches from Rollup to Rolldown? Does rollupOptions still work? How do you write Rolldown-specific configuration?
+order: 1
+part: 07-build-pipeline
+chapter: "7.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The specific changes Vite 8 makes by using Rolldown for builds - Whether `rollupOptions` is still valid in Vite 8 -
+  Rolldown-specific configuration options - What to watch out for when migrating build config from Vite 7
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "What is Rolldown" (section 2.2) - Understand the basic `vite build` flow
+</Callout>
+
+## Is build.rollupOptions still valid?
+
+Yes, **completely valid**. This is one of Vite 8's core design promises — `rollupOptions` is backwards compatible:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  build: {
+    // ✅ All of these options work under Vite 8 + Rolldown
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        admin: "admin.html",
+      },
+      output: {
+        manualChunks: {
+          vendor: ["react", "react-dom"],
+          utils: ["lodash-es", "date-fns"],
+        },
+        chunkFileNames: "assets/[name]-[hash].js",
+        entryFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+      external: ["some-cdn-lib"],
+    },
+  },
+})
+```
+
+## Key build configuration quick reference
+
+| Option                        | Default                       | Description                          |
+| ----------------------------- | ----------------------------- | ------------------------------------ |
+| `build.outDir`                | `"dist"`                      | Output directory for build artifacts |
+| `build.assetsDir`             | `"assets"`                    | Subdirectory for static assets       |
+| `build.sourcemap`             | `false`                       | Source map for build output          |
+| `build.minify`                | `"esbuild"`                   | Minifier                             |
+| `build.target`                | `"baseline-widely-available"` | Browser compatibility target         |
+| `build.cssMinify`             | `"lightningcss"`              | CSS minifier (new default in Vite 8) |
+| `build.lib`                   | `undefined`                   | Library mode configuration           |
+| `build.chunkSizeWarningLimit` | `500`                         | Chunk size warning threshold (KB)    |
+
+## Changes to minification configuration in Vite 8
+
+<V7Note title="Vite 7: CSS minified with esbuild">
+  In Vite 7, CSS minification used esbuild by default. Vite 8 switches to **lightningcss** as the default CSS minifier.
+
+`lightningcss` is implemented in Rust and supports more modern CSS features: nested rules, color-mix, cascade layers, and more.
+
+Migration note: if your CSS relies on certain esbuild-specific behavior, you may need to verify lightningcss output. To restore the old behavior:
+
+```ts
+build: {
+  cssMinify: "esbuild" // explicitly revert to esbuild
+}
+```
+
+</V7Note>
+
+## JS minification configuration
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  build: {
+    // JS minifier (Vite 8 still defaults to esbuild; Rolldown's built-in OXC minifier is also available)
+    minify: "esbuild", // "esbuild" | "terser" | false
+
+    // OXC minifier (built into Rolldown, experimental in Vite 8)
+    // minify: "rolldown",  // use Rolldown's built-in OXC minifier
+  },
+})
+```
+
+## Multi-entry builds
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      input: {
+        // Multiple HTML entry points
+        index: resolve("index.html"),
+        about: resolve("about.html"),
+        admin: resolve("admin/index.html"),
+      },
+    },
+  },
+})
+```
+
+Output:
+
+```text
+dist/
+  index.html
+  about.html
+  admin/index.html
+  assets/
+    index-HASH.js
+    about-HASH.js
+    admin-HASH.js
+    vendor-HASH.js  ← shared chunk
+```
+
+## Code splitting strategy
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        // Manually control chunk splitting
+        manualChunks(id) {
+          if (id.includes("node_modules")) {
+            // Split all node_modules by package name
+            const packageName = id.match(/node_modules\/(.+?)\//)?.[1]
+            if (packageName) {
+              // Group react-related packages together
+              if (["react", "react-dom", "react-router-dom"].includes(packageName)) {
+                return "react-vendor"
+              }
+              // Split other large packages individually
+              if (["lodash-es", "date-fns", "axios"].includes(packageName)) {
+                return packageName
+              }
+              // Everything else goes into vendor
+              return "vendor"
+            }
+          }
+        },
+      },
+    },
+  },
+})
+```
+
+## Self-check
+
+1. Can `rollupOptions` configuration from Vite 7 still be used in Vite 8? Why?
+2. What did the default CSS minification tool change from and to in Vite 8?
+3. What is the difference between `build.minify: "esbuild"` and `build.minify: false`? When is each appropriate?
+4. How do you configure Vite to build multiple HTML entry points simultaneously?
+
+```ts filename="Exercise"
+// Configure a Vite build for a multi-page application:
+// - 3 pages: index.html, dashboard.html, settings.html
+// - react and react-dom bundled separately as react-vendor.js
+// - lodash-es in its own chunk
+// - sourcemap enabled
+// - CSS minified with lightningcss
+
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    // TODO
+  },
+})
+```

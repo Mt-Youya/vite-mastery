@@ -1,0 +1,154 @@
+---
+title: What Is Rolldown
+description: A next-generation JavaScript bundler written in Rust — why rebuild from scratch? What is Rolldown's relationship to Rollup? What are its design goals?
+order: 2
+part: 02-bundler-evolution
+chapter: "2.2"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Rolldown's design goals and positioning - The relationship between Rolldown and Rollup (not competition —
+  inheritance) - What OXC (Oxidation Compiler) is - Rolldown's role in the Vite 8 ecosystem
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "The Dual-Engine Legacy" (section 2.1) - Know that Rust exists (you don't need to be able to write it)
+</Callout>
+
+## Rolldown's Positioning
+
+Rolldown is a JavaScript / TypeScript bundler implemented in **Rust**, led by the Vite team.
+
+> Official definition: Rolldown is a fast JavaScript bundler built in Rust, intended to serve as the unified bundler used within Vite, replacing the dual use of esbuild and Rollup.
+>
+> — [rolldown.rs](https://rolldown.rs)
+
+**The key word is: unified.** That is Rolldown's core mission — not to replace Rollup's place in the broader ecosystem, but to provide a single, unified transform + bundle pipeline inside Vite.
+
+## Rolldown and Rollup: An Inheritance Relationship
+
+Rolldown's API design deliberately maintains a high degree of compatibility with Rollup. For plugin authors, a plugin written for Rollup should theoretically run on Rolldown without any modifications.
+
+This compatibility is a design goal, not an accident:
+
+```ts
+// This is a standard Rollup plugin
+function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    resolveId(id, importer) {
+      if (id === "virtual:data") return "\0virtual:data"
+      return null
+    },
+    load(id) {
+      if (id === "\0virtual:data") {
+        return `export const data = ${JSON.stringify(getData())}`
+      }
+      return null
+    },
+  }
+}
+
+// In Vite 8 (Rolldown), the plugin above runs without any modification
+```
+
+Rolldown's hook system, plugin interface, and the semantics of `resolveId` / `load` / `transform` all remain consistent with Rollup.
+
+<V7Note title="Vite 7: Limitations of Rollup plugins in the dev stage">
+  In Vite 7, certain Rollup plugin hooks (such as `renderChunk` and `generateBundle`) did not fire during dev, because
+  dev used esbuild rather than Rollup. Vite 8's unified Rolldown pipeline resolves this problem.
+</V7Note>
+
+## OXC: Rolldown's Parsing Engine
+
+Rolldown uses **OXC** (Oxidation Compiler) internally to handle JavaScript / TypeScript parsing and basic transforms.
+
+OXC is a collection of JavaScript toolchain components implemented in Rust, including:
+
+| Component           | Function                                           |
+| ------------------- | -------------------------------------------------- |
+| OXC Parser          | JS/TS parser, outputs AST                          |
+| OXC Transformer     | AST-level TypeScript / JSX compilation             |
+| OXC Minifier        | Code minification (used in Rolldown's build stage) |
+| OXC Linter (oxlint) | Standalone lint tool (also used on this site)      |
+
+OXC Parser is one of the fastest parsers in the JS ecosystem today. Rolldown uses OXC for module resolution, making `import` path analysis and tree-shaking far faster than any pure-JS implementation.
+
+> Reference: [oxc-project.github.io](https://oxc-project.github.io/) — OXC official documentation
+
+## What Rolldown Does in Vite 8
+
+The Vite 8 build pipeline simplifies to:
+
+```text
+Source (TS/JSX/CSS/...)
+       │
+       ▼
+   Rolldown
+   ┌─────────────────────────────────┐
+   │  OXC Parser  →  Module Graph   │
+   │  Transform   →  Resolve        │
+   │  Chunking    →  Minify         │
+   └─────────────────────────────────┘
+       │              │
+       ▼              ▼
+   Dev: on-demand  Build: full
+   transform       bundle output
+```
+
+In **dev mode**, Rolldown is used as a transform engine: whenever the browser requests a module, Rolldown performs TypeScript type-stripping, JSX compilation, and similar operations, then returns browser-executable ESM.
+
+In **build mode**, Rolldown performs full static analysis, tree-shaking, code splitting, and output generation — exactly the same responsibilities Rollup had.
+
+## Will Rolldown and Rollup Coexist Long-term?
+
+Yes. Rolldown is designed for internal use within Vite — it will not replace Rollup's position in the broader JS ecosystem. Projects that use Rollup directly (not through Vite) are unaffected.
+
+For developers using Vite:
+
+- If you only write application code, Rolldown is completely transparent to you — you won't notice any change
+- If you write Vite plugins, you need to be aware of the small number of behavioral differences covered in [section 2.5](./05-cross-bundler-plugin)
+
+> **References**: Rolldown's project goals and roadmap are detailed in the [rolldown.rs](https://rolldown.rs) official documentation.
+
+## Self-check
+
+1. Is Rolldown in a competitive or inheritance relationship with Rollup? What does this positioning mean for plugin authors?
+2. What problem does OXC solve for Rolldown? What would happen if a pure-JS parser were used instead?
+3. In Vite 8, what does Rolldown do in dev mode versus build mode?
+4. Which two specific problems from Vite 7 does the "unified pipeline" solve?
+
+```ts filename="Exercise"
+// The following is a Rollup plugin. Assuming Vite 8 (Rolldown compatibility) has correctly
+// implemented the Rollup API, determine which parts of this plugin can run in dev
+// and which cannot.
+
+function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    buildStart() {
+      // (A) Initialize at build start
+    },
+    resolveId(id) {
+      // (B) Module path resolution
+      return null
+    },
+    transform(code, id) {
+      // (C) Source code transform
+      return null
+    },
+    generateBundle(_, bundle) {
+      // (D) Bundle analysis
+    },
+  }
+}
+
+// In Vite 7 (dual engine): which hooks are called in dev?
+// In Vite 8 (Rolldown): same question?
+// What is the reason?
+```

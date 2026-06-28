@@ -14,7 +14,9 @@ import type { ViewUpdate } from "@codemirror/view"
 import { javascript } from "@codemirror/lang-javascript"
 import { oneDark } from "@codemirror/theme-one-dark"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
+import type { Locale } from "@/i18n/config"
 import { cn } from "@/lib/utils"
+import { useInteractiveLocale } from "./locale"
 
 const DEFAULT_CONFIG = `import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
@@ -45,7 +47,41 @@ interface OutputNode {
   comment?: string
 }
 
-function deriveOutput(config: string): OutputNode[] {
+const COPY = {
+  en: {
+    caption: "Vite config playground",
+    subtitle: "Change the config on the left; preview the output structure on the right",
+    outputTitle: "Output structure",
+    live: "Live",
+    comments: {
+      entryChunk: "entry chunk",
+      minified: "minified",
+      vendor: "react + react-dom",
+      css: "extracted CSS",
+      asset: "static asset",
+      sourcemap: "source map",
+      html: "entry HTML",
+    },
+  },
+  zh: {
+    caption: "Vite 配置实验场",
+    subtitle: "修改左侧配置,右侧实时预览产物结构",
+    outputTitle: "产物结构",
+    live: "实时推导",
+    comments: {
+      entryChunk: "entry chunk",
+      minified: "minified",
+      vendor: "react + react-dom",
+      css: "extracted CSS",
+      asset: "static asset",
+      sourcemap: "source map",
+      html: "entry HTML",
+    },
+  },
+} as const
+
+function deriveOutput(config: string, locale: Locale): OutputNode[] {
+  const copy = COPY[locale]
   const outDirMatch = config.match(/outDir:\s*["'](.+?)["']/)
   const assetsMatch = config.match(/assetsDir:\s*["'](.+?)["']/)
   const sourcemapMatch = config.match(/sourcemap:\s*(true|false|["']inline["']|["']hidden["'])/)
@@ -57,11 +93,15 @@ function deriveOutput(config: string): OutputNode[] {
   const hasSourcemap = sourcemapMatch?.[1] === "true" || sourcemapMatch?.[1] === '"inline"'
 
   const assets: OutputNode[] = [
-    { name: "index.js", type: "file", comment: `entry chunk · ${minify} minified` },
-    ...(hasVendor ? [{ name: "vendor.js", type: "file" as const, comment: "react + react-dom" }] : []),
-    { name: "index.css", type: "file", comment: "extracted CSS" },
-    { name: "logo-[hash].svg", type: "file", comment: "static asset" },
-    ...(hasSourcemap ? [{ name: "index.js.map", type: "file" as const, comment: "source map" }] : []),
+    {
+      name: "index.js",
+      type: "file",
+      comment: `${copy.comments.entryChunk} · ${minify} ${copy.comments.minified}`,
+    },
+    ...(hasVendor ? [{ name: "vendor.js", type: "file" as const, comment: copy.comments.vendor }] : []),
+    { name: "index.css", type: "file", comment: copy.comments.css },
+    { name: "logo-[hash].svg", type: "file", comment: copy.comments.asset },
+    ...(hasSourcemap ? [{ name: "index.js.map", type: "file" as const, comment: copy.comments.sourcemap }] : []),
   ]
 
   return [
@@ -69,7 +109,7 @@ function deriveOutput(config: string): OutputNode[] {
       name: outDir + "/",
       type: "dir",
       children: [
-        { name: "index.html", type: "file", comment: "entry HTML" },
+        { name: "index.html", type: "file", comment: copy.comments.html },
         { name: assetsDir + "/", type: "dir", children: assets },
       ],
     },
@@ -101,12 +141,14 @@ function FileTree({ nodes, depth = 0 }: { nodes: OutputNode[]; depth?: number })
 }
 
 export function ConfigPlayground() {
+  const locale = useInteractiveLocale()
+  const copy = COPY[locale]
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const [mounted, setMounted] = useState(false)
   const [config, setConfig] = useState(DEFAULT_CONFIG)
 
-  const output = deriveOutput(config)
+  const output = deriveOutput(config, locale)
 
   useEffect(() => {
     setMounted(true)
@@ -148,8 +190,8 @@ export function ConfigPlayground() {
   return (
     <figure className="not-prose my-8 overflow-hidden rounded-xl border border-border bg-bg-subtle">
       <figcaption className="border-b border-border px-4 py-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">Vite 配置实验场</span>
-        <span className="ml-3 text-2xs text-fg-subtle">修改左侧配置,右侧实时预览产物结构</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{copy.caption}</span>
+        <span className="ml-3 text-2xs text-fg-subtle">{copy.subtitle}</span>
       </figcaption>
 
       <div
@@ -176,9 +218,9 @@ export function ConfigPlayground() {
         {/* 右:产物结构 */}
         <div className="flex h-full flex-col overflow-hidden">
           <div className="flex items-center border-b border-border px-3 py-1.5">
-            <span className="font-mono text-2xs text-fg-subtle">产物结构</span>
+            <span className="font-mono text-2xs text-fg-subtle">{copy.outputTitle}</span>
             <span className="ml-auto rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-medium text-brand-700 dark:bg-brand-900/30 dark:text-brand-400">
-              实时推导
+              {copy.live}
             </span>
           </div>
           <div className="flex-1 overflow-y-auto p-4">

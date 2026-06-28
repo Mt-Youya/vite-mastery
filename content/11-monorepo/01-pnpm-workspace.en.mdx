@@ -1,0 +1,128 @@
+---
+title: pnpm Workspace Basics
+description: pnpm workspace is the foundation of a Vite monorepo — the workspace protocol, dependency hoisting strategy, and the tradeoffs between Hoisting and Isolation.
+order: 1
+part: 11-monorepo
+chapter: "11.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How to configure `pnpm-workspace.yaml` - The `workspace:*` protocol for local package references - pnpm's dependency
+  hoisting strategy - Key `.npmrc` configuration options
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of npm package dependencies - Know what a monorepo (multi-package repository) is
+</Callout>
+
+## pnpm-workspace.yaml
+
+Declare which directories in your monorepo are workspace packages:
+
+```yaml filename="pnpm-workspace.yaml"
+packages:
+  - "apps/*" # all directories under apps/
+  - "packages/*" # all directories under packages/
+  - "examples/*" # all directories under examples/
+  - "!**/node_modules/**" # exclude node_modules
+```
+
+Glob syntax:
+
+- `apps/*`: all directories one level under apps/
+- `packages/**`: all levels under packages/
+- `!pattern`: exclude matching directories
+
+## The `workspace:*` Protocol
+
+Use the `workspace:*` protocol to reference local packages from one another:
+
+```json filename="apps/web/package.json"
+{
+  "dependencies": {
+    "@vite-mastery/ui": "workspace:*",
+    "@vite-mastery/mdx-components": "workspace:*"
+  }
+}
+```
+
+What `workspace:*` means:
+
+- **During development**: links to the local `packages/ui/` directory (symlink)
+- **When publishing**: replaced with the actual version number (if publishing to npm)
+- **When not publishing**: keep `workspace:*` as-is
+
+## Common pnpm Workspace Commands
+
+```bash
+# Operate on all workspaces from the root
+pnpm -r run build       # recursively run build for all packages
+pnpm -r run typecheck   # recursively run typecheck
+
+# Operate on a specific package only
+pnpm --filter @vite-mastery/web dev
+pnpm --filter ./packages/ui build
+
+# Install a dependency in a specific package
+pnpm add react --filter @vite-mastery/web
+pnpm add -D typescript --filter @vite-mastery/ui
+
+# Install dependencies for all packages
+pnpm install
+```
+
+## Key .npmrc Configuration
+
+```ini filename=".npmrc"
+# Do not hoist node_modules to the root (stricter isolation)
+shamefully-hoist=false
+
+# Automatically install peer dependencies
+auto-install-peers=true
+
+# Strict mode: dependencies not declared in package.json cannot be used
+# (prevents phantom dependencies)
+strict-peer-dependencies=false
+```
+
+## The Tradeoffs of Dependency Hoisting
+
+pnpm **does not hoist** dependencies to the root `node_modules` by default:
+
+```text
+# Hoisting off (pnpm default):
+apps/web/node_modules/react     ← web's own react
+packages/ui/node_modules/react  ← ui's own react
+# Each package has its own node_modules — more isolated
+
+# Hoisting on (shamefully-hoist=true):
+node_modules/react              ← one shared react for all packages
+# Saves disk space, but risks phantom dependencies
+```
+
+**Recommendation**: keep `shamefully-hoist=false` (the pnpm default) and use `auto-install-peers=true` to handle peer deps.
+
+## Self-check
+
+1. What is the difference between `workspace:*` and `workspace:^1.0.0`?
+2. What effect does `shamefully-hoist=false` have on your project? Why is it called "shamefully"?
+3. What is the difference between `pnpm -r run build` and Turborepo's `turbo build`?
+4. If `packages/ui` needs to use utility functions from `packages/utils`, how should you configure that?
+
+```yaml filename="Exercise"
+# Configure pnpm-workspace.yaml for a monorepo with the following structure:
+# - apps/web (Next.js main site)
+# - apps/docs (documentation site)
+# - packages/design-tokens (design tokens)
+# - packages/ui (component library)
+# - packages/hooks (React hooks)
+# - packages/utils (utility functions)
+# - examples/ contains multiple standalone examples that should NOT be part of the workspace
+
+# Write the contents of pnpm-workspace.yaml and .npmrc
+```

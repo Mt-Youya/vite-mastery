@@ -1,0 +1,213 @@
+---
+title: "`build.lib` Configuration Reference"
+description: Vite's library mode — use a single config to publish your code as an npm package others can install. What every field means and typical usage for entry / formats / name / fileName.
+order: 1
+part: 10-library-mode
+chapter: "10.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The difference between library mode and application mode - All configuration options in `build.lib` - Choosing
+  between ESM / CJS / UMD output formats - How the `exports` field in `package.json` fits in
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Familiarity with the basic npm package publishing workflow - Understanding the difference between ESM and CommonJS
+</Callout>
+
+## Library mode vs. application mode
+
+| Dimension      | Application mode             | Library mode                  |
+| -------------- | ---------------------------- | ----------------------------- |
+| Entry point    | HTML file                    | TypeScript/JS file            |
+| Output purpose | Deployed directly to browser | Imported by other projects    |
+| Output formats | ESM (modern browsers)        | ESM + CJS + UMD               |
+| External deps  | Bundled into output          | Typically as peerDependencies |
+| index.html     | Required                     | Not required                  |
+
+## Minimal library config
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      // Entry file: the library's public API is exported from here
+      entry: resolve("src/index.ts"),
+
+      // Global variable name for UMD format
+      name: "MyLibrary",
+
+      // Output filename pattern
+      fileName: "my-library",
+      // Default outputs:
+      //   my-library.js (ES Module)
+      //   my-library.umd.js (UMD)
+    },
+
+    // Don't bundle these dependencies (consumers install them)
+    rollupOptions: {
+      external: ["react", "react-dom"],
+      output: {
+        globals: {
+          react: "React",
+          "react-dom": "ReactDOM",
+        },
+      },
+    },
+  },
+})
+```
+
+## `build.lib` configuration in detail
+
+### `entry` — entry file
+
+```ts
+lib: {
+  // Single entry
+  entry: "src/index.ts",
+
+  // Multiple entries (each entry generates a separate file)
+  entry: {
+    index: "src/index.ts",
+    utils: "src/utils/index.ts",
+    components: "src/components/index.ts",
+  },
+},
+```
+
+### `formats` — output formats
+
+```ts
+lib: {
+  formats: ["es", "cjs"],  // Default: ["es", "umd"]
+  // "es"   → ES Module (.js)
+  // "cjs"  → CommonJS (.cjs)
+  // "umd"  → UMD (requires name)
+  // "iife" → Immediately Invoked Function Expression (browser global)
+},
+```
+
+**Recommended combinations**:
+
+- Modern npm packages: use only `["es", "cjs"]`
+- Needs CDN usage: add `"umd"` or `"iife"`
+
+### `fileName` — output filename
+
+```ts
+lib: {
+  // String format: filename template
+  fileName: "my-lib",
+  // es:  my-lib.js
+  // cjs: my-lib.cjs
+
+  // Function format: fully customized
+  fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,
+},
+```
+
+## The companion package.json
+
+Library mode requires a correctly configured `exports` field in `package.json`:
+
+```json filename="package.json"
+{
+  "name": "@myorg/my-lib",
+  "version": "1.0.0",
+  "type": "module",
+
+  "exports": {
+    ".": {
+      "import": "./dist/index.js", // ESM
+      "require": "./dist/index.cjs", // CJS
+      "types": "./dist/index.d.ts" // TypeScript types
+    },
+    "./utils": {
+      "import": "./dist/utils.js",
+      "require": "./dist/utils.cjs",
+      "types": "./dist/utils.d.ts"
+    }
+  },
+
+  "main": "./dist/index.cjs", // Legacy compatibility
+  "module": "./dist/index.js", // Legacy ESM
+  "types": "./dist/index.d.ts", // TypeScript
+
+  "files": ["dist"],
+
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}
+```
+
+## Complete example: React component library config
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    lib: {
+      entry: resolve("src/index.ts"),
+      name: "MyComponentLib",
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+    },
+    rollupOptions: {
+      // Don't bundle react — let consumers provide it
+      external: ["react", "react/jsx-runtime", "react-dom"],
+      output: {
+        globals: {
+          react: "React",
+          "react/jsx-runtime": "jsxRuntime",
+          "react-dom": "ReactDOM",
+        },
+        // Prevent CSS from being inlined into JS
+        assetFileNames: "assets/[name][extname]",
+      },
+    },
+  },
+})
+```
+
+## Self-check
+
+1. What are the main differences between library mode and application mode?
+2. Why should packages listed in `peerDependencies` be excluded via `rollupOptions.external`?
+3. What does the `exports` field in `package.json` do? How does it differ from the `main` field?
+4. When do you need to output UMD format?
+
+```ts filename="Exercise"
+// Configure a Vite build for a utility function library:
+// - Pure TypeScript, no framework dependencies
+// - Output both ESM and CJS formats
+// - Multiple entries: main entry / date utilities / string utilities
+// - Don't bundle any node_modules dependencies
+
+import { defineConfig } from "vite"
+import { resolve } from "node:path"
+
+export default defineConfig({
+  build: {
+    lib: {
+      // TODO
+    },
+    rollupOptions: {
+      // TODO
+    },
+  },
+})
+```

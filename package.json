@@ -10,18 +10,6 @@
   ],
   "author": "Cyrus Doyle",
   "type": "module",
-  "devDependencies": {
-    "@types/node": "^26.0.1",
-    "oxfmt": "^0.56.0",
-    "oxlint": "^1.71.0",
-    "typescript": "^6.0.3",
-    "vite": "^8.1.0",
-    "vitest": "^4.1.9"
-  },
-  "engines": {
-    "node": ">=24",
-    "pnpm": ">=11"
-  },
   "scripts": {
     "dev": "pnpm --filter @vite-mastery/web dev",
     "dev:web": "pnpm --filter @vite-mastery/web dev",
@@ -46,6 +34,18 @@
     "check:content": "node --experimental-strip-types scripts/check-content.ts",
     "fix:tw": "node --experimental-strip-types scripts/fix-tw-classes.ts",
     "fix:tw:preview": "node --experimental-strip-types scripts/fix-tw-classes.ts -- --dry-run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "oxfmt": "^0.56.0",
+    "oxlint": "^1.71.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11"
   },
   "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
 }

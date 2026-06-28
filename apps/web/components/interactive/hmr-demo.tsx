@@ -15,6 +15,7 @@ import { javascript } from "@codemirror/lang-javascript"
 import { oneDark } from "@codemirror/theme-one-dark"
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands"
 import { cn } from "@/lib/utils"
+import { useInteractiveLocale } from "./locale"
 
 const INITIAL_CODE = `// src/components/Counter.tsx
 import { useState } from "react"
@@ -70,7 +71,26 @@ function makeHmrMessages(file: string): Message[] {
   ]
 }
 
+const COPY = {
+  en: {
+    caption: "HMR protocol demo",
+    clear: "Clear log",
+    editHint: "Edit to trigger HMR",
+    empty: "Edit code on the left to trigger HMR...",
+    timeLocale: "en-US",
+  },
+  zh: {
+    caption: "HMR 协议演示",
+    clear: "清空日志",
+    editHint: "编辑触发 HMR",
+    empty: "在左侧编辑代码触发 HMR…",
+    timeLocale: "zh-CN",
+  },
+} as const
+
 export function HmrDemo() {
+  const locale = useInteractiveLocale()
+  const copy = COPY[locale]
   const editorRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -127,12 +147,12 @@ export function HmrDemo() {
   return (
     <figure className="not-prose my-8 overflow-hidden rounded-xl border border-border bg-bg-subtle">
       <figcaption className="flex items-center justify-between border-b border-border px-4 py-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">HMR 协议演示</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{copy.caption}</span>
         <button
           onClick={clearMessages}
           className="rounded px-2 py-0.5 text-2xs text-fg-subtle hover:text-fg transition-colors"
         >
-          清空日志
+          {copy.clear}
         </button>
       </figcaption>
 
@@ -157,7 +177,7 @@ export function HmrDemo() {
           )}
           {mounted && (
             <div className="absolute bottom-2 right-2 rounded bg-brand-500/90 px-1.5 py-0.5 text-[10px] font-medium text-white">
-              编辑触发 HMR
+              {copy.editHint}
             </div>
           )}
         </div>
@@ -171,7 +191,7 @@ export function HmrDemo() {
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2 text-2xs font-mono">
             {messages.length === 0 ? (
-              <p className="text-fg-subtle text-center mt-8">在左侧编辑代码触发 HMR…</p>
+              <p className="text-fg-subtle text-center mt-8">{copy.empty}</p>
             ) : (
               messages.map((msg) => (
                 <div
@@ -194,7 +214,7 @@ export function HmrDemo() {
                     >
                       {msg.dir}
                     </span>
-                    <span className="text-fg-subtle">{new Date(msg.ts).toLocaleTimeString("zh-CN")}</span>
+                    <span className="text-fg-subtle">{new Date(msg.ts).toLocaleTimeString(copy.timeLocale)}</span>
                   </div>
                   <div>
                     <span className="text-brand-600 dark:text-brand-400">type:</span>{" "}

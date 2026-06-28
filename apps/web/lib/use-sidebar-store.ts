@@ -1,17 +1,17 @@
 /**
  * sidebar 折叠状态 —— 持久化到 localStorage 的小 zustand store。
  */
-import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { create } from "zustand"
+import { persist } from "zustand/middleware"
 
 interface SidebarState {
   /** 已折叠的 Part id 列表 */
-  collapsed: string[];
+  collapsed: string[]
   /** 移动端 sidebar 是否打开 */
-  mobileOpen: boolean;
-  toggleCollapsed: (partId: string) => void;
-  setMobileOpen: (open: boolean) => void;
-  isCollapsed: (partId: string) => boolean;
+  mobileOpen: boolean
+  toggleCollapsed: (partId: string) => void
+  setMobileOpen: (open: boolean) => void
+  isCollapsed: (partId: string) => boolean
 }
 
 export const useSidebarStore = create<SidebarState>()(
@@ -32,6 +32,6 @@ export const useSidebarStore = create<SidebarState>()(
       name: "vite-mastery-sidebar",
       /** 移动端开关不持久化 */
       partialize: (state) => ({ collapsed: state.collapsed }),
-    },
-  ),
-);
+    }
+  )
+)

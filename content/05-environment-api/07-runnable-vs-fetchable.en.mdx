@@ -1,0 +1,185 @@
+---
+title: RunnableDevEnvironment vs FetchableDevEnvironment
+description: The two communication models of the Environment API — in-process direct execution (Runnable) and cross-process HTTP fetching (Fetchable). When should you use each?
+order: 7
+part: 05-environment-api
+chapter: "5.7"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - RunnableDevEnvironment: modules execute in the same process as the Vite server - FetchableDevEnvironment: modules
+  execute in a separate process/runtime and communicate via HTTP/IPC - Appropriate use cases for each model - How to
+  implement a FetchableDevEnvironment for Cloudflare Workers
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "ModuleRunner Deep Dive" (section 5.6) - Basic understanding of inter-process communication (IPC)
+</Callout>
+
+## Two communication models
+
+The two subclasses of `DevEnvironment` correspond to two different module execution models:
+
+### RunnableDevEnvironment
+
+Modules execute **in the same Node.js process as the Vite dev server**:
+
+```text
+[Node.js process]
+  ├── Vite Dev Server
+  │     └── DevEnvironment (ssr)
+  │           └── ModuleRunner
+  │                 └── directly eval / Function-executes module code
+  │
+  └── Your SSR server code
+        └── runner.import("/src/entry.ts")  ← same-process call
+```
+
+**Advantages**:
+
+- Zero communication overhead
+- Shared memory (global variables, module state)
+- Easy to debug (same Node.js inspector)
+
+**Disadvantages**:
+
+- Only runs in Node.js (cannot simulate Edge Runtime)
+- No true isolation between modules
+
+**Best for**: standard Node.js SSR, traditional server-side rendering.
+
+### FetchableDevEnvironment
+
+Modules execute in **a separate process or runtime**; the Vite server provides modules via HTTP or IPC:
+
+```text
+[Node.js process]              [Separate process/runtime]
+  Vite Dev Server     ←→       Your code runs here
+  DevEnvironment (worker)      For example:
+  provides transform service     - workerd (Cloudflare)
+  accepts module fetch requests  - Deno
+  provides HMR notifications     - Another Node.js process
+```
+
+**Advantages**:
+
+- True runtime isolation (test Cloudflare code in workerd)
+- More accurately simulates the production environment
+
+**Disadvantages**:
+
+- Communication overhead (HTTP/IPC)
+- More complex to debug
+- More complex to configure
+
+**Best for**: Cloudflare Workers development, Edge Runtime development, scenarios with high isolation requirements.
+
+## Basic usage of RunnableDevEnvironment
+
+Most SSR scenarios use RunnableDevEnvironment, which is also Vite's default behavior:
+
+```ts
+// Standard SSR configuration, uses RunnableDevEnvironment by default
+export default defineConfig({
+  environments: {
+    ssr: {
+      resolve: {
+        conditions: ["node", "import"],
+      },
+    },
+  },
+})
+
+// In server.js:
+const runner = getModuleRunner(vite.environments.ssr)
+const { render } = await runner.import("/src/entry-server.tsx")
+// render() executes in the same Node.js process
+```
+
+## How FetchableDevEnvironment works
+
+For FetchableDevEnvironment, module execution happens in **another runtime**:
+
+```text
+1. You start a worker in workerd
+2. Import requests from within the worker go to the Vite dev server
+3. The Vite server executes resolve + transform
+4. The compiled module code is returned to workerd
+5. workerd executes the code
+6. When a file changes, Vite notifies workerd to refresh via HotChannel
+```
+
+This means FetchableDevEnvironment requires a **companion client-side piece** running inside the target runtime to receive modules.
+
+## Implementing a FetchableDevEnvironment for Cloudflare Workers
+
+<Callout type="warning">
+  The specific implementation API for FetchableDevEnvironment is still evolving in Vite 8.1.x. The following is a
+  conceptual illustration. For actual usage, refer to the implementation approach of `@cloudflare/vitest-pool-workers`
+  or similar tools, as well as the official Vite documentation.
+</Callout>
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+// Pseudocode: Cloudflare Workers FetchableDevEnvironment configuration
+export default defineConfig({
+  environments: {
+    worker: {
+      // Configuration for how to communicate with workerd
+      // Refer to official docs and the Cloudflare Vite plugin for the exact API
+    },
+  },
+})
+```
+
+In practice, for Cloudflare Workers development, the recommended approach is to use:
+
+- `@cloudflare/vite-plugin` — Cloudflare's official Vite plugin
+- `wrangler dev` — Cloudflare's CLI tool
+
+These tools implement all the glue code required for FetchableDevEnvironment internally.
+
+## How to choose
+
+```text
+Does your code need to run in a Node.js environment?
+  ├── Yes → use RunnableDevEnvironment (default)
+  └── No → you need to simulate a specific runtime:
+        ├── Cloudflare Workers → use the official Cloudflare Vite plugin
+        ├── Deno Deploy → wait for official Deno integration
+        └── Custom Edge → implement FetchableDevEnvironment (complex)
+```
+
+## Self-check
+
+1. What is the most fundamental difference between RunnableDevEnvironment and FetchableDevEnvironment?
+2. Why is FetchableDevEnvironment more appropriate than RunnableDevEnvironment for Cloudflare Workers development?
+3. How is HMR implemented in a FetchableDevEnvironment?
+4. If your project only does standard Node.js SSR, do you need to care about the distinction between these two Environment types?
+
+```ts filename="Exercise"
+// Determine which DevEnvironment model should be used for each scenario below, and explain your reasoning:
+
+// Scenario A: Next.js App Router SSR (running on Node.js)
+// Scenario B: Cloudflare Workers API route
+// Scenario C: Testing Vercel Edge Middleware locally
+// Scenario D: Traditional Express + React isomorphic application
+// Scenario E: Node.js SSR application running in Docker
+// Scenario F: Service Worker pre-caching strategy testing
+
+// For each scenario, fill in:
+// - Recommended Environment model: Runnable or Fetchable
+// - Reason: one sentence explanation
+```

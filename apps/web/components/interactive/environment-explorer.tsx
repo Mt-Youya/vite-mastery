@@ -8,7 +8,9 @@
  */
 
 import { useState } from "react"
+import type { Locale } from "@/i18n/config"
 import { cn } from "@/lib/utils"
+import { useInteractiveLocale } from "./locale"
 
 interface ModuleNode {
   id: string
@@ -90,7 +92,7 @@ interface Environment {
   color: string
   bg: string
   border: string
-  desc: string
+  desc: Record<Locale, string>
 }
 
 const ENVS: Environment[] = [
@@ -100,7 +102,7 @@ const ENVS: Environment[] = [
     color: "text-blue-600 dark:text-blue-400",
     bg: "bg-blue-50 dark:bg-blue-900/20",
     border: "border-blue-200/60 dark:border-blue-800/40",
-    desc: "浏览器环境",
+    desc: { en: "Browser environment", zh: "浏览器环境" },
   },
   {
     id: "ssr",
@@ -108,7 +110,7 @@ const ENVS: Environment[] = [
     color: "text-green-600 dark:text-green-400",
     bg: "bg-green-50 dark:bg-green-900/20",
     border: "border-green-200/60 dark:border-green-800/40",
-    desc: "Node.js SSR",
+    desc: { en: "Node.js SSR", zh: "Node.js SSR" },
   },
   {
     id: "rsc",
@@ -116,17 +118,44 @@ const ENVS: Environment[] = [
     color: "text-purple-600 dark:text-purple-400",
     bg: "bg-purple-50 dark:bg-purple-900/20",
     border: "border-purple-200/60 dark:border-purple-800/40",
-    desc: "React Server Components",
+    desc: { en: "React Server Components", zh: "React Server Components" },
   },
 ]
 
-const TYPE_LABELS: Record<ModuleNode["type"], { label: string; dot: string }> = {
-  entry: { label: "入口", dot: "bg-brand-500" },
-  shared: { label: "共享", dot: "bg-warning-500" },
-  "env-specific": { label: "专属", dot: "bg-fg-subtle" },
+const TYPE_LABELS: Record<ModuleNode["type"], { label: Record<Locale, string>; dot: string }> = {
+  entry: { label: { en: "Entry", zh: "入口" }, dot: "bg-brand-500" },
+  shared: { label: { en: "Shared", zh: "共享" }, dot: "bg-warning-500" },
+  "env-specific": { label: { en: "Environment-only", zh: "专属" }, dot: "bg-fg-subtle" },
 }
 
+const COPY = {
+  en: {
+    caption: "Environment API · module boundary visualization",
+    modulePath: "Module path",
+    environments: "Environments",
+    importer: "Importer",
+    entryModule: "(entry module)",
+    type: "Type",
+    sharedLegend: "Shared (multi-env)",
+    envOnlyLegend: "Environment-only",
+    detailHint: "Click a module to inspect details",
+  },
+  zh: {
+    caption: "Environment API · 模块边界可视化",
+    modulePath: "模块路径",
+    environments: "出现环境",
+    importer: "importer",
+    entryModule: "(入口模块)",
+    type: "类型",
+    sharedLegend: "共享(多环境)",
+    envOnlyLegend: "环境专属",
+    detailHint: "点击模块查看详情",
+  },
+} as const
+
 export function EnvironmentExplorer() {
+  const locale = useInteractiveLocale()
+  const copy = COPY[locale]
   const [selected, setSelected] = useState<string | null>(null)
 
   const selectedModule = MODULES.find((m) => m.id === selected) ?? null
@@ -134,9 +163,7 @@ export function EnvironmentExplorer() {
   return (
     <figure className="not-prose my-8 overflow-hidden rounded-xl border border-border bg-bg-subtle">
       <figcaption className="border-b border-border px-4 py-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">
-          Environment API · 模块边界可视化
-        </span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{copy.caption}</span>
       </figcaption>
 
       {/* 三个环境列 */}
@@ -154,7 +181,7 @@ export function EnvironmentExplorer() {
               >
                 <div>
                   <p className={cn("font-mono text-sm font-bold", env.color)}>{env.label}</p>
-                  <p className="text-[10px] text-fg-subtle">{env.desc}</p>
+                  <p className="text-[10px] text-fg-subtle">{env.desc[locale]}</p>
                 </div>
                 <span
                   className={cn(
@@ -210,11 +237,11 @@ export function EnvironmentExplorer() {
         <div className="border-t border-border bg-bg-muted/40 px-5 py-4">
           <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">模块路径</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.modulePath}</p>
               <p className="mt-1 font-mono text-sm text-fg">{selectedModule.path}</p>
             </div>
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">出现环境</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.environments}</p>
               <div className="mt-1 flex flex-wrap gap-1">
                 {selectedModule.environments.map((e) => {
                   const env = ENVS.find((ev) => ev.id === e)
@@ -236,10 +263,10 @@ export function EnvironmentExplorer() {
               </div>
             </div>
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">importer</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.importer}</p>
               <div className="mt-1 space-y-0.5">
                 {selectedModule.importers.length === 0 ? (
-                  <span className="font-mono text-2xs text-fg-subtle">(入口模块)</span>
+                  <span className="font-mono text-2xs text-fg-subtle">{copy.entryModule}</span>
                 ) : (
                   selectedModule.importers.map((imp) => (
                     <p key={imp} className="font-mono text-2xs text-fg-muted">
@@ -250,8 +277,8 @@ export function EnvironmentExplorer() {
               </div>
             </div>
             <div>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">类型</p>
-              <p className="mt-1 text-sm text-fg">{TYPE_LABELS[selectedModule.type].label}</p>
+              <p className="text-[10px] font-medium uppercase tracking-wider text-fg-subtle">{copy.type}</p>
+              <p className="mt-1 text-sm text-fg">{TYPE_LABELS[selectedModule.type].label[locale]}</p>
             </div>
           </div>
         </div>
@@ -259,17 +286,17 @@ export function EnvironmentExplorer() {
         <div className="border-t border-border px-5 py-2.5 text-2xs text-fg-subtle">
           <span className="mr-2 inline-flex items-center gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-brand-500" />
-            入口
+            {TYPE_LABELS.entry.label[locale]}
           </span>
           <span className="mr-2 inline-flex items-center gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-warning-500" />
-            共享(多环境)
+            {copy.sharedLegend}
           </span>
           <span className="inline-flex items-center gap-1">
             <span className="h-1.5 w-1.5 rounded-full bg-fg-subtle" />
-            环境专属
+            {copy.envOnlyLegend}
           </span>
-          <span className="ml-4">点击模块查看详情</span>
+          <span className="ml-4">{copy.detailHint}</span>
         </div>
       )}
     </figure>

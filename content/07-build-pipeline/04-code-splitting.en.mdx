@@ -1,0 +1,210 @@
+---
+title: Code Splitting and Chunk Strategy
+description: Rolldown's code splitting mechanism — automatic splitting via dynamic import, manual control with manualChunks, and chunk naming strategies. How to optimize output size and loading performance.
+order: 4
+part: 07-build-pipeline
+chapter: "7.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Automatic code splitting triggered by dynamic `import()` - Manual chunk splitting with `manualChunks` - Chunk naming
+  strategies (`chunkFileNames` / `entryFileNames`) - How to analyze your bundle and find optimization opportunities
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Familiarity with ES Module dynamic imports (`import()`) - Understanding of basic code splitting concepts
+</Callout>
+
+## Automatic splitting with dynamic import
+
+Any dynamic `import()` automatically triggers code splitting:
+
+```ts
+// Route-based lazy loading (using React Router as an example)
+const Home = lazy(() => import("./pages/Home"))
+const About = lazy(() => import("./pages/About"))
+const Admin = lazy(() => import("./pages/Admin"))
+```
+
+Build output:
+
+```text
+dist/
+  assets/
+    index-HASH.js         ← entry chunk (contains route config)
+    Home-HASH.js          ← lazily loaded page chunk
+    About-HASH.js
+    Admin-HASH.js
+    vendor-HASH.js        ← shared dependencies (react, etc.)
+```
+
+When a user visits the home page, only `index.js` and `Home.js` are downloaded. Other pages load on demand.
+
+## `manualChunks`: manual splitting control
+
+### Object format (simple)
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // chunk name → modules to include (package names or file paths)
+          "react-vendor": ["react", "react-dom", "react-router-dom"],
+          "ui-vendor": ["@radix-ui/react-dialog", "@base-ui/react"],
+          utils: ["lodash-es", "date-fns", "axios"],
+        },
+      },
+    },
+  },
+})
+```
+
+### Function format (flexible)
+
+```ts
+manualChunks(id: string) {
+  // id is the module's file path
+
+  if (id.includes("node_modules")) {
+    // Split all node_modules by package name
+    const match = id.match(/node_modules\/([^/]+)\//)
+    const packageName = match?.[1]
+
+    if (!packageName) return undefined
+
+    // Group the React ecosystem together
+    if (packageName.startsWith("react") || packageName === "scheduler") {
+      return "react-vendor"
+    }
+
+    // Radix UI component library
+    if (packageName.startsWith("@radix-ui")) {
+      return "radix-vendor"
+    }
+
+    // Utility libraries
+    if (["lodash-es", "date-fns", "dayjs"].includes(packageName)) {
+      return "utils"
+    }
+
+    // Merge smaller packages into vendor
+    return "vendor"
+  }
+
+  // Split page code by route
+  if (id.includes("/pages/")) {
+    const pageName = id.match(/\/pages\/([^/]+)\//)?.[1]
+    if (pageName) return `page-${pageName}`
+  }
+},
+```
+
+## Chunk naming strategy
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    rollupOptions: {
+      output: {
+        // File name for dynamic chunks (lazily loaded)
+        chunkFileNames: (chunkInfo) => {
+          const { name } = chunkInfo
+          if (name.startsWith("page-")) {
+            return "pages/[name]-[hash].js"
+          }
+          return "assets/[name]-[hash].js"
+        },
+
+        // File name for entry chunks
+        entryFileNames: "assets/[name]-[hash].js",
+
+        // File name for static assets (images, fonts, etc.)
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
+    },
+  },
+})
+```
+
+## Analyzing your bundle
+
+Use `rollup-plugin-visualizer` to analyze your build output:
+
+```bash
+pnpm add -D rollup-plugin-visualizer
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { visualizer } from "rollup-plugin-visualizer"
+
+export default defineConfig({
+  plugins: [
+    visualizer({
+      open: true, // open automatically after build
+      gzipSize: true, // show gzip size
+      brotliSize: true, // show brotli size
+      filename: "stats.html",
+    }),
+  ],
+})
+```
+
+Run `pnpm build` and a visualization chart opens automatically — you can see at a glance which packages take up the most space.
+
+## Preload strategy
+
+Vite automatically generates preload hints to reduce latency when lazy loading:
+
+```html
+<!-- Vite automatically injects modulepreload into HTML -->
+<link rel="modulepreload" href="/assets/react-vendor-HASH.js" />
+<link rel="modulepreload" href="/assets/index-HASH.js" />
+```
+
+You can disable this:
+
+```ts
+export default defineConfig({
+  build: {
+    modulePreload: false, // disable preloading
+    // or
+    modulePreload: {
+      polyfill: false, // don't inject the modulepreload polyfill
+    },
+  },
+})
+```
+
+## Self-check
+
+1. What is the difference between dynamic `import()` and static `import`? How does each affect the bundle output?
+2. What are the respective advantages and disadvantages of the object format vs. the function format of `manualChunks`?
+3. If two pages both import the same large component, will Rolldown automatically create a shared chunk?
+4. What practical purpose does the `chunkFileNames` configuration serve?
+
+```ts filename="Exercise"
+// You have an e-commerce application with the following modules:
+// - react, react-dom (framework)
+// - antd (UI library, large)
+// - lodash-es (utility library)
+// - 4 pages: Home / ProductList / ProductDetail / Cart
+// - 1 admin panel entry point: /admin
+
+// Design a reasonable code splitting strategy:
+// 1. What should go into the vendor chunk?
+// 2. How should pages be split?
+// 3. How should the admin panel be handled?
+
+// Write the manualChunks configuration:
+const manualChunks = (id: string) => {
+  // TODO
+}
+```

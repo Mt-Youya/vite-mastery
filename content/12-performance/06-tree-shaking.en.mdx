@@ -1,0 +1,198 @@
+---
+title: Tree-shaking in Practice
+description: Tree-shaking is not magic — it has prerequisites. How the sideEffects field affects optimization, what code patterns prevent tree-shaking, and how to verify that tree-shaking is actually working.
+order: 6
+part: 12-performance
+chapter: "12.6"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How tree-shaking works and what it requires - The correct way to write the `sideEffects` field - Code patterns that
+  prevent tree-shaking - How to verify that tree-shaking is working
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understanding static `import`/`export` in ES Modules - Understanding Vite build code splitting (section 7.4)
+</Callout>
+
+## How tree-shaking works
+
+Tree-shaking is a bundler capability: it removes **exports that are never used** from your code.
+
+```ts
+// utils.ts
+export function add(a: number, b: number) {
+  return a + b
+}
+export function multiply(a: number, b: number) {
+  return a * b
+}
+
+// main.ts
+import { add } from "./utils"
+console.log(add(1, 2))
+// multiply is never imported → tree-shaking removes it
+```
+
+**Prerequisite**: only ES Modules (`import` / `export`) can be tree-shaken. CommonJS (`require` / `module.exports`) cannot.
+
+## The `sideEffects` field
+
+```json filename="package.json"
+{
+  "name": "@my/utils",
+  "sideEffects": false
+}
+```
+
+`sideEffects: false` tells the bundler:
+
+> Every module in this package is side-effect-free — if you haven't imported any of its exports, it is completely safe to remove the import of this file.
+
+**What counts as a side effect**:
+
+- Modifying global objects (`window.myLib = ...`)
+- Registering global event listeners
+- Polyfills
+- CSS imports
+
+If CSS files have side effects:
+
+```json
+{
+  "sideEffects": [
+    "*.css",
+    "./src/polyfills.ts" // Only these two types have side effects
+  ]
+}
+```
+
+## Common patterns that prevent tree-shaking
+
+### Problem 1: CommonJS format
+
+```ts
+// ❌ CommonJS: cannot be tree-shaken
+const { debounce } = require("lodash")
+
+// ✅ ESM: can be tree-shaken
+import { debounce } from "lodash-es"
+```
+
+### Problem 2: Dynamic property access
+
+```ts
+// ❌ Dynamic access: bundler can't know which method is used
+const key = "debounce"
+const fn = lodash[key]
+
+// ✅ Static: analyzable
+import { debounce } from "lodash-es"
+```
+
+### Problem 3: Side-effectful initialization code
+
+```ts
+// ❌ Top-level code with side effects
+console.log("Module loaded!") // This line won't be removed even if nothing is imported
+
+export function foo() {
+  /* ... */
+}
+```
+
+### Problem 4: Class methods
+
+```ts
+// ❌ Class methods cannot be individually tree-shaken
+class MyUtils {
+  add(a: number, b: number) {
+    return a + b
+  }
+  multiply(a: number, b: number) {
+    return a * b
+  }
+}
+
+// ✅ Standalone functions can be tree-shaken
+export function add(a: number, b: number) {
+  return a + b
+}
+export function multiply(a: number, b: number) {
+  return a * b
+}
+```
+
+## Verifying that tree-shaking works
+
+Method 1: Inspect the output files
+
+```bash
+pnpm build
+grep -r "multiply" dist/  # If there's output, it wasn't tree-shaken
+```
+
+Method 2: Use a bundle analyzer
+
+Use `rollup-plugin-visualizer` to check whether the `multiply` function appears in the output.
+
+Method 3: Use a dedicated tool
+
+```bash
+pnpm add -D rollup-plugin-treeshaker  # community tool
+```
+
+## Self-check
+
+1. Why can't CommonJS format be tree-shaken?
+2. Under what circumstances does `sideEffects: false` cause styles to disappear?
+3. In the following code, which parts will be tree-shaken away?
+
+```ts
+export const VERSION = "1.0.0" // is imported
+export function usedFn() {
+  /* ... */
+} // is imported
+export function unusedFn() {
+  /* ... */
+} // is not imported
+
+const init = () => {
+  window.LIB = VERSION
+}
+init() // top-level call, has side effects
+```
+
+4. Why are standalone functions better for tree-shaking than class methods?
+
+```ts filename="Exercise"
+// The following is a utility library. Analyze the tree-shaking behavior:
+// The consumer only imports formatDate
+
+// Library utils.ts:
+export function formatDate(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+export function parseDate(str: string): Date {
+  return new Date(str)
+}
+
+// Has a side effect: modifies the Date prototype (this is bad!)
+Date.prototype.toReadable = function () {
+  return this.toLocaleString()
+}
+
+// Question 1: Will parseDate be tree-shaken?
+// Question 2: Will Date.prototype.toReadable be removed?
+// Question 3: How would you fix this library to be more tree-shaking-friendly?
+
+// Consumer:
+import { formatDate } from "./utils"
+console.log(formatDate(new Date()))
+```

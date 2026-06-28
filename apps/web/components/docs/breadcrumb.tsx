@@ -4,12 +4,13 @@ import Link from "next/link"
 
 interface BreadcrumbProps {
   items: { label: string; href?: string }[]
+  ariaLabel: string
 }
 
-export function Breadcrumb({ items }: BreadcrumbProps) {
+export function Breadcrumb({ items, ariaLabel }: BreadcrumbProps) {
   if (items.length === 0) return null
   return (
-    <nav aria-label="面包屑" className="text-xs text-fg-muted">
+    <nav aria-label={ariaLabel} className="text-xs text-fg-muted">
       <ol className="flex flex-wrap items-center gap-1">
         {items.map((item, i) => {
           const isLast = i === items.length - 1

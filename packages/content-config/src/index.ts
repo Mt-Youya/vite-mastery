@@ -75,7 +75,11 @@ type DocDocument = {
   content: string
   _meta: ContentMeta
   body: string
+  /** 不含 locale 后缀的逻辑 slug,跨语言一致。例:`00-getting-started/01-why-vite` */
   slug: string
+  /** 语言 —— 从文件名后缀 `.zh.mdx` / `.en.mdx` 解出。 */
+  locale: "zh" | "en"
+  /** 不含 locale 前缀的 url,组件层按当前 locale 拼。 */
   url: string
   headings: Heading[]
 }
@@ -90,6 +94,7 @@ type AppendixDocument = {
   _meta: ContentMeta
   body: string
   slug: string
+  locale: "zh" | "en"
   url: string
   headings: Heading[]
 }
@@ -107,7 +112,26 @@ type ExampleDocument = {
   _meta: ContentMeta
   body: string
   slug: string
+  locale: "zh" | "en"
   url: string
+}
+
+const LOCALE_SUFFIX_RE = /\.(zh|en)$/
+const DEFAULT_LOCALE: "zh" | "en" = "zh"
+
+/**
+ * 从 content-collections 的 `_meta.path`(不含扩展名)抠出 locale。
+ * - `.zh.mdx` / `.en.mdx` → 对应 locale
+ * - 无后缀 → 视为 zh(给未迁移的旧文件兜底,可在 lint 阶段告警)
+ * 返回剥掉后缀的"裸 slug" + locale。
+ */
+function splitLocale(path: string): { slug: string; locale: "zh" | "en" } {
+  const m = path.match(LOCALE_SUFFIX_RE)
+  if (!m) return { slug: path.replace(/\\/g, "/"), locale: DEFAULT_LOCALE }
+  return {
+    slug: path.replace(LOCALE_SUFFIX_RE, "").replace(/\\/g, "/"),
+    locale: m[1] as "zh" | "en",
+  }
 }
 
 export function defineContentConfig(options: DefineOptions = {}) {
@@ -128,7 +152,7 @@ export function defineContentConfig(options: DefineOptions = {}) {
     schema: docFrontmatter,
     transform: async (doc, ctx): Promise<DocDocument> => {
       const body = await compileMDX(ctx, doc, mdxOptions)
-      const slug = doc._meta.path.replace(/\\/g, "/")
+      const { slug, locale } = splitLocale(doc._meta.path)
       /** 章节 part key + 文件相对路径形成 URL 路径,例如 docs/00-getting-started/01-why-vite */
       return {
         title: doc.title,
@@ -148,6 +172,8 @@ export function defineContentConfig(options: DefineOptions = {}) {
         _meta: doc._meta,
         body,
         slug,
+        locale,
+        /** 不含 locale 前缀,组件层按当前 locale 拼。例:`/docs/00-getting-started/01-why-vite` */
         url: `/docs/${slug}`,
         /** 从正文里挖出 h2/h3 给 TOC 用 */
         headings: extractHeadings(doc.content),
@@ -162,7 +188,7 @@ export function defineContentConfig(options: DefineOptions = {}) {
     schema: appendixFrontmatter,
     transform: async (doc, ctx): Promise<AppendixDocument> => {
       const body = await compileMDX(ctx, doc, mdxOptions)
-      const slug = doc._meta.path.replace(/\\/g, "/")
+      const { slug, locale } = splitLocale(doc._meta.path)
       return {
         title: doc.title,
         description: doc.description,
@@ -172,6 +198,7 @@ export function defineContentConfig(options: DefineOptions = {}) {
         _meta: doc._meta,
         body,
         slug,
+        locale,
         url: `/appendix/${slug}`,
         headings: extractHeadings(doc.content),
       }
@@ -181,11 +208,14 @@ export function defineContentConfig(options: DefineOptions = {}) {
   const examples = defineCollection({
     name: "examples",
     directory: examplesDir,
-    include: "*/README.mdx",
+    /** 同时匹配 README.zh.mdx / README.en.mdx / README.mdx(向后兼容) */
+    include: "*/README{,.zh,.en}.mdx",
     schema: exampleFrontmatter,
     transform: async (doc, ctx): Promise<ExampleDocument> => {
       const body = await compileMDX(ctx, doc, mdxOptions)
-      const slug = doc._meta.path.replace(/\/README$/, "").replace(/\\/g, "/")
+      /** path 形如 `plugin-virtual-modules/README.zh` —— 先剥 locale,再去 `/README`。 */
+      const { slug: withReadme, locale } = splitLocale(doc._meta.path)
+      const slug = withReadme.replace(/\/README$/, "")
       return {
         title: doc.title,
         description: doc.description,
@@ -198,6 +228,7 @@ export function defineContentConfig(options: DefineOptions = {}) {
         _meta: doc._meta,
         body,
         slug,
+        locale,
         url: `/examples/${slug}`,
       }
     },

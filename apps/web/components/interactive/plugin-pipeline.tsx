@@ -9,7 +9,9 @@
  */
 
 import { useState } from "react"
+import type { Locale } from "@/i18n/config"
 import { cn } from "@/lib/utils"
+import { useInteractiveLocale } from "./locale"
 
 export interface PluginDef {
   name: string
@@ -18,46 +20,83 @@ export interface PluginDef {
   description?: string
 }
 
-const DEFAULT_PLUGINS: PluginDef[] = [
-  {
-    name: "vite:html-transform",
-    enforce: "pre",
-    hooks: ["transformIndexHtml", "resolveId"],
-    description: "处理 index.html 中的资源引用",
-  },
-  {
-    name: "my-virtual-plugin",
-    enforce: "pre",
-    hooks: ["resolveId", "load"],
-    description: "生成虚拟模块(\\0virtual:...)",
-  },
-  {
-    name: "vite:resolve",
-    hooks: ["resolveId"],
-    description: "路径解析与别名处理",
-  },
-  {
-    name: "@vitejs/plugin-react",
-    hooks: ["transform", "buildStart"],
-    description: "JSX transform + Fast Refresh",
-  },
-  {
-    name: "vite:css",
-    hooks: ["load", "transform"],
-    description: "CSS Modules / PostCSS / CSS in JS",
-  },
-  {
-    name: "vite-plugin-legacy",
-    enforce: "post",
-    hooks: ["generateBundle", "renderChunk"],
-    description: "生成兼容旧浏览器的 polyfill 产物",
-  },
-]
+const DEFAULT_PLUGINS: Record<Locale, PluginDef[]> = {
+  en: [
+    {
+      name: "vite:html-transform",
+      enforce: "pre",
+      hooks: ["transformIndexHtml", "resolveId"],
+      description: "Handle asset references in index.html",
+    },
+    {
+      name: "my-virtual-plugin",
+      enforce: "pre",
+      hooks: ["resolveId", "load"],
+      description: "Generate a virtual module (\\0virtual:...)",
+    },
+    {
+      name: "vite:resolve",
+      hooks: ["resolveId"],
+      description: "Path resolution and alias handling",
+    },
+    {
+      name: "@vitejs/plugin-react",
+      hooks: ["transform", "buildStart"],
+      description: "JSX transform + Fast Refresh",
+    },
+    {
+      name: "vite:css",
+      hooks: ["load", "transform"],
+      description: "CSS Modules / PostCSS / CSS in JS",
+    },
+    {
+      name: "vite-plugin-legacy",
+      enforce: "post",
+      hooks: ["generateBundle", "renderChunk"],
+      description: "Generate polyfills for legacy browsers",
+    },
+  ],
+  zh: [
+    {
+      name: "vite:html-transform",
+      enforce: "pre",
+      hooks: ["transformIndexHtml", "resolveId"],
+      description: "处理 index.html 中的资源引用",
+    },
+    {
+      name: "my-virtual-plugin",
+      enforce: "pre",
+      hooks: ["resolveId", "load"],
+      description: "生成虚拟模块(\\0virtual:...)",
+    },
+    {
+      name: "vite:resolve",
+      hooks: ["resolveId"],
+      description: "路径解析与别名处理",
+    },
+    {
+      name: "@vitejs/plugin-react",
+      hooks: ["transform", "buildStart"],
+      description: "JSX transform + Fast Refresh",
+    },
+    {
+      name: "vite:css",
+      hooks: ["load", "transform"],
+      description: "CSS Modules / PostCSS / CSS in JS",
+    },
+    {
+      name: "vite-plugin-legacy",
+      enforce: "post",
+      hooks: ["generateBundle", "renderChunk"],
+      description: "生成兼容旧浏览器的 polyfill 产物",
+    },
+  ],
+}
 
 interface Column {
   key: "pre" | "normal" | "post"
   label: string
-  desc: string
+  desc: Record<Locale, string>
   color: string
 }
 
@@ -65,19 +104,19 @@ const COLUMNS: Column[] = [
   {
     key: "pre",
     label: "pre",
-    desc: 'enforce: "pre"',
+    desc: { en: 'enforce: "pre"', zh: 'enforce: "pre"' },
     color: "border-blue-400/60 bg-blue-50/30 dark:bg-blue-900/10",
   },
   {
     key: "normal",
     label: "normal",
-    desc: "无 enforce",
+    desc: { en: "no enforce", zh: "无 enforce" },
     color: "border-brand-400/60 bg-brand-50/30 dark:bg-brand-900/10",
   },
   {
     key: "post",
     label: "post",
-    desc: 'enforce: "post"',
+    desc: { en: 'enforce: "post"', zh: 'enforce: "post"' },
     color: "border-purple-400/60 bg-purple-50/30 dark:bg-purple-900/10",
   },
 ]
@@ -86,21 +125,39 @@ export interface PluginPipelineProps {
   plugins?: PluginDef[]
 }
 
-export function PluginPipeline({ plugins = DEFAULT_PLUGINS }: PluginPipelineProps) {
+const COPY = {
+  en: {
+    caption: "Plugin execution order",
+    coveredHooks: "covered hooks",
+    relatedHint: "Highlighted plugins share at least one hook.",
+    footer: "Hover plugin cards to inspect shared hook relationships",
+  },
+  zh: {
+    caption: "插件执行顺序",
+    coveredHooks: "覆盖的 hook",
+    relatedHint: "高亮(橙色)的插件共享至少一个相同 hook。",
+    footer: "悬停插件卡片查看共享 hook 关系",
+  },
+} as const
+
+export function PluginPipeline({ plugins }: PluginPipelineProps) {
+  const locale = useInteractiveLocale()
+  const copy = COPY[locale]
+  const resolvedPlugins = plugins ?? DEFAULT_PLUGINS[locale]
   const [hovered, setHovered] = useState<string | null>(null)
 
   const grouped: Record<Column["key"], PluginDef[]> = {
-    pre: plugins.filter((p) => p.enforce === "pre"),
-    normal: plugins.filter((p) => !p.enforce),
-    post: plugins.filter((p) => p.enforce === "post"),
+    pre: resolvedPlugins.filter((p) => p.enforce === "pre"),
+    normal: resolvedPlugins.filter((p) => !p.enforce),
+    post: resolvedPlugins.filter((p) => p.enforce === "post"),
   }
 
-  const hoveredPlugin = plugins.find((p) => p.name === hovered)
+  const hoveredPlugin = resolvedPlugins.find((p) => p.name === hovered)
 
   return (
     <figure className="not-prose my-8 overflow-hidden rounded-xl border border-border bg-bg-subtle">
       <figcaption className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">插件执行顺序</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-fg-subtle">{copy.caption}</span>
         <span className="ml-auto rounded bg-bg-muted px-2 py-0.5 font-mono text-2xs text-fg-muted">
           hooks: {hoveredPlugin?.hooks.join(", ")}
         </span>
@@ -112,7 +169,7 @@ export function PluginPipeline({ plugins = DEFAULT_PLUGINS }: PluginPipelineProp
             {/* 列标题 */}
             <div className={cn("border-b border-border px-3 py-2", col.color)}>
               <p className="font-mono text-xs font-bold text-fg">{col.label}</p>
-              <p className="font-mono text-[10px] text-fg-subtle">{col.desc}</p>
+              <p className="font-mono text-[10px] text-fg-subtle">{col.desc[locale]}</p>
             </div>
 
             {/* 插件卡片 */}
@@ -175,14 +232,15 @@ export function PluginPipeline({ plugins = DEFAULT_PLUGINS }: PluginPipelineProp
       {hovered && hoveredPlugin && (
         <div className="border-t border-border bg-bg-muted/50 px-4 py-2.5">
           <p className="text-2xs text-fg-muted">
-            <span className="font-medium text-fg">{hovered}</span> 覆盖的 hook:{" "}
+            <span className="font-medium text-fg">{hovered}</span> {copy.coveredHooks}:{" "}
             <span className="font-mono">{hoveredPlugin.hooks.join(" · ")}</span>
-            。高亮(橙色)的插件共享至少一个相同 hook。
+            {locale === "zh" ? "。" : ". "}
+            {copy.relatedHint}
           </p>
         </div>
       )}
 
-      <div className="border-t border-border px-4 py-2.5 text-2xs text-fg-subtle">悬停插件卡片查看共享 hook 关系</div>
+      <div className="border-t border-border px-4 py-2.5 text-2xs text-fg-subtle">{copy.footer}</div>
     </figure>
   )
 }

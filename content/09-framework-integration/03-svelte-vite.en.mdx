@@ -1,0 +1,174 @@
+---
+title: Svelte + Vite
+description: Svelte 5 Runes syntax and its integration with Vite — how `@sveltejs/vite-plugin-svelte` compiles .svelte files into JavaScript, and Svelte's unique compile-time optimizations.
+order: 3
+part: 09-framework-integration
+chapter: "9.3"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - How `@sveltejs/vite-plugin-svelte` works - Svelte 5 Runes (`$state` / `$derived` / `$effect`) - Svelte's
+  compile-time optimizations: why Virtual DOM is not needed - Recommended configuration for Svelte + Vite
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic knowledge of Svelte (components, reactivity) - Understanding of what a compiler does
+</Callout>
+
+## Svelte's Core Idea
+
+The biggest difference between Svelte and React / Vue: **Svelte is a compile-time framework**.
+
+- React / Vue: runtime frameworks that require Virtual DOM diffing
+- Svelte: a **compiler** that transforms `.svelte` files into native DOM operation code
+
+```svelte
+<!-- Counter.svelte (Svelte 5 Runes) -->
+<script>
+  let count = $state(0)
+  let doubled = $derived(count * 2)
+</script>
+
+<button onclick={() => count++}>
+  Count: {count}, Doubled: {doubled}
+</button>
+```
+
+The compiled output is roughly equivalent to:
+
+```js
+// No Virtual DOM! Direct DOM manipulation
+let count = 0
+
+button.addEventListener("click", () => {
+  count++
+  // Directly update the DOM node
+  buttonText.textContent = `Count: ${count}, Doubled: ${count * 2}`
+})
+```
+
+## The Role of @sveltejs/vite-plugin-svelte
+
+The plugin hands `.svelte` files to the Svelte compiler inside the `transform` hook:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { svelte } from "@sveltejs/vite-plugin-svelte"
+
+export default defineConfig({
+  plugins: [svelte()],
+})
+```
+
+The Svelte compiler handles:
+
+- `<script>`: extracts JS logic, processes Runes syntax
+- `<template>`: compiles to efficient DOM operation code
+- `<style>`: extracts and scopes styles (based on component hash)
+
+## Svelte 5 Runes and Vite
+
+Svelte 5 introduces the Runes system — a more explicit way to declare reactivity:
+
+```svelte
+<script>
+  // $state: reactive variable (replaces plain let)
+  let count = $state(0)
+  let name = $state("World")
+
+  // $derived: derived value (replaces $: statements)
+  let greeting = $derived(`Hello, ${name}!`)
+  let doubled = $derived(count * 2)
+
+  // $effect: side effect (replaces $: statement blocks)
+  $effect(() => {
+    console.log(`count changed to ${count}`)
+  })
+
+  // $props: component props
+  let { title = "Default" } = $props()
+</script>
+
+<h1>{greeting}</h1>
+<p>Count: {count}, Doubled: {doubled}</p>
+<button onclick={() => count++}>+1</button>
+```
+
+## Svelte and TypeScript
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { svelte } from "@sveltejs/vite-plugin-svelte"
+
+export default defineConfig({
+  plugins: [
+    svelte({
+      // Enable TypeScript support
+      // (Svelte 5 supports TypeScript by default)
+    }),
+  ],
+})
+```
+
+```svelte
+<script lang="ts">
+  interface Props {
+    name: string
+    count?: number
+  }
+
+  let { name, count = 0 }: Props = $props()
+</script>
+```
+
+## Svelte's Build Advantages
+
+Svelte's compile-time nature typically produces smaller output bundles:
+
+| Framework | Runtime size              | Component logic         |
+| --------- | ------------------------- | ----------------------- |
+| React     | ~45KB (react + react-dom) | Additional JS           |
+| Vue       | ~30KB (vue core)          | Additional JS           |
+| Svelte    | ~2KB (minimal)            | Compiled into component |
+
+**Note**: as an application grows larger, Svelte's size advantage diminishes (each component's compiled output contains repeated patterns).
+
+## Self-check
+
+1. Why does Svelte not need a Virtual DOM? What impact does this have on performance?
+2. What is the difference between Svelte 5's `$state` and a plain `let`?
+3. How does Svelte's `<style>` scoping compare to Vue's `<style scoped>`? What are the similarities and differences?
+4. At what application scale is Svelte's bundle size advantage most significant?
+
+```svelte filename="Exercise">
+<!-- Rewrite the following React component in Svelte 5: -->
+
+// React version:
+function Counter({ initialCount = 0 }) {
+  const [count, setCount] = useState(initialCount)
+  const doubled = useMemo(() => count * 2, [count])
+
+  useEffect(() => {
+    document.title = `Count: ${count}`
+    return () => {
+      document.title = "App"
+    }
+  }, [count])
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <p>Doubled: {doubled}</p>
+      <button onClick={() => setCount(c => c + 1)}>+1</button>
+      <button onClick={() => setCount(0)}>Reset</button>
+    </div>
+  )
+}
+
+<!-- TODO: Svelte 5 Runes version -->
+```

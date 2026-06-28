@@ -1,0 +1,209 @@
+---
+title: Environment-Related Hooks
+description: The `buildApp` hook introduced in Vite 7 and the multi-environment awareness brought by the Environment API — how to customize build behavior per environment.
+order: 6
+part: 04-hooks-deep-dive
+chapter: "4.6"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What the `buildApp` hook is (new in Vite 7+) - How to detect the current Environment inside a plugin -
+  Environment-aware transform: customizing behavior per environment - The `hotUpdate` hook: the Environment API version
+  of the HMR hook
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Why the Environment API?" (section 5.1) - Understand the difference between the default `client` and `ssr`
+  environments
+</Callout>
+
+## How a Plugin Detects the Current Environment
+
+In a project that uses the Environment API, the same plugin's `transform` hook may be called multiple times by different environments. A plugin can detect the current environment via `this.environment`:
+
+```ts
+import type { Plugin } from "vite"
+
+export function envAwarePlugin(): Plugin {
+  return {
+    name: "vite-plugin-env-aware",
+    transform(code, id) {
+      // this.environment is available under the Environment API
+      const envName = this.environment?.name ?? "unknown"
+
+      if (envName === "client") {
+        // Client code: inject browser-related identifiers
+        return {
+          code: code.replace("__IS_CLIENT__", "true"),
+          map: null,
+        }
+      }
+
+      if (envName === "ssr") {
+        // Server-side code: inject Node.js-related identifiers
+        return {
+          code: code.replace("__IS_CLIENT__", "false"),
+          map: null,
+        }
+      }
+
+      return null
+    },
+  }
+}
+```
+
+<Callout type="warning">
+  `this.environment` is part of the Environment API, which is in RC stage in Vite 8.1.x. Refer to the official
+  documentation for API details.
+</Callout>
+
+## The `buildApp` Hook (New in Vite 7+)
+
+`buildApp` is a new hook introduced in Vite 7, used to coordinate multi-environment builds. It was further refined in Vite 8 alongside the Environment API.
+
+**When it fires**: During the build phase, before all environment builds begin.
+
+**Purpose**: Frameworks can use the `buildApp` hook to orchestrate the build order and configuration for multiple environments.
+
+```ts
+import type { Plugin } from "vite"
+
+export function multiEnvPlugin(): Plugin {
+  return {
+    name: "vite-plugin-multi-env",
+    async buildApp(app) {
+      // The app object contains all configured Environments
+      // You can control build order here
+
+      // Build the ssr environment first (generate server-side code)
+      await app.build("ssr")
+
+      // Then build the client environment (generate browser code)
+      await app.build("client")
+    },
+  }
+}
+```
+
+<Callout type="warning">
+  The `buildApp` hook API has continued to evolve since it was introduced in Vite 7. Refer to the current Vite 8.1.x
+  official documentation for exact parameters and usage. This section covers only the concept and purpose.
+</Callout>
+
+## The `hotUpdate` Hook (Environment API version of HMR)
+
+Similar to `handleHotUpdate`, but the Environment API version:
+
+```ts
+import type { Plugin } from "vite"
+
+export function envHotPlugin(): Plugin {
+  return {
+    name: "vite-plugin-env-hot",
+    hotUpdate({ type, file, timestamp, modules, server }) {
+      // type: "create" | "update" | "delete"
+      // You can distinguish between file creation, modification, and deletion events
+
+      if (file.endsWith(".yaml")) {
+        // Broadcast a custom event to all environments
+        server.environments.client.hot.send({
+          type: "custom",
+          event: "yaml-update",
+          data: { file },
+        })
+
+        // Only invalidate modules in the ssr environment
+        const ssrModule = server.environments.ssr?.moduleGraph.getModuleById(file)
+        if (ssrModule) {
+          server.environments.ssr?.moduleGraph.invalidateModule(ssrModule)
+          return [ssrModule]
+        }
+
+        return []
+      }
+    },
+  }
+}
+```
+
+## Real-world Use Cases
+
+### Use case: SSR uses only Node.js versions of utility libraries
+
+```ts
+transform(code, id) {
+  if (!id.endsWith(".ts")) return null
+
+  const envName = this.environment?.name
+
+  // In the SSR environment, replace browser APIs with Node.js equivalents
+  if (envName === "ssr") {
+    return {
+      code: code
+        .replace("localStorage.getItem", "process.env.STORAGE_DATA")
+        .replace("window.location.href", "globalThis.__SSR_URL__"),
+      map: null,
+    }
+  }
+
+  return null
+},
+```
+
+### Use case: inject different global constants per environment
+
+```ts
+config() {
+  return {
+    environments: {
+      client: {
+        define: {
+          __RUNTIME__: JSON.stringify("browser"),
+          __HAS_DOM__: "true",
+        },
+      },
+      ssr: {
+        define: {
+          __RUNTIME__: JSON.stringify("node"),
+          __HAS_DOM__: "false",
+        },
+      },
+    },
+  }
+},
+```
+
+## Self-check
+
+1. In an Environment API scenario, how many times might the same plugin's `transform` hook be called? Why?
+2. Is the `buildApp` hook primarily used by framework authors or application developers? Why?
+3. What is the difference between `hotUpdate` and `handleHotUpdate`?
+4. How do you make a plugin only run in the `ssr` environment?
+
+```ts filename="Exercise"
+// Implement a plugin that, in the transform phase, injects the implementation
+// corresponding to the "CLIENT_ONLY_CODE" or "SERVER_ONLY_CODE" placeholders
+// based on the current environment:
+// - client environment: replace CLIENT_ONLY_CODE with actual browser API calls
+// - ssr environment: replace CLIENT_ONLY_CODE with undefined to prevent server-side errors
+
+import type { Plugin } from "vite"
+
+export function envInjectorPlugin(): Plugin {
+  return {
+    name: "vite-plugin-env-injector",
+    transform(code, id) {
+      // TODO:
+      // 1. Get the current environment name
+      // 2. Replace placeholders based on the environment
+      // 3. Return the modified code
+    },
+  }
+}
+```

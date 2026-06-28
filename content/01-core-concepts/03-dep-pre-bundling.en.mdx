@@ -1,0 +1,196 @@
+---
+title: Dependency Pre-Bundling
+description: Why does Vite pre-bundle node_modules? What changes when Rolldown takes over pre-bundling? How does the .vite/deps cache work?
+order: 3
+part: 01-core-concepts
+chapter: "1.3"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What dependency pre-bundling is and what problems it solves - What lives inside the `.vite/deps/` directory -
+  Pre-bundling trigger conditions and caching behavior - Changes brought by Rolldown taking over pre-bundling in Vite 8
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Native ESM" (section 1.1) — understand the bare module import problem - Basic familiarity with `node_modules`
+</Callout>
+
+## Why pre-bundling is needed
+
+The previous section mentioned that the browser doesn't understand bare module paths like `import "react"`. But the problem goes further than that.
+
+### Problem 1: CommonJS format incompatibility
+
+A large number of packages in `node_modules` use the **CommonJS (CJS)** format:
+
+```js
+// node_modules/some-old-package/index.js
+const utils = require("./utils")
+module.exports = { doSomething: utils.doSomething }
+```
+
+Browser-native ESM does not understand `require` or `module.exports` at all. These packages must be converted to ESM format before they can run in the browser.
+
+### Problem 2: Request count explosion
+
+Some npm packages have hundreds of files that import each other internally. If you let the browser load all of them recursively via ESM, the number of network requests on first load can reach hundreds or even thousands, overwhelming the dev server.
+
+A classic example: lodash-es has around 600 individual files. Without pre-bundling, `import _ from "lodash-es"` would trigger 600+ HTTP requests.
+
+Pre-bundling **merges all of lodash-es's files into one**:
+
+```text
+Original: lodash-es/
+  ├── array.js
+  ├── chunk.js
+  ├── (600+ more files...)
+
+After pre-bundling: .vite/deps/
+  └── lodash-es.js  ← one file!
+```
+
+## The `.vite/deps/` directory
+
+After running `pnpm dev`, a `.vite/deps/` directory is created:
+
+```text
+.vite/deps/
+├── react.js             ← pre-bundled version of React
+├── react.js.map         ← source map
+├── react-dom.js
+├── react-dom.js.map
+├── lodash-es.js         ← 600 files merged into 1
+├── chunk-XXXX.js        ← shared chunk (if multiple packages share common deps)
+└── _metadata.json       ← cache metadata
+```
+
+`_metadata.json` records:
+
+- Which packages were pre-bundled
+- The hash for each package (used to determine cache invalidation)
+- A snapshot of the configuration at pre-bundle time
+
+## Pre-bundling trigger conditions
+
+Vite triggers (or re-triggers) pre-bundling in the following situations:
+
+| Trigger condition                   | Example                              |
+| ----------------------------------- | ------------------------------------ |
+| First run                           | `.vite/deps/` does not exist         |
+| A new npm dependency is added       | After `pnpm add axios`               |
+| An npm dependency is removed        | After `pnpm remove lodash`           |
+| A new `optimizeDeps.include` is set | Manually specifying pre-bundle scope |
+| `node_modules` contents change      | After updating a package version     |
+| Vite config file changes            | After modifying `vite.config.ts`     |
+
+During development, Vite also auto-detects: if the browser requests a package that hasn't been pre-bundled yet, Vite **immediately triggers an incremental pre-bundle**, then reloads the page.
+
+You may have seen this console output:
+
+```text
+[vite] new dependencies optimized: some-new-package
+[vite] page reload
+```
+
+That is the page reload that follows a completed incremental pre-bundle.
+
+## Manually controlling pre-bundling scope
+
+Vite handles most cases automatically, but sometimes you need to intervene manually:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  optimizeDeps: {
+    // Force pre-bundling for these packages (even if Vite's auto-scan missed them)
+    include: [
+      "some-package",
+      "lodash-es/debounce", // can target a sub-path
+    ],
+
+    // Exclude certain packages from pre-bundling (typically packages that are already ESM)
+    exclude: ["@vite-mastery/ui"],
+
+    // Disable auto-scanning (use only the include list)
+    // noDiscovery: true,
+  },
+})
+```
+
+**When to use `include`**:
+
+- A package is CommonJS but Vite's scan didn't discover it (e.g., behind a dynamic import)
+- A package has too many internal dependencies and needs to be pre-bundled
+
+**When to use `exclude`**:
+
+- The package is already ESM and a single file — pre-bundling would only waste time
+- The package needs to be reloaded on every request (e.g., a local workspace package under active development)
+
+## Forcing a re-bundle
+
+If the pre-bundle cache gets corrupted (rare), you can clear it:
+
+```bash
+# Option 1: delete the cache directory
+rm -rf node_modules/.vite
+
+# Option 2: pass --force when starting
+pnpm vite --force
+```
+
+<V7Note title="Pre-bundling differences between Vite 7 and Vite 8">
+  In Vite 7, dependency pre-bundling was executed by **esbuild**. Vite 8 switches to **Rolldown** for pre-bundling.
+
+For most projects:
+
+- The perceptible difference is small (pre-bundle output is the same)
+- Performance may vary slightly (Rolldown is faster in some scenarios)
+- The cache path remains `node_modules/.vite/deps/` (unchanged)
+
+If you are upgrading from Vite 7 to Vite 8, it is recommended to delete the old cache before starting: `rm -rf node_modules/.vite`
+
+</V7Note>
+
+## Pre-bundling and HMR
+
+Pre-bundling only targets **third-party dependencies in `node_modules`** — your project's source code (`src/`) is never pre-bundled.
+
+- **Third-party dependencies** (`react` / `lodash-es`): pre-bundled, cached, almost never trigger HMR
+- **Project source code** (`src/`): not pre-bundled, on-demand transform on every request, supports HMR
+
+This division is one of the keys to Vite's performance: third-party dependencies rarely change, so they only need to be pre-bundled once; project source code changes frequently, so it goes through on-demand transform + HMR.
+
+## Self-check
+
+1. What two core problems does dependency pre-bundling solve? Give a real-world example for each.
+2. What does `.vite/deps/_metadata.json` record? What is it used for?
+3. When would you use `optimizeDeps.include` versus `optimizeDeps.exclude`?
+4. Why is project source code not pre-bundled, while only packages in `node_modules` are?
+
+```ts filename="Exercise"
+// In each of the following situations, will Vite re-trigger pre-bundling?
+// Decide and explain your reasoning:
+
+// Situation A: you modify src/App.tsx
+// Situation B: you run pnpm add dayjs
+// Situation C: you change resolve.alias in vite.config.ts
+// Situation D: you directly edit node_modules/react/index.js by hand
+// Situation E: you run pnpm update react
+
+// Also: write the config that tells Vite to pre-bundle "some-cjs-package"
+// but NOT pre-bundle "@my/local-package"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  optimizeDeps: {
+    // TODO
+  },
+})
+```

@@ -1,0 +1,82 @@
+---
+title: Vite Plugins vs Rollup Plugins
+description: How the two hook systems coexist and interoperate, and a decision flow for choosing which type of plugin to write.
+order: 1
+part: 03-plugin-system
+chapter: "3.1"
+difficulty: 2
+readingTime: 12
+updatedAt: "2026-06-25"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The relationship between Vite plugins and Rollup plugins - When Vite-only hooks are called - Whether a Rollup plugin
+  can be used in Vite without modification
+</Callout>
+
+## The one-sentence summary
+
+**A Vite plugin is a Rollup plugin plus a few Vite-only hooks.** This means most Rollup plugins work in Vite out of the box, but the reverse is not always true.
+
+## Shared hooks (used in both dev and build)
+
+These hooks are called during both the dev and build phases:
+
+- `options`
+- `buildStart`
+- `resolveId`
+- `load`
+- `transform`
+- `buildEnd`
+- `generateBundle` (build only)
+- `writeBundle` (build only)
+
+## Vite-only hooks
+
+| Hook                     | When it fires                   | Typical use case                      |
+| ------------------------ | ------------------------------- | ------------------------------------- |
+| `config`                 | Before user config is resolved  | Inject defaults, modify aliases       |
+| `configResolved`         | After config is finalized       | Read the final config for later setup |
+| `configureServer`        | When the dev server starts      | Inject middleware                     |
+| `configurePreviewServer` | When the preview server starts  | Same as above, but for `vite preview` |
+| `transformIndexHtml`     | When `index.html` is processed  | Inject scripts, meta tags, or data    |
+| `handleHotUpdate`        | When an HMR update is triggered | Customize hot update behavior         |
+
+## A minimal Vite plugin
+
+```ts
+// my-plugin.ts
+import type { Plugin } from "vite"
+
+export function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    resolveId(id) {
+      if (id === "virtual:hello") return id
+    },
+    load(id) {
+      if (id === "virtual:hello") {
+        return `export default "hello from virtual module"`
+      }
+    },
+  }
+}
+```
+
+This is a complete Vite plugin. **It only uses Rollup hooks**, so it would also work in a standalone Rollup project.
+
+## Decision tree: which type should I write?
+
+```text
+Does your plugin use the dev server, index.html, or HMR?
+  ├── Yes → Write a Vite plugin (use enforce / apply to control scope)
+  └── No  → Write a Rollup plugin; Vite will handle compatibility automatically
+```
+
+## Self-check
+
+1. Why is `transformIndexHtml` Vite-only rather than a standard Rollup hook?
+2. Will a plugin that uses `configureServer` be called during the build phase?
+3. Write a virtual module plugin that exports the current git commit hash.

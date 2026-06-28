@@ -1,0 +1,307 @@
+---
+title: "Universal Build Hooks (Part 2): transform / buildEnd / generateBundle / writeBundle"
+description: The transform pipeline at the heart of the plugin system, plus four hooks that run during the build finalization phase. Understand how the transform chain passes code along, and how to perform last-mile processing after output is generated.
+order: 3
+part: 04-hooks-deep-dive
+chapter: "4.3"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The sequential calling chain mechanism of the `transform` hook - Source map merging and propagation - The
+  differences and use cases of `buildEnd` / `generateBundle` / `writeBundle` - How to inject files into the output or
+  analyze the bundle
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Universal Build Hooks (Part 1)" (section 4.2) - Understand the basic concept of source maps
+</Callout>
+
+## The `transform` Hook
+
+**When it fires**: After each module is loaded, before it is recorded in the module graph.
+
+**Calling convention**: sequential (each plugin processes in order; the output of one is the input of the next)
+
+**Parameters**:
+
+```ts
+transform(
+  code: string,       // Module source code (result after the previous plugin processed it)
+  id: string,         // Module path (returned by resolveId)
+  options?: {
+    ssr?: boolean     // Whether we're in an SSR environment
+  }
+): TransformResult | null
+```
+
+**Return values**:
+
+```ts
+type TransformResult =
+  | string // Modify code only, provide no map
+  | null // No modification; pass to the next plugin
+  | { code: string; map?: SourceMap } // Modify code and provide a source map
+```
+
+### Simplest transform: string replacement
+
+```ts
+transform(code, id) {
+  if (!id.endsWith(".ts") && !id.endsWith(".tsx")) return null
+
+  // Replace environment variable placeholders
+  const result = code.replace(/__APP_VERSION__/g, JSON.stringify("1.2.3"))
+  return { code: result, map: null }
+},
+```
+
+`map: null` means no precise source map is provided; line numbers in debugging may be off.
+
+### Using MagicString for accurate source maps
+
+For production-quality transforms, use the `magic-string` library to track code modifications:
+
+```ts
+import MagicString from "magic-string"
+import type { Plugin } from "vite"
+
+export function replacePlugin(replacements: Record<string, string>): Plugin {
+  return {
+    name: "vite-plugin-replace",
+    transform(code, id) {
+      if (!Object.keys(replacements).some((key) => code.includes(key))) {
+        return null // Fast path: nothing to process
+      }
+
+      const ms = new MagicString(code)
+
+      for (const [from, to] of Object.entries(replacements)) {
+        let index = code.indexOf(from)
+        while (index !== -1) {
+          ms.overwrite(index, index + from.length, to)
+          index = code.indexOf(from, index + 1)
+        }
+      }
+
+      return {
+        code: ms.toString(),
+        // generateMap produces a source map that precisely corresponds to the original code
+        map: ms.generateMap({ hires: true }),
+      }
+    },
+  }
+}
+```
+
+### Data flow through the transform chain
+
+```text
+Original code: src/App.tsx
+         │
+         ▼
+[pre] vite-plugin-define.transform  → Replace import.meta.env.*
+         │ (modified code)
+         ▼
+[normal] @vitejs/plugin-react.transform → JSX → JS
+         │
+         ▼
+[normal] vite:esbuild.transform     → TypeScript type stripping
+         │
+         ▼
+[post] (no post transform)
+         │
+         ▼
+Final JS code + source map chain
+```
+
+Each plugin receives the code **as modified by the previous plugin**. This means plugin execution order is critical.
+
+### Best practices for file filtering
+
+```ts
+transform(code, id) {
+  // 1. Filter by file type (filter first, process later — avoid unnecessary work)
+  if (!/\.(ts|tsx|js|jsx)$/.test(id)) return null
+
+  // 2. Filter out node_modules (usually don't need processing)
+  if (id.includes("node_modules")) return null
+
+  // 3. Filter specific paths
+  if (id.includes("__tests__")) return null
+
+  // 4. Fast path: if the code doesn't contain what we need to process
+  if (!code.includes("__REPLACE_ME__")) return null
+
+  // 5. Actual processing
+  return { code: code.replace("__REPLACE_ME__", "replaced"), map: null }
+},
+```
+
+## The `buildEnd` Hook
+
+**When it fires**: After all modules have been built (build phase), or when the build errors out.
+
+**Calling convention**: parallel
+
+**Purpose**: Clean up temporary files, output statistics, or do cleanup when a build fails.
+
+```ts
+buildEnd(error) {
+  if (error) {
+    console.error("[my-plugin] Build failed:", error.message)
+    cleanup()
+    return
+  }
+  console.log("[my-plugin] Build complete, processed", processedCount, "modules")
+},
+```
+
+**Note**: `buildEnd` does not fire in the dev server (dev has no concept of "build end"). Initialization logic should go in `buildStart`; cleanup should go in `closeBundle`.
+
+## The `generateBundle` Hook
+
+**When it fires**: After all chunks are generated, but before they are written to disk.
+
+**Calling convention**: sequential
+
+**Parameters**:
+
+```ts
+generateBundle(
+  options: OutputOptions,
+  bundle: OutputBundle,     // All output files (chunks + assets)
+  isWrite: boolean          // Whether files will be written to disk (false when using generate)
+): void
+```
+
+**Structure of the `bundle` object**:
+
+```ts
+bundle = {
+  "assets/logo-HASH.png": {
+    type: "asset",
+    fileName: "assets/logo-HASH.png",
+    source: Buffer,
+  },
+  "index.js": {
+    type: "chunk",
+    fileName: "index.js",
+    code: "...",           // Final JS code
+    modules: {...},        // Module information
+    imports: [...],        // Other chunks this chunk depends on
+    exports: [...],        // Exported names
+    isEntry: true,
+    facadeModuleId: "...", // The corresponding entry file
+  },
+}
+```
+
+### Typical use case: analyze bundle size
+
+```ts
+generateBundle(_, bundle) {
+  const sizes: { name: string; size: number }[] = []
+
+  for (const [fileName, output] of Object.entries(bundle)) {
+    if (output.type === "chunk") {
+      sizes.push({
+        name: fileName,
+        size: Buffer.byteLength(output.code, "utf-8"),
+      })
+    }
+  }
+
+  sizes.sort((a, b) => b.size - a.size)
+  console.log("\nBundle size analysis:")
+  sizes.forEach(({ name, size }) => {
+    console.log(`  ${name}: ${(size / 1024).toFixed(1)} KB`)
+  })
+},
+```
+
+### Injecting output files with `this.emitFile`
+
+```ts
+generateBundle(options, bundle) {
+  // Inject a new file into the bundle
+  this.emitFile({
+    type: "asset",
+    fileName: "bundle-stats.json",
+    source: JSON.stringify({
+      chunks: Object.keys(bundle).filter(k => bundle[k].type === "chunk"),
+      assets: Object.keys(bundle).filter(k => bundle[k].type === "asset"),
+      timestamp: new Date().toISOString(),
+    }, null, 2),
+  })
+},
+```
+
+### Deleting files from the bundle
+
+```ts
+generateBundle(_, bundle) {
+  // Remove sourcemap files from the output (if you don't need to publish them)
+  for (const fileName of Object.keys(bundle)) {
+    if (fileName.endsWith(".map")) {
+      delete bundle[fileName]
+    }
+  }
+},
+```
+
+## The `writeBundle` Hook
+
+**When it fires**: After all chunks have been written to disk.
+
+**Calling convention**: parallel
+
+**Difference from generateBundle**:
+
+- `generateBundle`: Files are still in memory; you can modify them
+- `writeBundle`: Files have already been written to disk; only suitable for reading and post-processing
+
+```ts
+writeBundle(options, bundle) {
+  console.log(`Output written to ${options.dir}`)
+
+  // Good for: triggering notifications after writing, uploading to CDN, sending Slack messages, etc.
+  Object.keys(bundle).forEach(fileName => {
+    console.log(`  ✓ ${fileName}`)
+  })
+},
+```
+
+## Self-check
+
+1. In a `transform` chain, if plugin A returns `null`, what `code` does plugin B receive?
+2. What is the timing difference between `generateBundle` and `writeBundle`? Which should you use to modify output contents?
+3. Can `this.emitFile` be called during the `transform` phase, or only in specific hooks?
+4. Why should you handle the `error` parameter in `buildEnd`? What is the risk of ignoring it?
+
+```ts filename="Exercise"
+// Implement a bundle analysis plugin that, after a build completes:
+// 1. Prints the size (in KB) of each chunk
+// 2. Flags chunks over 200KB with a warning (⚠️)
+// 3. Generates a bundle-report.json file in the dist/ directory
+
+import type { Plugin } from "vite"
+
+export function bundleReporter(): Plugin {
+  return {
+    name: "vite-plugin-bundle-reporter",
+    apply: "build",
+    generateBundle(options, bundle) {
+      // TODO:
+      // 1. Iterate over all chunks in the bundle
+      // 2. Calculate the size of each chunk
+      // 3. Print the report
+      // 4. Use this.emitFile to generate bundle-report.json
+    },
+  }
+}
+```

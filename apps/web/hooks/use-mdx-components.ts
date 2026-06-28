@@ -13,6 +13,7 @@ import { HmrDemo } from "@/components/interactive/hmr-demo"
 import { EnvironmentExplorer } from "@/components/interactive/environment-explorer"
 import { ConfigPlayground } from "@/components/interactive/config-playground"
 import { DepGraph } from "@/components/interactive/dep-graph"
+import { LocalizedV7Note } from "@/components/mdx/localized-v7-note"
 
 export function useMDXComponents(components: MDXComponents): MDXComponents {
   return {
@@ -24,6 +25,7 @@ export function useMDXComponents(components: MDXComponents): MDXComponents {
     EnvironmentExplorer,
     ConfigPlayground,
     DepGraph,
+    V7Note: LocalizedV7Note,
     ...components,
   }
 }

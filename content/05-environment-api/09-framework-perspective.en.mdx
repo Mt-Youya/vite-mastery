@@ -1,0 +1,237 @@
+---
+title: "Framework Perspective: How Nuxt, SvelteKit, and React Router Use the Env API"
+description: How three major meta-frameworks restructure their SSR and multi-environment support on top of Vite 8's Environment API — understanding the design intent of the Env API from a framework author's point of view.
+order: 9
+part: 05-environment-api
+chapter: "5.9"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. For each framework's specific Env API integration status, refer to its
+  official documentation.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - How mainstream meta-frameworks solved the multi-environment problem before Vite 8 - How the Environment API makes
+  framework-level implementations cleaner - The integration approach taken by Nuxt, SvelteKit, and React Router - As an
+  application developer, how you benefit from these frameworks' Env API adaptations
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Why the Environment API" (section 5.1) - Basic familiarity with at least one of Nuxt, SvelteKit, or React
+  Router
+</Callout>
+
+## The problem frameworks faced
+
+Before Vite 7 and earlier, all major meta-frameworks had to independently solve the same problem:
+
+> **How do you run client code and server code simultaneously inside a single Vite dev server, while keeping HMR working on both sides?**
+
+Each framework had a different solution, and many involved "private API hacks":
+
+- Directly manipulating Vite's internal state
+- Instantiating the Vite server multiple times
+- Maintaining their own module graph
+
+The Environment API provides a **standardized interface** so that frameworks no longer need to hack.
+
+## Nuxt's integration approach
+
+Nuxt 3's SSR architecture requires:
+
+- A `client` environment: the browser-side code for the Vue application
+- A `server` environment: the Nitro server (not ordinary Node.js SSR, but Nitro's H3 application)
+- An optional `edge` environment: when deploying to Cloudflare/Vercel Edge
+
+The general direction of Nuxt's Environment API integration:
+
+```ts
+// nuxt-vite-plugin (conceptual illustration)
+export function nuxtVitePlugin(): Plugin {
+  return {
+    name: "nuxt:environment",
+    config() {
+      return {
+        environments: {
+          client: {
+            // Vue browser-side configuration
+          },
+          server: {
+            // Nitro server configuration
+            resolve: {
+              conditions: ["node", "import"],
+            },
+          },
+        },
+      }
+    },
+    async buildApp(app) {
+      // Build server first (Nitro needs the Vue component SSR manifest)
+      await app.build("server")
+      await app.build("client")
+    },
+  }
+}
+```
+
+**Application developers feel no change** — you still only need to write Vue components and Nuxt configuration. The complexity of the Env API is absorbed internally by Nuxt.
+
+## SvelteKit's integration approach
+
+SvelteKit is characterized by very precise server/client code separation:
+
+- `.server.ts` files only load on the server
+- `+page.server.ts` only executes in the server environment
+- `+page.ts` executes in both client and server (isomorphic)
+
+This maps naturally to the Environment API's multi-environment model:
+
+```ts
+// sveltekit-vite-plugin (conceptual illustration)
+export function sveltekitPlugin(): Plugin {
+  return {
+    name: "sveltekit:environment",
+    config() {
+      return {
+        environments: {
+          client: {
+            resolve: {
+              conditions: ["browser", "svelte", "import"],
+            },
+          },
+          ssr: {
+            resolve: {
+              conditions: ["node", "svelte", "import"],
+              noExternal: ["svelte"],
+            },
+          },
+        },
+      }
+    },
+    transform(code, id) {
+      // .server.ts files may only be imported in the ssr environment
+      if (id.endsWith(".server.ts") && this.environment?.name === "client") {
+        return { code: 'throw new Error("server-only module")', map: null }
+      }
+      return null
+    },
+  }
+}
+```
+
+### Boundary violation detection
+
+The Environment API lets SvelteKit detect "client code imported a server-only module" errors more precisely:
+
+```ts
+// Before: errors only appeared at runtime (or not at all — just a data leak)
+// Now: detectable at the transform stage
+```
+
+## React Router v7 / Remix integration approach
+
+React Router v7 (the evolution of Remix) needs to support RSC (React Server Components):
+
+```ts
+// react-router-vite-plugin (conceptual illustration)
+export function reactRouterPlugin(): Plugin {
+  return {
+    name: "react-router:environment",
+    config() {
+      return {
+        environments: {
+          client: {
+            resolve: {
+              conditions: ["browser", "react-client", "import"],
+            },
+          },
+          ssr: {
+            resolve: {
+              conditions: ["node", "import"],
+            },
+          },
+          rsc: {
+            resolve: {
+              conditions: ["react-server", "node", "import"],
+            },
+          },
+        },
+      }
+    },
+    async buildApp(app) {
+      // RSC → SSR → Client order
+      await app.build("rsc")
+      await app.build("ssr")
+      await app.build("client")
+    },
+  }
+}
+```
+
+## The abstraction layer frameworks provide for application developers
+
+All frameworks share a common goal: **shielding application developers from the complexity of the Env API**:
+
+```text
+What application developers see:
+  Write .vue files  /  Write .svelte files  /  Write .tsx files
+       │
+Framework layer shields:
+  Vite Plugin + Environment API configuration
+       │
+Underlying layer:
+  client Environment / ssr Environment / rsc Environment
+```
+
+As an application developer, you typically do not need to use the Environment API directly. You only need to:
+
+- Follow framework conventions (`.server.ts` suffix, server-only imports, etc.)
+- Configure framework options (not Vite's `environments` option)
+
+## When you do need to use the Env API directly
+
+As an application developer, the following situations require direct contact with the Environment API:
+
+1. **Custom deployment environments**: your company has a specific runtime (non-standard Node.js)
+2. **Writing meta-frameworks or framework plugins**: you are helping a framework implement Env API support
+3. **Multi-Worker architecture**: the project itself is a monorepo and different Workers need different Environments
+
+## Self-check
+
+1. Why is the Environment API described as "an API for framework authors"?
+2. How was SvelteKit's `.server.ts` file restriction implemented before the Env API? How does the Env API make it more reliable?
+3. Why do React Server Components need three independent environments (client / ssr / rsc) rather than two?
+4. As an application developer, in what situations do you actually need to use the Environment API directly?
+
+```ts filename="Exercise"
+// Design a simple "micro-framework" Vite plugin with these constraints:
+// - Modules whose filename contains ".server." may only be imported in the ssr environment
+// - Modules whose filename contains ".client." may only be imported in the client environment
+// - On a violation, throw a meaningful error at the transform stage
+
+import type { Plugin } from "vite"
+
+export function serverClientBoundaryPlugin(): Plugin {
+  return {
+    name: "server-client-boundary",
+    transform(code, id) {
+      const envName = this.environment?.name
+
+      // TODO:
+      // 1. Detect whether the current file has a .server. or .client. suffix
+      // 2. Check the current environment (this.environment?.name)
+      // 3. On a violation, return code that throws an Error (rather than throwing directly)
+      //    so that the browser/Node shows a meaningful error at runtime
+
+      return null
+    },
+  }
+}
+```

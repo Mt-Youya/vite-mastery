@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 /**
  * <CodeGroup> ... </CodeGroup>
@@ -7,26 +7,24 @@
  * filename 作为 tab 标签。Tabs 走 @vite-mastery/ui 的 Base UI 封装。
  */
 
-import { Children, isValidElement, useId, useState } from "react";
-import type { ReactElement, ReactNode } from "react";
-import { Tabs } from "@vite-mastery/ui";
+import { Children, isValidElement, useId, useState } from "react"
+import type { ReactElement, ReactNode } from "react"
+import { Tabs } from "@vite-mastery/ui"
 
 interface CodeGroupProps {
-  children: ReactNode;
+  children: ReactNode
 }
 
 interface CodeBlockLikeProps {
-  filename?: string;
+  filename?: string
 }
 
 export function CodeGroup({ children }: CodeGroupProps) {
-  const groupId = useId();
-  const tabs = Children.toArray(children).filter(isValidElement) as ReactElement<
-    CodeBlockLikeProps
-  >[];
-  const [active, setActive] = useState(() => tabs[0]?.props.filename ?? "0");
+  const groupId = useId()
+  const tabs = Children.toArray(children).filter(isValidElement) as ReactElement<CodeBlockLikeProps>[]
+  const [active, setActive] = useState(() => tabs[0]?.props.filename ?? "0")
 
-  if (tabs.length === 0) return null;
+  if (tabs.length === 0) return null
 
   return (
     <Tabs.Root
@@ -36,7 +34,7 @@ export function CodeGroup({ children }: CodeGroupProps) {
     >
       <Tabs.List className="flex gap-1 border-b border-border bg-bg-subtle px-2 pt-2">
         {tabs.map((tab, i) => {
-          const label = tab.props.filename ?? `Tab ${i + 1}`;
+          const label = tab.props.filename ?? `Tab ${i + 1}`
           return (
             <Tabs.Tab
               key={`${groupId}-${label}`}
@@ -45,17 +43,17 @@ export function CodeGroup({ children }: CodeGroupProps) {
             >
               {label}
             </Tabs.Tab>
-          );
+          )
         })}
       </Tabs.List>
       {tabs.map((tab, i) => {
-        const label = tab.props.filename ?? `Tab ${i + 1}`;
+        const label = tab.props.filename ?? `Tab ${i + 1}`
         return (
           <Tabs.Panel key={`${groupId}-panel-${label}`} value={label} className="p-0">
             {tab}
           </Tabs.Panel>
-        );
+        )
       })}
     </Tabs.Root>
-  );
+  )
 }

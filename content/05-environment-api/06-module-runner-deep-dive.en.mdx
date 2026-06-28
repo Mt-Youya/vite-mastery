@@ -1,0 +1,217 @@
+---
+title: ModuleRunner Deep Dive
+description: How does ModuleRunner execute modules inside a specified Environment? What is its internal mechanism? How does it handle HMR, module caching, and circular dependencies?
+order: 6
+part: 05-environment-api
+chapter: "5.6"
+difficulty: 4
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - The internal execution flow of ModuleRunner - The relationship between the module cache mechanism and HMR updates -
+  The difference between `import()` and directly executing code - Common usage patterns for ModuleRunner
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Core Concepts" (section 5.2) - Basic understanding of how the Node.js module system works
+</Callout>
+
+## What is ModuleRunner
+
+`ModuleRunner` is the mechanism in the Environment API for **executing modules inside a specified environment**. Its role is equivalent to "importing a module within the context of this particular Environment".
+
+Analogy: if `Environment` is an isolated runtime sandbox, then `ModuleRunner` is the `import()` function inside that sandbox.
+
+```ts
+// Conceptual illustration (refer to official docs for the exact API)
+const runner = new ModuleRunner(ssrEnvironment)
+
+// Execute a module inside the ssr environment
+const { render } = await runner.import("/src/entry-server.tsx")
+const html = await render("/page")
+```
+
+## ModuleRunner's internal flow
+
+```text
+runner.import("/src/App.tsx")
+         │
+         ▼
+1. Check the module cache
+   ├── Hit and not invalidated → return the cached module exports directly
+   └── Miss / invalidated → continue →
+
+2. Request a module transform from DevEnvironment
+   ├── resolve → load → transform pipeline executes
+   └── Returns the compiled JS code
+
+3. Execute the code inside the runner's current execution context
+   ├── Similar to new Function(code)()
+   └── But with full import/export support
+
+4. Collect exports, add to cache
+
+5. Return the module exports object
+```
+
+## Module cache and HMR
+
+ModuleRunner maintains its own module cache. When a file changes:
+
+```text
+File changed: /src/utils.ts
+         │
+         ▼
+DevEnvironment receives the watcher event
+         │
+         ▼
+Notifies the runner via HotChannel: utils.ts is invalidated
+         │
+         ▼
+runner.moduleCache.invalidate("/src/utils.ts")
+         │
+         ▼
+Next runner.import("/src/utils.ts") re-executes
+```
+
+This means the runner's cache invalidation is **lazy**: it does not immediately re-execute; it waits until the next import to reload.
+
+## Standard patterns for using ModuleRunner
+
+### Pattern 1: SSR server-side rendering
+
+```ts
+// server.js (conceptual illustration)
+import { createServer } from "vite"
+
+const vite = await createServer({
+  server: { middlewareMode: true },
+})
+
+// Get the ModuleRunner for the ssr environment
+// Refer to official docs for the exact API
+const runner = getModuleRunner(vite.environments.ssr)
+
+app.use(async (req, res) => {
+  try {
+    // Each request uses runner.import to get the latest module
+    // If the file hasn't changed, the cache is hit — nearly zero overhead
+    const { render } = await runner.import("/src/entry-server.tsx")
+    const html = await render(req.url)
+
+    res.setHeader("Content-Type", "text/html")
+    res.end(html)
+  } catch (e) {
+    vite.ssrFixStacktrace(e)
+    res.status(500).end(String(e))
+  }
+})
+```
+
+### Pattern 2: Batch processing
+
+```ts
+// Execute multiple modules at once
+const results = await Promise.all([
+  runner.import("/src/routes/home.tsx"),
+  runner.import("/src/routes/about.tsx"),
+  runner.import("/src/routes/404.tsx"),
+])
+```
+
+### Pattern 3: Lifecycle management
+
+```ts
+// The runner should be closed alongside the server's lifecycle
+process.on("SIGTERM", async () => {
+  await runner.close() // clean up resources
+  await vite.close()
+})
+```
+
+## Comparison with `ssrLoadModule`
+
+| Dimension         | `ssrLoadModule`        | `ModuleRunner`                      |
+| ----------------- | ---------------------- | ----------------------------------- |
+| Environment-aware | ❌ Shared global graph | ✅ Independent Environment          |
+| Caching           | Re-executes every time | Cached, re-executes on invalidation |
+| HMR integration   | Manual                 | Automatic                           |
+| Multi-environment | ❌ Not supported       | ✅ Natively supported               |
+| API stability     | Stable                 | RC                                  |
+
+## Module execution context
+
+ModuleRunner executes modules in an **isolated execution context**. This means:
+
+```ts
+// Code executing inside the runner:
+import { readFile } from "node:fs/promises" // Node.js API
+
+// Global objects are Node.js globals
+console.log(typeof window) // "undefined" (if running in Node)
+console.log(typeof process) // "object"
+
+// But if the runner is running in an Edge Runtime:
+// console.log(typeof window)  // "object" (Edge has window-like objects)
+// console.log(typeof process)  // "undefined"
+```
+
+The execution environment of a runner depends on **which runtime it runs in**. An ssr runner runs in Node.js; a worker runner runs in workerd.
+
+## Self-check
+
+1. When does ModuleRunner's module cache get invalidated?
+2. Why is the runner's cache invalidation "lazy" rather than immediately re-executing? What are the benefits of this design?
+3. If the same `/src/utils.ts` is imported by both a client runner and an ssr runner, does each runner maintain its own separate cache?
+4. What is the fundamental difference between `runner.import("/src/App.tsx")` and a direct `import("/src/App.tsx")`?
+
+```ts filename="Exercise"
+// Implement a simple SSR rendering server:
+// 1. Create a Vite dev server
+// 2. Get the ModuleRunner for the ssr environment
+// 3. For each HTTP request:
+//    a. Use runner.import to get the entry-server module
+//    b. Call render(url) to get the HTML
+//    c. Return the complete HTML
+
+import { createServer } from "node:http"
+import { createServer as createViteServer } from "vite"
+
+async function main() {
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: "custom",
+    environments: {
+      ssr: {
+        resolve: {
+          conditions: ["node", "import"],
+        },
+      },
+    },
+  })
+
+  // TODO:
+  // 1. Get the runner for the ssr environment (use official API)
+  // 2. Create an HTTP server
+  // 3. In the request handler, use runner.import to execute entry-server
+
+  const server = createServer(async (req, res) => {
+    // TODO
+  })
+
+  server.listen(3000)
+  console.log("SSR server: http://localhost:3000")
+}
+
+main()
+```

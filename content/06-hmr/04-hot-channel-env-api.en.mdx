@@ -1,0 +1,190 @@
+---
+title: "HMR Under the Environment API (HotChannel)"
+description: Vite 8's Environment API gives each environment its own independent HotChannel — the client uses WebSocket, SSR uses in-process messaging, and custom environments can define their own communication method.
+order: 4
+part: 06-hmr
+chapter: "6.4"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The HotChannel API is part of the Environment API, which is currently in **RC stage**. Refer to the official Vite
+  8.1.x documentation for the exact interface.
+</Callout>
+
+<Callout type="note" title="What you'll learn">
+  - What HotChannel is: each Environment's independent HMR channel - The HotChannel for the client environment
+  (WebSocket) - The HotChannel for the ssr environment (in-process messaging) - How to implement a HotChannel for a
+  custom environment
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Core Concepts" (section 5.2) - Read "The handleHotUpdate hook" (section 6.3)
+</Callout>
+
+## Why Each Environment Needs Its Own HotChannel
+
+In Vite 7 (single module graph era), there was only one HMR channel — WebSocket, connected to the browser.
+
+When the Environment API introduced multiple independent environments, different environments need different HMR communication methods:
+
+| Environment | Communication target                        | Communication method                    |
+| ----------- | ------------------------------------------- | --------------------------------------- |
+| client      | Browser                                     | WebSocket                               |
+| ssr         | ModuleRunner running in the Node.js process | In-process function call / EventEmitter |
+| worker      | workerd process                             | HTTP / IPC                              |
+
+`HotChannel` abstracts over all these different communication methods.
+
+## HotChannel API (Conceptual)
+
+Each `DevEnvironment` has a `hot` property:
+
+```ts
+interface HotChannel {
+  // Send a message to this environment's client
+  send(payload: HotPayload): void
+
+  // Subscribe to messages from the client
+  on(event: string, listener: (data: unknown) => void): void
+  off(event: string, listener: (data: unknown) => void): void
+}
+```
+
+<Callout type="warning">
+  The above is a conceptual description. Refer to the official Vite 8.1.x documentation for the exact interface.
+</Callout>
+
+## The client Environment's HotChannel
+
+The `client` environment's HotChannel is implemented over WebSocket:
+
+```ts
+configureServer(server) {
+  // Send a message to all browser clients
+  server.environments.client.hot.send({
+    type: "custom",
+    event: "my-event",
+    data: { key: "value" },
+  })
+
+  // Subscribe to messages from the browser (less common)
+  server.environments.client.hot.on("browser-message", (data) => {
+    console.log("Browser sent:", data)
+  })
+},
+```
+
+This is equivalent to calling `server.hot.send()` directly — `server.hot` defaults to the client environment's HotChannel.
+
+## The ssr Environment's HotChannel
+
+The `ssr` environment's HotChannel does not use WebSocket — because SSR code runs inside Node.js, in-process communication is more efficient:
+
+```ts
+configureServer(server) {
+  // Notify the ssr environment's ModuleRunner that certain modules need to be invalidated
+  server.environments.ssr?.hot.send({
+    type: "custom",
+    event: "ssr:invalidate",
+    data: { path: "/src/data-fetcher.ts" },
+  })
+},
+```
+
+The ModuleRunner listens for this message and invalidates the corresponding modules:
+
+```ts
+// Configure HotChannel listeners when initializing ModuleRunner
+// Refer to official documentation for the exact API
+```
+
+## Sending HMR Messages Across Environments in a Plugin
+
+```ts
+import type { Plugin } from "vite"
+
+export function crossEnvHmrPlugin(): Plugin {
+  return {
+    name: "cross-env-hmr",
+    handleHotUpdate({ file, server }) {
+      if (!file.endsWith(".data.ts")) return
+
+      // Notify both the client and ssr environments
+      server.environments.client.hot.send({
+        type: "custom",
+        event: "data-update",
+        data: { file },
+      })
+
+      server.environments.ssr?.hot.send({
+        type: "custom",
+        event: "ssr:data-update",
+        data: { file },
+      })
+
+      return []
+    },
+  }
+}
+```
+
+## Custom Environment HotChannel
+
+For custom environments such as Cloudflare Workers, you need to implement a custom HotChannel. This is typically done by the framework plugin (e.g. `@cloudflare/vite-plugin`) and does not require manual work from application developers.
+
+```ts
+// Conceptual: custom HotChannel (implemented by framework authors)
+class WorkerdHotChannel implements HotChannel {
+  private connection: WorkerdConnection
+
+  send(payload: HotPayload) {
+    // Send the message to the workerd process via HTTP or IPC
+    this.connection.postMessage(JSON.stringify(payload))
+  }
+
+  on(event: string, listener: (data: unknown) => void) {
+    this.connection.on(`message:${event}`, listener)
+  }
+
+  off(event: string, listener: (data: unknown) => void) {
+    this.connection.off(`message:${event}`, listener)
+  }
+}
+```
+
+## Self-check
+
+1. Why doesn't the ssr environment's HotChannel use WebSocket?
+2. What is the relationship between `server.hot.send()` and `server.environments.client.hot.send()`?
+3. If you want code running inside the ssr environment to also receive HMR updates, what do you need to do?
+4. Why does the HotChannel for a Cloudflare Workers environment need a custom communication method?
+
+```ts filename="Exercise"
+// Implement a plugin: when the theme config file (theme.json) changes —
+// - Notify the client environment: send a "theme:update" event so the browser dynamically replaces CSS variables
+// - Notify the ssr environment: invalidate the ssr version of the theme module
+
+import type { Plugin } from "vite"
+import { resolve } from "node:path"
+
+const THEME_FILE = resolve("theme.json")
+
+export function themeHmrPlugin(): Plugin {
+  return {
+    name: "theme-hmr",
+    handleHotUpdate({ file, server }) {
+      if (file !== THEME_FILE) return
+
+      // TODO:
+      // 1. Send a "theme:update" event to the client environment
+      // 2. Send an invalidation notification to the ssr environment
+      // 3. Return [] to block the default HMR
+    },
+  }
+}
+```

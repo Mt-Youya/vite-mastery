@@ -1,0 +1,321 @@
+---
+title: "Project 3: i18n Auto-injection"
+description: Combine transformIndexHtml + resolveId + load to build an i18n injection plugin that requires no manual imports, with automatic HMR when language packs change.
+order: 9
+part: 04-hooks-deep-dive
+chapter: "4.9"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - A real-world combination of `transformIndexHtml` + `resolveId` + `load` - How to expose language packs as virtual
+  modules to application code - Using `this.addWatchFile` to watch external file changes and trigger HMR - Companion
+  project: `examples/plugin-i18n`
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read `transformIndexHtml` in "Vite-Specific Hooks (Part 2)" (section 4.5) - Read "Project 1: Virtual Modules Plugin"
+  (section 3.4)
+</Callout>
+
+## Goal: i18n with Zero Imports
+
+Traditional i18n requires manually importing the translation function:
+
+```ts
+// ❌ Traditional approach: every file needs an import
+import { t } from "@/i18n"
+console.log(t("hello"))
+```
+
+The goal of this plugin:
+
+```ts
+// ✅ No import needed; use directly
+import t from "virtual:i18n"
+console.log(t("hello")) // "Hello"
+console.log(t("welcome")) // "Welcome to Vite"
+```
+
+And automatically inject the `lang` attribute onto the `<html>` tag:
+
+```html
+<!-- index.html original -->
+<html>
+  <!-- After plugin processing -->
+  <html lang="zh-CN"></html>
+</html>
+```
+
+## Plugin Architecture
+
+```text
+vite-plugin-i18n
+│
+├── resolveId          → Intercept "virtual:i18n"
+├── load               → Generate the t() function code (reads from locales/*.json)
+├── addWatchFile       → Watch locales/*.json for changes
+├── handleHotUpdate    → Invalidate the virtual module when the language pack changes
+└── transformIndexHtml → Inject the lang attribute onto the <html> tag
+```
+
+## Step 1: Virtual Module
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface I18nOptions {
+  locale: string // Current locale, e.g. "zh"
+  localeDir: string // Language pack directory, e.g. "./locales"
+}
+
+const VIRTUAL_ID = "virtual:i18n"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function i18nPlugin(options: I18nOptions): Plugin {
+  const { locale, localeDir } = options
+  const localeFile = resolve(localeDir, `${locale}.json`)
+
+  function loadMessages(): Record<string, string> {
+    if (!existsSync(localeFile)) return {}
+    try {
+      return JSON.parse(readFileSync(localeFile, "utf-8")) as Record<string, string>
+    } catch {
+      return {}
+    }
+  }
+
+  return {
+    name: "vite-plugin-i18n",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // Watch the language pack file for changes
+      this.addWatchFile(localeFile)
+
+      const messages = loadMessages()
+
+      // Generate the t() function
+      return `
+const __messages__ = ${JSON.stringify(messages)}
+
+export default function t(key) {
+  return __messages__[key] ?? key
+}
+
+export function has(key) {
+  return key in __messages__
+}
+
+export const locale = ${JSON.stringify(locale)}
+`
+    },
+  }
+}
+```
+
+## Step 2: Inject the lang Attribute
+
+```ts
+// Add transformIndexHtml to the plugin object:
+transformIndexHtml(html) {
+  // Inject the lang attribute onto the <html> tag
+  // Handle both cases: <html> and <html lang="en">
+  return html
+    .replace(/(<html)(\s[^>]*)?>/i, (_, tag, attrs) => {
+      const attrsStr = attrs ?? ""
+      // If a lang attribute already exists, replace it; otherwise append
+      if (/lang=/i.test(attrsStr)) {
+        return `${tag}${attrsStr.replace(/lang="[^"]*"/i, `lang="${locale}"`)}>`
+      }
+      return `${tag}${attrsStr} lang="${locale}">`
+    })
+},
+```
+
+## Step 3: HMR Support
+
+When `locales/zh.json` changes, invalidate the virtual module so the browser automatically reloads the new language pack:
+
+```ts
+handleHotUpdate({ file, server }) {
+  if (file !== localeFile) return
+
+  // Find the virtual module node
+  const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+  if (module) {
+    // Invalidate the virtual module
+    server.moduleGraph.invalidateModule(module)
+    // Return the list of modules that need updating
+    return [module]
+  }
+},
+```
+
+## Complete Implementation
+
+```ts filename="src/plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+interface I18nOptions {
+  locale: string
+  localeDir: string
+}
+
+const VIRTUAL_ID = "virtual:i18n"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function i18nPlugin(options: I18nOptions): Plugin {
+  const { locale, localeDir } = options
+  const localeFile = resolve(localeDir, `${locale}.json`)
+
+  function loadMessages(): Record<string, string> {
+    if (!existsSync(localeFile)) return {}
+    try {
+      return JSON.parse(readFileSync(localeFile, "utf-8")) as Record<string, string>
+    } catch {
+      return {}
+    }
+  }
+
+  return {
+    name: "vite-plugin-i18n",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+      this.addWatchFile(localeFile)
+      const messages = loadMessages()
+      return `
+const __messages__ = ${JSON.stringify(messages)}
+export default function t(key) { return __messages__[key] ?? key }
+export function has(key) { return key in __messages__ }
+export const locale = ${JSON.stringify(locale)}
+`
+    },
+
+    transformIndexHtml(html) {
+      return html.replace(/(<html)(\s[^>]*)?>/i, (_, tag, attrs) => {
+        const attrsStr = attrs ?? ""
+        if (/lang=/i.test(attrsStr)) {
+          return `${tag}${attrsStr.replace(/lang="[^"]*"/i, `lang="${locale}"`)}>`
+        }
+        return `${tag}${attrsStr} lang="${locale}">`
+      })
+    },
+
+    handleHotUpdate({ file, server }) {
+      if (file !== localeFile) return
+      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+    },
+  }
+}
+```
+
+## TypeScript Type Declarations
+
+```ts filename="src/i18n.d.ts"
+declare module "virtual:i18n" {
+  export default function t(key: string): string
+  export function has(key: string): boolean
+  export const locale: string
+}
+```
+
+## Usage
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { i18nPlugin } from "./src/plugin"
+
+export default defineConfig({
+  plugins: [
+    i18nPlugin({
+      locale: "zh",
+      localeDir: "./locales",
+    }),
+  ],
+})
+```
+
+```json filename="locales/zh.json"
+{
+  "hello": "Hello",
+  "welcome": "Welcome to Vite",
+  "goodbye": "Goodbye"
+}
+```
+
+```ts filename="src/main.ts"
+import t from "virtual:i18n"
+
+document.querySelector("#app")!.innerHTML = `
+  <h1>${t("hello")}</h1>
+  <p>${t("welcome")}</p>
+`
+```
+
+## Running the Project
+
+```bash
+cd examples/plugin-i18n
+pnpm install
+pnpm dev
+```
+
+Modify the translations in `locales/zh.json` and the browser updates automatically without a refresh.
+
+## Self-check
+
+1. Is calling `this.addWatchFile(path)` inside `load` the best timing? Can you call it inside `resolveId`?
+2. Why does `handleHotUpdate` look for the module by `RESOLVED_ID` rather than `VIRTUAL_ID`?
+3. If you wanted to support runtime locale switching (dynamically switching at runtime), how would you modify this plugin?
+4. In the `transformIndexHtml` regex `/(<html)(\s[^>]*)?>/i`, what does `\s[^>]*` mean? Why is this pattern needed?
+
+```ts filename="Exercise"
+// Extend the i18n plugin: support translations with interpolation
+// t("greeting", { name: "Jay" }) → "Hello Jay"
+// Language pack format: { "greeting": "Hello {name}" }
+
+// Also: support nested keys
+// t("errors.notFound") → language pack { "errors": { "notFound": "Page not found" } }
+
+// Modify the t() function implementation
+function generateTFunction(messages: Record<string, unknown>): string {
+  return `
+function get(obj, key) {
+  return key.split(".").reduce((acc, k) => acc?.[k], obj)
+}
+
+export default function t(key, params) {
+  let str = get(__messages__, key) ?? key
+  if (params) {
+    str = str.replace(/\\{(\\w+)\\}/g, (_, k) => params[k] ?? "")
+  }
+  return str
+}
+`
+}
+```

@@ -1,29 +1,46 @@
 import { ArrowLeft01Icon, ArrowRight01Icon } from "@hugeicons/core-free-icons"
 import { HugeiconsIcon } from "@hugeicons/react"
 import Link from "next/link"
+import type { Locale } from "@/i18n/config"
+import { localizedHref } from "@/lib/i18n-routing"
 import { cn } from "@/lib/utils"
 import type { DocItem } from "@/lib/docs-tree"
 
 interface PagerProps {
   prev: DocItem | null
   next: DocItem | null
+  locale: Locale
+  prevLabel: string
+  nextLabel: string
+  ariaLabel: string
 }
 
-export function Pager({ prev, next }: PagerProps) {
+export function Pager({ prev, next, locale, prevLabel, nextLabel, ariaLabel }: PagerProps) {
   if (!prev && !next) return null
   return (
-    <nav aria-label="上下篇" className="mt-16 grid gap-3 sm:grid-cols-2">
-      {prev ? <PagerLink doc={prev} direction="prev" /> : <div aria-hidden className="hidden sm:block" />}
-      {next ? <PagerLink doc={next} direction="next" /> : null}
+    <nav aria-label={ariaLabel} className="mt-16 grid gap-3 sm:grid-cols-2">
+      {prev ? (
+        <PagerLink doc={prev} direction="prev" locale={locale} label={prevLabel} />
+      ) : (
+        <div aria-hidden className="hidden sm:block" />
+      )}
+      {next ? <PagerLink doc={next} direction="next" locale={locale} label={nextLabel} /> : null}
     </nav>
   )
 }
 
-function PagerLink({ doc, direction }: { doc: DocItem; direction: "prev" | "next" }) {
+interface PagerLinkProps {
+  doc: DocItem
+  direction: "prev" | "next"
+  locale: Locale
+  label: string
+}
+
+function PagerLink({ doc, direction, locale, label }: PagerLinkProps) {
   const isNext = direction === "next"
   return (
     <Link
-      href={`/docs/${doc.slug}`}
+      href={localizedHref(`/docs/${doc.slug}`, locale)}
       className={cn(
         "group flex flex-col gap-1 rounded-lg border border-border bg-bg-elevated p-4",
         "transition-colors duration-base ease-out-quart",
@@ -40,7 +57,7 @@ function PagerLink({ doc, direction }: { doc: DocItem; direction: "prev" | "next
             aria-hidden
           />
         ) : null}
-        {isNext ? "下一篇" : "上一篇"}
+        {label}
         {isNext ? (
           <HugeiconsIcon
             icon={ArrowRight01Icon}

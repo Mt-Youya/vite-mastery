@@ -113,7 +113,12 @@ function checkFile(filePath: string) {
   if (fm.part === "05-environment-api" && fm.apiStability !== "rc") {
     addIssue(filePath, 'Part 5 文章 apiStability 应为 "rc"')
   }
-  if (fm.part === "05-environment-api" && !content.includes("RC 阶段")) {
+  if (
+    fm.part === "05-environment-api" &&
+    !content.includes("RC 阶段") &&
+    !content.includes("RC stage") &&
+    !content.includes("RC Stage")
+  ) {
     addIssue(filePath, "Part 5 文章顶部应有 RC 警告 Callout", "warn")
   }
 
@@ -134,8 +139,36 @@ for (const file of files) {
   checkFile(file)
 }
 
+/**
+ * 翻译覆盖率统计 —— 按 baseSlug 聚合 .zh.mdx / .en.mdx,统计每篇文章是否有 EN 版本。
+ * 不在 issues 列表里报告,只在结尾打印一行汇总。
+ */
+const LOCALE_RE = /\.(zh|en)\.mdx$/
+const baseMap = new Map<string, { zh: boolean; en: boolean }>()
+for (const file of files) {
+  const rel = file.replace(ROOT + "/", "")
+  const m = file.match(LOCALE_RE)
+  if (!m) continue
+  const base = rel.replace(LOCALE_RE, "")
+  const entry = baseMap.get(base) ?? { zh: false, en: false }
+  if (m[1] === "zh") entry.zh = true
+  if (m[1] === "en") entry.en = true
+  baseMap.set(base, entry)
+}
+const totalArticles = baseMap.size
+const enTranslated = [...baseMap.values()].filter((v) => v.en).length
+const enMissingFiles = [...baseMap.entries()].filter(([, v]) => v.zh && !v.en).map(([k]) => k)
+
 if (issues.length === 0) {
-  // 静默成功
+  if (totalArticles > 0) {
+    console.log(
+      `✅ 内容检查通过 · EN 翻译覆盖率 ${enTranslated}/${totalArticles}` +
+        ` (${Math.round((enTranslated / totalArticles) * 100)}%)`
+    )
+    if (enMissingFiles.length > 0 && enMissingFiles.length <= 6) {
+      console.log("   仍未翻译:" + enMissingFiles.slice(0, 6).join(", "))
+    }
+  }
   process.exit(0)
 }
 

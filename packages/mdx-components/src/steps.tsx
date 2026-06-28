@@ -4,11 +4,11 @@
  * 子节点为若干 <h3> + content;Steps 给每个 h3 加左侧编号徽章和竖线。
  */
 
-import type { ReactNode } from "react";
-import { cn } from "@vite-mastery/ui";
+import type { ReactNode } from "react"
+import { cn } from "@vite-mastery/ui"
 
 interface StepsProps {
-  children: ReactNode;
+  children: ReactNode
 }
 
 export function Steps({ children }: StepsProps) {
@@ -24,10 +24,10 @@ export function Steps({ children }: StepsProps) {
         "[&>h3]:before:rounded-full [&>h3]:before:border [&>h3]:before:border-border",
         "[&>h3]:before:bg-bg-elevated [&>h3]:before:font-mono [&>h3]:before:text-xs",
         "[&>h3]:before:font-semibold [&>h3]:before:text-fg-muted",
-        "[&>h3]:before:content-[counter(step)]",
+        "[&>h3]:before:content-[counter(step)]"
       )}
     >
       {children}
     </div>
-  );
+  )
 }

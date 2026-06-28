@@ -1,0 +1,152 @@
+---
+title: Bundle Analysis
+description: Use rollup-plugin-visualizer to find the heavyweights in your bundle — which packages take up the most space, where you can optimize, and how to continuously track output size.
+order: 4
+part: 12-performance
+chapter: "12.4"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How to use and read `rollup-plugin-visualizer` - How to find large packages in your bundle - Common bundle size
+  optimization strategies - Continuously tracking output size (setting size budgets in CI)
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic understanding of the Vite build process - Understanding code splitting (section 7.4)
+</Callout>
+
+## Visualizing your bundle
+
+```bash
+pnpm add -D rollup-plugin-visualizer
+```
+
+```ts filename="vite.config.ts"
+import { visualizer } from "rollup-plugin-visualizer"
+
+export default defineConfig({
+  plugins: [
+    visualizer({
+      open: true, // Automatically open the browser after build
+      gzipSize: true, // Show gzip-compressed size
+      brotliSize: true, // Show brotli-compressed size
+      filename: "stats.html",
+      template: "treemap", // "treemap" | "sunburst" | "network"
+    }),
+  ],
+})
+```
+
+## How to read the visualization report
+
+**Treemap view** (recommended): block area represents file size
+
+```text
+┌─────────────────────────────────┐
+│  react-dom (120KB)              │
+│  ┌───────────────────────────┐  │
+│  │ react-dom.development.js  │  │
+│  └───────────────────────────┘  │
+├─────────────────────────────────┤
+│  antd (245KB) ← possibly too large!  │
+├─────────────────────────────────┤
+│  lodash-es (8KB)                │
+└─────────────────────────────────┘
+```
+
+**Things to look for**:
+
+- The largest blocks: worth optimizing
+- Unexpected packages: may be phantom dependencies
+- Duplicate packages: the same package bundled twice
+
+## Common optimization strategies
+
+### Strategy 1: Switch to a lighter alternative
+
+```text
+lodash → lodash-es (tree-shakeable on demand)
+moment → dayjs (2KB vs 300KB)
+axios → ky or fetch (native browser API)
+antd → import specific components on demand
+```
+
+### Strategy 2: Lazy-load with dynamic import
+
+```ts
+// Defer loading the chart library until the user actually needs it
+const ChartComponent = lazy(() => import("./heavyChartComponent"))
+```
+
+### Strategy 3: Check for dev dependencies leaking into production
+
+```ts
+// Make sure dev tooling doesn't end up in the production bundle
+import { debug } from "debug" // ← Are you using this in production code?
+```
+
+## Monitoring bundle size in CI
+
+Use `bundlesize` or `size-limit` to set size budgets in CI:
+
+```bash
+pnpm add -D size-limit @size-limit/preset-app
+```
+
+```json filename="package.json"
+{
+  "size-limit": [
+    {
+      "path": "dist/assets/*.js",
+      "limit": "300 KB" // CI fails if this is exceeded
+    }
+  ]
+}
+```
+
+Or use the GitHub Actions `preinstall-size-comment` action to automatically post bundle size changes as PR comments.
+
+## Self-check
+
+1. In a bundle visualization tool, what does the area of a block represent?
+2. How do you tell whether `antd` is pulling in unnecessary components?
+3. What is a "phantom dependency"? How do you spot one in bundle analysis?
+4. Which better represents the actual download size a user experiences — `gzipSize` or the raw file size?
+
+```ts filename="Exercise"
+// Your bundle analysis shows:
+// - @mui/material: 150KB (you only use Button and TextField)
+// - recharts: 80KB (you only use LineChart)
+// - date-fns: 45KB (you only use 3 functions)
+//
+// Write an optimization plan for each package:
+// 1. On-demand imports for @mui/material
+// 2. Lazy loading for recharts
+// 3. The correct import style for date-fns
+
+// 1. @mui/material on-demand import (avoid importing the full bundle)
+// Wrong:
+import { Button, TextField } from "@mui/material"
+
+// Correct:
+// TODO
+
+// 2. Lazy loading for recharts
+// Wrong:
+import { LineChart } from "recharts"
+
+// Correct:
+// TODO
+
+// 3. On-demand import for date-fns
+// Wrong:
+import { format, addDays, subMonths } from "date-fns"
+
+// Correct:
+// TODO
+```

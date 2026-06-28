@@ -1,0 +1,256 @@
+---
+title: Module Graph
+description: Vite maintains a complete module dependency graph in memory — it is the foundation of HMR and the core of the Environment API. You can't truly understand Vite without understanding the Module Graph.
+order: 4
+part: 01-core-concepts
+chapter: "1.4"
+difficulty: 3
+readingTime: 14
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - What data structure the Module Graph is - How Vite builds and maintains the module graph - The relationship between
+  the module graph and HMR - Per-environment module graphs under the Vite 8 Environment API
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Native ESM" (section 1.1) - Read "Vite 8 Unified Architecture" (section 1.2) - Basic graph theory: nodes,
+  edges, directed graphs (no math required)
+</Callout>
+
+## What is the Module Graph
+
+Vite's dev server maintains a **directed graph** in memory: each node is a module file, and each directed edge means "file A imports file B."
+
+```text
+(simplified example)
+
+main.tsx ──import──▶ App.tsx ──import──▶ Button.tsx
+                        │                    │
+                        └──import──▶ store.ts◀──import── utils.ts
+                                         │
+                                         └──import──▶ zustand
+```
+
+This graph has a formal name: **Module Graph** (or Module Dependency Graph).
+
+## Why Vite needs the Module Graph
+
+### Use 1: Precise HMR updates
+
+When you modify `Button.tsx`, Vite needs to know:
+
+1. Who imports `Button.tsx`? (App.tsx)
+2. Who imports App.tsx? (main.tsx)
+3. Where is the minimal update boundary?
+
+Without the Module Graph, Vite wouldn't know which modules to notify about an update, and would have to reload the entire page.
+
+```text
+Modify Button.tsx
+      │
+      ▼
+Vite queries the graph: Button.tsx's importers = [App.tsx]
+      │
+      ▼
+App.tsx's importers = [main.tsx]
+      │
+      ▼
+main.tsx is the entry point, no importers
+      │
+      ▼
+HMR update boundary determined: notify browser to update the Button.tsx module
+(if Button.tsx exports an accept callback, only it updates; otherwise bubbles up to App.tsx)
+```
+
+### Use 2: On-demand transform
+
+Every time the browser requests a module, Vite checks the Module Graph first:
+
+- **Cache hit**: module is already in the graph and is not stale → return the cached transform result immediately
+- **Cache miss**: execute resolve + load + transform → add to graph → return result
+
+The Module Graph is effectively the "build cache" of Vite's dev server.
+
+### Use 3: Circular dependency detection
+
+The Module Graph can detect circular dependencies:
+
+```text
+A → B → C → A  (cycle!)
+```
+
+Although ESM supports circular dependencies (with specific handling rules), circular dependencies are often the source of bugs. Vite can warn about them using the module graph.
+
+## ModuleNode: a single node in the graph
+
+Vite internally represents each module in the graph with a `ModuleNode` object. A `ModuleNode` roughly contains:
+
+```ts
+interface ModuleNode {
+  // unique module identifier
+  id: string // file path, e.g. "/src/App.tsx"
+  url: string // request URL, e.g. "/src/App.tsx"
+  file: string | null // disk path
+
+  // graph structure
+  importers: Set<ModuleNode> // who imports me
+  importedModules: Set<ModuleNode> // who I import
+
+  // transform cache
+  transformResult: TransformResult | null
+  ssrTransformResult: TransformResult | null
+
+  // timestamps (used for HMR cache invalidation)
+  lastHMRTimestamp: number
+  lastInvalidationTimestamp: number
+}
+```
+
+## How to access the Module Graph
+
+Inside a plugin, you can access the module graph through the `configureServer` hook:
+
+```ts filename="plugin.ts"
+import type { Plugin } from "vite"
+
+export function inspectPlugin(): Plugin {
+  return {
+    name: "vite-plugin-inspect",
+    configureServer(server) {
+      // get the node for a specific module
+      const node = server.moduleGraph.getModuleByUrl("/src/App.tsx")
+      if (node) {
+        console.log(
+          "App.tsx is imported by:",
+          [...node.importers].map((m) => m.id)
+        )
+        console.log(
+          "App.tsx imports:",
+          [...node.importedModules].map((m) => m.id)
+        )
+      }
+
+      // invalidate a module's cache
+      server.moduleGraph.invalidateModule(node!)
+    },
+  }
+}
+```
+
+You can also manipulate the module graph inside `handleHotUpdate`:
+
+```ts
+handleHotUpdate({ file, modules, server }) {
+  // modules is the list of ModuleNodes affected by this file change
+  // you can manually control which modules need to update
+  return modules.filter(m => !m.url.includes("__tests__"))
+},
+```
+
+## Per-environment module graphs in Vite 8
+
+In Vite 7 and earlier, there was a single global module graph shared by client code and SSR code.
+
+Vite 8's Environment API maintains an **independent module graph for each environment**:
+
+```text
+Vite 8 Dev Server
+  │
+  ├── client Environment
+  │     └── ModuleGraph (client)
+  │           ├── /src/main.tsx
+  │           ├── /src/App.tsx     ← client version
+  │           └── ...
+  │
+  └── ssr Environment
+        └── ModuleGraph (ssr)
+              ├── /src/entry-server.tsx
+              ├── /src/App.tsx     ← ssr version (independent node!)
+              └── ...
+```
+
+`/src/App.tsx` has its own independent node in each module graph. This means:
+
+- The client version of App.tsx is resolved with `browser` conditions
+- The SSR version of App.tsx is resolved with `node` conditions
+- The two do not interfere with each other
+
+<V7Note title="Vite 7: limitations of the single module graph">
+  In Vite 7, all modules (including SSR modules) shared one graph. This caused:
+
+- Modules loaded by `ssrLoadModule` polluted the client module graph
+- SSR module changes could incorrectly trigger client HMR
+- It was impossible to maintain different transform results for the same file in different environments
+
+The Environment API (Vite 8) solves this problem at the root.
+
+</V7Note>
+
+## Visualizing with the DepGraph component
+
+The `<DepGraph>` interactive component on this site displays a simplified module graph:
+
+<DepGraph />
+
+Click a node to view its importers (who imports it) and importedModules (who it imports).
+
+## Module invalidation mechanism
+
+When a file changes, Vite does not immediately re-transform it — instead it **marks the corresponding ModuleNode as stale**:
+
+```text
+File changes: /src/utils.ts
+      │
+      ▼
+Set utils.ts's ModuleNode.transformResult to null
+      │
+      ▼
+Walk up through importers, mark affected nodes as stale too
+      │
+      ▼
+Notify the browser (via WebSocket) which modules need to update
+      │
+      ▼
+Browser re-requests the modules that need updating
+      │
+      ▼
+Vite sees cache is null → re-transform → update cache
+```
+
+This "lazy invalidation" mechanism ensures that modules marked stale but never actually requested do not waste resources on a re-transform.
+
+## Self-check
+
+1. What relationship does an "edge" in the Module Graph represent? Is it a directed or undirected edge? Which direction does it point?
+2. Why does HMR need the Module Graph to work? What would happen without it?
+3. Under Vite 7's single module graph, what potential problems arise from SSR and client sharing the same `/src/App.tsx` node?
+4. What is the difference between "invalidating a module" and "deleting a module"?
+
+```ts filename="Exercise"
+// Write a plugin that, in dev mode, watches for file changes.
+// If /src/config.json changes, invalidate all modules that import it
+// and trigger a browser HMR update.
+
+import type { Plugin } from "vite"
+
+export function configWatcher(): Plugin {
+  return {
+    name: "vite-plugin-config-watcher",
+    configureServer(server) {
+      // TODO:
+      // 1. Watch /src/config.json for changes
+      // 2. Find all modules that import it
+      // 3. Invalidate those modules
+      // 4. Trigger an HMR update
+      //
+      // Hint: server.watcher is a chokidar instance
+      // server.moduleGraph can look up module nodes
+      // server.hot.send() can send HMR messages
+    },
+  }
+}
+```

@@ -10,17 +10,17 @@ import {
   Fire02Icon,
   IdeaIcon,
   InformationCircleIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import type { ReactNode } from "react";
-import { cn } from "@vite-mastery/ui";
+} from "@hugeicons/core-free-icons"
+import { HugeiconsIcon } from "@hugeicons/react"
+import type { ReactNode } from "react"
+import { cn } from "@vite-mastery/ui"
 
-export type CalloutType = "note" | "tip" | "success" | "warning" | "danger";
+export type CalloutType = "note" | "tip" | "success" | "warning" | "danger"
 
 interface CalloutProps {
-  type?: CalloutType;
-  title?: string;
-  children: ReactNode;
+  type?: CalloutType
+  title?: string
+  children: ReactNode
 }
 
 const ICONS: Record<CalloutType, typeof InformationCircleIcon> = {
@@ -29,7 +29,7 @@ const ICONS: Record<CalloutType, typeof InformationCircleIcon> = {
   success: CheckmarkCircle02Icon,
   warning: Alert02Icon,
   danger: Fire02Icon,
-};
+}
 
 const STYLES: Record<CalloutType, string> = {
   note: "border-accent-300 bg-accent-50/60 text-accent-900 dark:border-accent-800 dark:bg-accent-950/40 dark:text-accent-100",
@@ -40,27 +40,19 @@ const STYLES: Record<CalloutType, string> = {
     "border-warning-500/40 bg-warning-500/10 text-warning-600 dark:border-warning-500/40 dark:bg-warning-500/10 dark:text-warning-500",
   danger:
     "border-danger-500/40 bg-danger-500/10 text-danger-600 dark:border-danger-500/40 dark:bg-danger-500/10 dark:text-danger-500",
-};
+}
 
 export function Callout({ type = "note", title, children }: CalloutProps) {
   return (
     <aside
-      className={cn(
-        "my-6 flex gap-3 rounded-lg border px-4 py-3 text-sm leading-relaxed",
-        STYLES[type],
-      )}
+      className={cn("my-6 flex gap-3 rounded-lg border px-4 py-3 text-sm leading-relaxed", STYLES[type])}
       role="note"
     >
-      <HugeiconsIcon
-        icon={ICONS[type]}
-        className="mt-0.5 size-5 shrink-0"
-        strokeWidth={1.5}
-        aria-hidden
-      />
+      <HugeiconsIcon icon={ICONS[type]} className="mt-0.5 size-5 shrink-0" strokeWidth={1.5} aria-hidden />
       <div className="flex-1 space-y-1">
         {title ? <div className="font-semibold tracking-tight">{title}</div> : null}
         <div className="[&_p]:my-0 [&_p+p]:mt-2">{children}</div>
       </div>
     </aside>
-  );
+  )
 }

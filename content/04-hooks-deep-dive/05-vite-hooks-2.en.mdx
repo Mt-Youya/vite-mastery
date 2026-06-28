@@ -1,0 +1,305 @@
+---
+title: "Vite-Specific Hooks (Part 2): transformIndexHtml / handleHotUpdate"
+description: Two of Vite's most distinctive hooks — transformIndexHtml for direct HTML template manipulation, and handleHotUpdate for fine-grained HMR control.
+order: 5
+part: 04-hooks-deep-dive
+chapter: "4.5"
+difficulty: 3
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Two usage modes of `transformIndexHtml` (string replacement vs tag injection) - Differences in HTML processing
+  between build and dev phases - The parameter and return value semantics of `handleHotUpdate` - How to implement
+  precise HMR for custom file types
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Vite-Specific Hooks (Part 1)" (section 4.4) - Understand how HMR works at a basic level
+</Callout>
+
+## The `transformIndexHtml` Hook
+
+**When it fires**: When Vite processes `index.html` (and other HTML entry points).
+
+**Condition**: Fires in both dev and build.
+
+**Calling convention**: sequential
+
+**Parameters**:
+
+```ts
+transformIndexHtml(
+  html: string,
+  ctx: {
+    path: string           // Relative path to the HTML file, e.g. "/"
+    filename: string       // Absolute path to the HTML file
+    server?: ViteDevServer // Present in dev mode
+    bundle?: OutputBundle  // Present in build mode
+    chunk?: OutputChunk    // Present in build mode
+  }
+): IndexHtmlTransformResult
+```
+
+**Return values** can be:
+
+```ts
+type IndexHtmlTransformResult =
+  | string // Return the full modified HTML string
+  | IndexHtmlTransformHook // Return a set of tag descriptor objects
+  | { html: string; tags: IndexHtmlTransformHook }
+```
+
+### Mode 1: String replacement
+
+Most direct; suitable for simple replacements:
+
+```ts
+transformIndexHtml(html) {
+  // Replace placeholders in the HTML
+  return html
+    .replace("<!-- INJECT_TITLE -->", "<title>My App</title>")
+    .replace("%APP_VERSION%", "1.0.0")
+},
+```
+
+### Mode 2: Tag injection (recommended)
+
+By returning tag descriptor objects, Vite handles inserting them at the correct position:
+
+```ts
+transformIndexHtml(html, ctx) {
+  return {
+    html,
+    tags: [
+      // Inject at the end of <head>
+      {
+        tag: "meta",
+        attrs: {
+          name: "build-time",
+          content: new Date().toISOString(),
+        },
+        injectTo: "head",
+      },
+      // Inject a script at the end of <body>
+      {
+        tag: "script",
+        attrs: { type: "module" },
+        children: `window.__COMMIT__ = "${getGitCommit()}"`,
+        injectTo: "body",
+      },
+      // Inject at the beginning of <head> (high-priority meta)
+      {
+        tag: "meta",
+        attrs: { charset: "UTF-8" },
+        injectTo: "head-prepend",
+      },
+    ],
+  }
+},
+```
+
+`injectTo` can be:
+
+- `"head"`: Insert before `</head>`
+- `"body"`: Insert before `</body>`
+- `"head-prepend"`: Insert immediately after `<head>`
+- `"body-prepend"`: Insert immediately after `<body>`
+
+### Handling dev/build differently
+
+```ts
+transformIndexHtml(html, ctx) {
+  const tags: HtmlTagDescriptor[] = []
+
+  if (ctx.server) {
+    // Dev mode: inject dev tools
+    tags.push({
+      tag: "script",
+      attrs: { src: "/__dev-tools.js", type: "module" },
+      injectTo: "body",
+    })
+  } else {
+    // Build mode: inject analytics script
+    tags.push({
+      tag: "script",
+      children: `window.__ANALYTICS_ID__ = "GA-XXXXXXX"`,
+      injectTo: "head",
+    })
+  }
+
+  return { html, tags }
+},
+```
+
+### Reordering `<link>` / `<script>` tags in HTML
+
+`transformIndexHtml` can fully rewrite the HTML string, including reordering tags:
+
+```ts
+transformIndexHtml(html) {
+  // Move all CSS links to the very top of <head> (improves CLS)
+  const cssLinks = [...html.matchAll(/<link[^>]+rel="stylesheet"[^>]*>/g)]
+    .map(m => m[0])
+
+  let result = html
+  cssLinks.forEach(link => {
+    result = result.replace(link, "")
+  })
+  result = result.replace("<head>", `<head>\n    ${cssLinks.join("\n    ")}`)
+
+  return result
+},
+```
+
+## The `handleHotUpdate` Hook
+
+**When it fires**: In dev mode, when the file system detects a file change.
+
+**Condition**: Only fires in dev mode; not triggered during build.
+
+**Calling convention**: sequential
+
+**Parameters**:
+
+```ts
+handleHotUpdate(ctx: HmrContext): Array<ModuleNode> | void | Promise<...>
+
+interface HmrContext {
+  file: string                    // Absolute path to the changed file
+  timestamp: number               // Timestamp of the change
+  modules: Array<ModuleNode>      // List of modules Vite considers affected
+  read(): Promise<string>         // Read the new file contents
+  server: ViteDevServer           // Dev server instance
+}
+```
+
+**Return values**:
+
+- `ModuleNode[]`: Manually specify which modules need to be updated (overrides Vite's default judgment)
+- `[]`: Empty array = do not trigger any HMR
+- `void` / `undefined`: Use Vite's default HMR behavior
+
+### Simplest use case: trigger HMR for a custom file type
+
+```ts
+import type { Plugin } from "vite"
+
+export function yamlPlugin(): Plugin {
+  return {
+    name: "vite-plugin-yaml",
+    // ...resolveId, load, transform to handle .yaml files...
+
+    handleHotUpdate({ file, modules, server }) {
+      if (!file.endsWith(".yaml")) return
+
+      // Get the virtual module corresponding to this .yaml file
+      const virtualModule = server.moduleGraph.getModuleById(`\0virtual:${file}`)
+
+      if (virtualModule) {
+        // Invalidate this virtual module
+        server.moduleGraph.invalidateModule(virtualModule)
+        // Return the list of modules that need updating
+        return [virtualModule]
+      }
+    },
+  }
+}
+```
+
+### Filtering out unnecessary HMR
+
+```ts
+handleHotUpdate({ file, modules }) {
+  // Filter: test file changes should not trigger HMR
+  if (file.includes("__tests__") || file.includes(".spec.")) {
+    return []  // Empty array = do nothing
+  }
+
+  // Default behavior
+},
+```
+
+### Custom HMR messages
+
+Sometimes a file change doesn't need module-level hot updating; instead you want to send a custom notification to the browser:
+
+```ts
+handleHotUpdate({ file, server }) {
+  if (file.endsWith("locales.json")) {
+    // Translation file changed: notify the browser to refresh the language pack
+    server.hot.send({
+      type: "custom",
+      event: "locales-update",
+      data: { locale: "zh-CN" },
+    })
+    // Return [] to indicate no module-level HMR is needed
+    return []
+  }
+},
+```
+
+Browser side:
+
+```ts
+if (import.meta.hot) {
+  import.meta.hot.on("locales-update", async ({ locale }) => {
+    // Reload the language pack (no full page refresh needed)
+    const messages = await fetchMessages(locale)
+    i18n.setLocale(locale, messages)
+  })
+}
+```
+
+### When a file change affects multiple modules
+
+```ts
+handleHotUpdate({ file, modules, server }) {
+  if (!file.endsWith("theme.css")) return
+
+  // A change to theme.css affects all modules that use theme variables
+  const allThemedModules = [...server.moduleGraph.idToModuleMap.values()]
+    .filter(m => m.importedModules.has(server.moduleGraph.getModuleByUrl("/src/theme.css")!))
+
+  // Invalidate all of these modules
+  allThemedModules.forEach(m => server.moduleGraph.invalidateModule(m))
+  return allThemedModules
+},
+```
+
+## Self-check
+
+1. What is the difference between `transformIndexHtml` returning a string versus returning a `{ html, tags }` object? What advantage does the latter have?
+2. What is the difference between `injectTo: "head"` and `injectTo: "head-prepend"`? When would you use each?
+3. What is the difference between `handleHotUpdate` returning an empty array `[]` versus returning `undefined`?
+4. If a file changes but you don't want to trigger any HMR (e.g., a log file), how should you handle it in `handleHotUpdate`?
+
+```ts filename="Exercise"
+// Implement the following two features:
+
+// 1. Inject into the <head> of index.html:
+//    <meta name="generator" content="vite-mastery">
+//    In dev mode, additionally inject:
+//    <script>window.__DEV__ = true</script>
+
+// 2. When any file in the src/styles/themes/ directory changes,
+//    send a "theme-changed" event to the browser,
+//    which the browser uses to dynamically refresh CSS variables
+
+import type { Plugin, HtmlTagDescriptor } from "vite"
+
+export function metaAndThemePlugin(): Plugin {
+  return {
+    name: "vite-plugin-meta-theme",
+    transformIndexHtml(html, ctx) {
+      // TODO: implement 1
+    },
+    handleHotUpdate({ file, server }) {
+      // TODO: implement 2
+    },
+  }
+}
+```

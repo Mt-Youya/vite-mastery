@@ -1,18 +1,18 @@
-"use client";
+"use client"
 
-import { Toggle as Base } from "@base-ui/react/toggle";
-import type { ComponentPropsWithoutRef } from "react";
-import { cn } from "./lib/cn.ts";
+import { Toggle as Base } from "@base-ui/react/toggle"
+import type { ComponentPropsWithoutRef } from "react"
+import { cn } from "./lib/cn.ts"
 
 interface ToggleProps extends ComponentPropsWithoutRef<typeof Base> {
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg"
 }
 
 const SIZES: Record<NonNullable<ToggleProps["size"]>, string> = {
   sm: "h-8 px-2 text-xs",
   md: "h-9 px-3 text-sm",
   lg: "h-11 px-4 text-base",
-};
+}
 
 export function Toggle({ className, size = "md", ...rest }: ToggleProps) {
   return (
@@ -26,9 +26,9 @@ export function Toggle({ className, size = "md", ...rest }: ToggleProps) {
         "focus-visible:outline-none focus-visible:[box-shadow:var(--shadow-focus)]",
         "disabled:cursor-not-allowed disabled:opacity-50",
         SIZES[size],
-        className,
+        className
       )}
       {...rest}
     />
-  );
+  )
 }

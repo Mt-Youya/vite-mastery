@@ -4,19 +4,19 @@
  * 直接消费 @vite-mastery/ui 的 Tabs。这里只是把 props 形状改得更 MDX 一些。
  */
 
-"use client";
+"use client"
 
-import { useState } from "react";
-import type { ReactNode } from "react";
-import { Tabs as BaseTabs } from "@vite-mastery/ui";
+import { useState } from "react"
+import type { ReactNode } from "react"
+import { Tabs as BaseTabs } from "@vite-mastery/ui"
 
 interface TabsProps {
-  items: string[];
-  children: ReactNode[];
+  items: string[]
+  children: ReactNode[]
 }
 
 export function Tabs({ items, children }: TabsProps) {
-  const [active, setActive] = useState(items[0] ?? "");
+  const [active, setActive] = useState(items[0] ?? "")
   return (
     <BaseTabs.Root value={active} onValueChange={setActive} className="my-6">
       <BaseTabs.List className="flex gap-1 border-b border-border">
@@ -36,5 +36,5 @@ export function Tabs({ items, children }: TabsProps) {
         </BaseTabs.Panel>
       ))}
     </BaseTabs.Root>
-  );
+  )
 }

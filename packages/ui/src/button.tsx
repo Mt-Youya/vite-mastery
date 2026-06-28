@@ -1,6 +1,6 @@
-import { cva, type VariantProps } from "class-variance-authority";
-import { type ButtonHTMLAttributes, forwardRef } from "react";
-import { cn } from "./lib/cn.ts";
+import { cva, type VariantProps } from "class-variance-authority"
+import { type ButtonHTMLAttributes, forwardRef } from "react"
+import { cn } from "./lib/cn.ts"
 
 const buttonVariants = cva(
   [
@@ -15,16 +15,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary:
-          "bg-primary text-primary-fg shadow-xs hover:brightness-110 active:brightness-95",
-        secondary:
-          "bg-bg-elevated text-fg border border-border hover:bg-bg-subtle active:bg-bg-muted",
+        primary: "bg-primary text-primary-fg shadow-xs hover:brightness-110 active:brightness-95",
+        secondary: "bg-bg-elevated text-fg border border-border hover:bg-bg-subtle active:bg-bg-muted",
         ghost: "text-fg hover:bg-bg-subtle active:bg-bg-muted",
-        outline:
-          "border border-border-strong bg-transparent text-fg hover:bg-bg-subtle active:bg-bg-muted",
+        outline: "border border-border-strong bg-transparent text-fg hover:bg-bg-subtle active:bg-bg-muted",
         accent: "bg-accent text-accent-fg shadow-xs hover:brightness-110 active:brightness-95",
-        danger:
-          "bg-danger-500 text-white shadow-xs hover:bg-danger-600 active:brightness-95",
+        danger: "bg-danger-500 text-white shadow-xs hover:bg-danger-600 active:brightness-95",
         link: "text-accent underline-offset-4 hover:underline",
       },
       size: {
@@ -42,25 +38,16 @@ const buttonVariants = cva(
       size: "md",
       block: false,
     },
-  },
-);
+  }
+)
 
-export interface ButtonProps
-  extends ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {}
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button(
   { className, variant, size, block, type = "button", ...rest },
-  ref,
+  ref
 ) {
-  return (
-    <button
-      ref={ref}
-      type={type}
-      className={cn(buttonVariants({ variant, size, block }), className)}
-      {...rest}
-    />
-  );
-});
+  return <button ref={ref} type={type} className={cn(buttonVariants({ variant, size, block }), className)} {...rest} />
+})
 
-export { buttonVariants };
+export { buttonVariants }

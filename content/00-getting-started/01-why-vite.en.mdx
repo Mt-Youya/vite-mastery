@@ -1,0 +1,51 @@
+---
+title: Why we need Vite
+description: Starting from the pain points of the Webpack dev server, understand the core motivation for Vite skipping the bundle step in dev.
+order: 1
+part: 00-getting-started
+chapter: "0.1"
+difficulty: 1
+readingTime: 8
+updatedAt: "2026-06-25"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - Where Webpack's dev server actually gets slow - What native browser ESM unlocked - Why Vite uses esbuild for dev and
+  Rollup for build
+</Callout>
+
+## The historical problem: why dev servers got slow
+
+Webpack has to bundle every source file before the browser can run it. Grow from 100 modules to 10,000, and cold-start time goes from 2 seconds to 90. HMR drags along with it — change one line and the whole dependency chain runs again.
+
+A more precise framing: **the bottleneck in the JavaScript toolchain is JavaScript itself**. Webpack's core loop is JS, asset processing is JS, serialization is JS. On a medium-sized app, the compiler executes millions of lines of JS at startup.
+
+## What native browser ESM changed
+
+Since 2018, every major browser supports `<script type="module">` — the browser itself fires `import "./foo.js"` requests. Which means: **in dev mode, you don't have to bundle at all**.
+
+```html
+<!-- Hand the browser this and it pulls main.ts and every dependency on its own -->
+<script type="module" src="/src/main.ts"></script>
+```
+
+The Vite dev server does something simple: **when the browser requests a module, Vite transforms it on the fly (esbuild, Rust + Go) and ships it back**. There is no bundle step. Add 1,000 more files and cold-start barely moves, because nothing is pre-compiled.
+
+## Dual-engine architecture: dev vs build
+
+| Stage     | Tool    | Why                                                                                          |
+| --------- | ------- | -------------------------------------------------------------------------------------------- |
+| **dev**   | esbuild | Per-file transform throughput is enormous — perfect for on-demand compilation                |
+| **build** | Rollup  | Code splitting, tree-shaking and plugin ecosystem are more refined, output quality is higher |
+
+esbuild can also do builds, but its tree-shaking and code splitting are coarser than Rollup's — so Vite picked an "esbuild in dev, Rollup in build" dual-engine design.
+
+## Self-check
+
+1. Why is it fine to skip bundling in dev but mandatory in build?
+2. If `<script type="module">` pulls in 1,000 modules, how many requests does the browser fire? How does Vite optimize this?
+3. What's the key reason esbuild is 10–100× faster than webpack?
+
+<Callout type="tip">Answers unfold in [Part 1 · Core Concepts](/docs/01-core-concepts).</Callout>

@@ -1,0 +1,240 @@
+---
+title: Debugging Vite Plugins
+description: Plugin not working? Hook not firing? Use Vite Devtools, DEBUG mode, and the plugin Inspector to quickly locate the problem.
+order: 6
+part: 03-plugin-system
+chapter: "3.6"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How to use Vite 8's built-in Devtools - What the `DEBUG=vite:*` environment variable reveals - The core features of
+  the `vite-plugin-inspect` plugin - A systematic checklist for debugging hooks that don't fire
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Complete the "Plugin Anatomy" and "Plugin Execution Order" sections - Basic familiarity with Chrome DevTools
+</Callout>
+
+## The most common plugin problems
+
+During plugin development, the two most frequent issues are:
+
+1. **Hook is never called** — the plugin has `transform` configured, but it never executes at runtime
+2. **Hook executes but produces wrong output** — the code runs, but the transformed result doesn't match expectations
+
+There are three layers of tools for debugging these two categories, from simplest to most powerful.
+
+## Layer 1: console.log (most direct)
+
+The fastest way to check whether a hook fires is to add logging at key points:
+
+```ts filename="my-plugin.ts"
+import type { Plugin } from "vite"
+
+export function myPlugin(): Plugin {
+  return {
+    name: "vite-plugin-my",
+
+    configResolved(config) {
+      console.log("[my-plugin] configResolved, mode:", config.mode)
+    },
+
+    transform(code, id) {
+      if (!id.endsWith(".tsx")) return null
+
+      console.log("[my-plugin] transform:", id.split("/").slice(-2).join("/"))
+
+      const result = doTransform(code)
+      return { code: result, map: null }
+    },
+
+    generateBundle(_, bundle) {
+      console.log("[my-plugin] generateBundle,", Object.keys(bundle).length, "chunks total")
+    },
+  }
+}
+
+function doTransform(code: string) {
+  return code
+}
+```
+
+**Tip**: Use a `[plugin-name]` prefix to distinguish logs from different plugins and avoid confusion.
+
+## Layer 2: DEBUG environment variable
+
+Vite has detailed internal debug logs that are hidden by default. Enable them with an environment variable:
+
+```bash
+# Show all Vite internal logs
+DEBUG=vite:* pnpm dev
+
+# Show logs for specific subsystems only
+DEBUG=vite:resolve pnpm dev     # module resolution
+DEBUG=vite:transform pnpm dev   # transform pipeline
+DEBUG=vite:hmr pnpm dev         # HMR-related
+DEBUG=vite:deps pnpm dev        # dependency pre-bundling
+```
+
+Sample output from `DEBUG=vite:resolve`:
+
+```text
+  vite:resolve resolve: react → /node_modules/.vite/deps/react.js +2ms
+  vite:resolve resolve: ./App.tsx → /src/App.tsx +0ms
+  vite:resolve resolve: ./Button.tsx → /src/Button.tsx +1ms
+```
+
+If your plugin returns an ID from `resolveId` but the subsequent `load` is never called, `DEBUG=vite:resolve` lets you trace the full resolution chain.
+
+## Layer 3: vite-plugin-inspect
+
+`vite-plugin-inspect` is the killer tool for plugin debugging. It records the state of each module after every plugin processes it:
+
+```bash
+pnpm add -D vite-plugin-inspect
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import Inspect from "vite-plugin-inspect"
+
+export default defineConfig({
+  plugins: [
+    Inspect(), // only active in dev mode
+    myPlugin(),
+  ],
+})
+```
+
+After starting the dev server, visit `http://localhost:5173/__inspect`:
+
+```text
+┌─────────────────────────────────────────┐
+│  vite-plugin-inspect                    │
+│                                         │
+│  Modules: 42 processed                  │
+│                                         │
+│  src/App.tsx                            │
+│    ├── vite:resolve       0ms           │
+│    ├── my-plugin          2ms  [modified]│
+│    ├── @vitejs/plugin-react 5ms [modified]│
+│    └── vite:esbuild       1ms  [modified]│
+│                                         │
+│  Click any row to see the diff →        │
+└─────────────────────────────────────────┘
+```
+
+The full transform chain for each module can be expanded, showing the before-and-after diff for each plugin.
+
+## Vite 8 built-in Devtools
+
+Vite 8 provides a `devtools` option in `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  devtools: {
+    // Expose debug information in the dev server
+    // Refer to the Vite 8.1.x official docs for specific options
+  },
+})
+```
+
+<Callout type="warning">
+  The specific API of Vite 8 Devtools is still being finalized in the 8.1.x release. Refer to the official docs at
+  [vitejs.dev/config/devtools](https://vitejs.dev/config/) for the latest information. This section focuses on the
+  already-stable debugging tools.
+</Callout>
+
+## Systematic troubleshooting steps
+
+When a hook isn't working, follow these steps in order:
+
+### Step 1: confirm the plugin is registered
+
+```ts
+// Wrong: forgot to call the plugin factory function
+plugins: [myPlugin] // ❌ myPlugin is a function, not a plugin object
+
+// Correct:
+plugins: [myPlugin()] // ✅
+```
+
+### Step 2: confirm the `apply` condition is met
+
+```ts
+{
+  name: "my-plugin",
+  apply: "build",  // ← only runs during build
+  transform(code, id) {
+    // This never executes in dev mode!
+  },
+}
+```
+
+If you don't see logs when running `pnpm dev`, check whether `apply` is set to `"build"`.
+
+### Step 3: confirm the file filter condition is correct
+
+```ts
+transform(code, id) {
+  // Common mistake: missing extension variants
+  if (!id.endsWith(".ts")) return null  // ❌ misses .tsx
+
+  // Correct:
+  if (!/\.(ts|tsx)$/.test(id)) return null  // ✅
+
+  // Another common mistake: forgetting to filter out node_modules
+  if (id.includes("node_modules")) return null  // add this
+}
+```
+
+### Step 4: confirm the hook invocation convention
+
+`resolveId` uses the **first-wins** invocation convention: the first plugin to return a non-null value wins. If another higher-priority plugin returns a result first, your `resolveId` may never get a chance to run.
+
+```ts
+// Check: is your virtual module ID being intercepted by another plugin first?
+resolveId(id) {
+  console.log("resolveId called:", id)  // first confirm it's being called
+  if (id === "virtual:my-module") return "\0virtual:my-module"
+  return null
+},
+```
+
+### Step 5: use vite-plugin-inspect to trace the transform chain
+
+If the steps above all check out, use `vite-plugin-inspect` to view the complete transform chain for the file in question. Confirm that your plugin appears in the chain and that its output matches expectations.
+
+## Self-check
+
+1. What kinds of problems is `DEBUG=vite:resolve` suited for, versus `DEBUG=vite:transform`?
+2. For a plugin with `apply: "serve"`, will its hooks be called during `pnpm build`?
+3. `resolveId` uses the first-wins invocation convention. How does that affect debugging?
+4. What is the bug in the following code? How would you use the tools above to find it?
+
+```ts
+export function myPlugin(): Plugin {
+  return {
+    name: "my-plugin",
+    transform(code, id) {
+      if (id.endsWith(".vue")) return null // don't handle .vue
+      if (!id.endsWith(".ts")) return null // only handle .ts
+
+      return {
+        code: code.replace("__BUILD_TIME__", new Date().toISOString()),
+        map: null,
+      }
+    },
+  }
+}
+
+// Problem: the project has an App.tsx file, but this plugin never processes it
+// Why? How do you fix it?
+```

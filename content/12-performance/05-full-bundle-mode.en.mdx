@@ -1,0 +1,104 @@
+---
+title: Full Bundle Mode (Experimental)
+description: The next step on the Vite 8 roadmap — Full Bundle Mode lets the dev server produce a complete bundle, trading startup speed for behavior closer to production and fewer HTTP requests.
+order: 5
+part: 12-performance
+chapter: "12.5"
+difficulty: 4
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="warning">
+  Full Bundle Mode is still **experimental** in Vite 8.1.x and is not recommended for production projects. This section
+  introduces the concept and direction.
+</Callout>
+
+<Callout type="note" title="What you'll learn">
+  - The design goals of Full Bundle Mode - Why it's needed: limitations of native ESM dev - Trade-offs compared to the
+  traditional dev server mode - When you might want to pay attention to this feature
+</Callout>
+
+## Limitations of native ESM dev
+
+Vite's dev server uses native ESM by default: each module is requested individually. This enables extremely fast cold starts, but comes with a cost:
+
+**Problem 1: High number of HTTP requests**
+
+Large projects can have thousands of modules. Browsers have a limited number of concurrent connections (HTTP/2 is not unlimited either), so the first load can have noticeable latency.
+
+**Problem 2: Dev/build behavior differences**
+
+Even though Rolldown unifies the transform pipeline, the dev mode still doesn't bundle — no tree-shaking, no chunk splitting. Some problems that only appear after bundling are invisible during development.
+
+**Problem 3: Cannot simulate CDN scenarios**
+
+Some third-party libraries behave differently as CDN builds versus npm packages. Native ESM dev cannot simulate these scenarios.
+
+## The Full Bundle Mode approach
+
+Full Bundle Mode makes the dev server produce a complete bundle too:
+
+```text
+Current dev mode:
+  Browser requests /src/App.tsx
+    → Vite transform (single file)
+    → Returns a single ESM module
+    → Browser requests dependencies...
+  (dozens to thousands of requests)
+
+Full Bundle Mode:
+  Vite builds a dev bundle with Rolldown
+    → All modules bundled (but not minified)
+    → HMR still supported (incremental bundle)
+    → Only 1 to a few requests
+```
+
+## Trade-offs
+
+| Dimension             | Current ESM dev             | Full Bundle Mode           |
+| --------------------- | --------------------------- | -------------------------- |
+| Cold start speed      | Very fast (no bundling)     | Slower (bundling required) |
+| Each HMR update       | Only updates changed module | Incremental rebundle       |
+| Number of requests    | Many (one per module)       | Few (a handful of chunks)  |
+| Dev/build consistency | Has differences             | Closer to build output     |
+
+**Best suited for**: high-latency network environments, scenarios that require precise simulation of production behavior.
+
+## Trying it out (experimental)
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  experimental: {
+    // Check the Vite 8.1.x docs for the specific API
+    // bundleMode: "full",  // hypothetical API
+  },
+})
+```
+
+<Callout type="warning">
+  Experimental APIs can change at any time. For the latest status, see the [Vite official
+  GitHub](https://github.com/vitejs/vite).
+</Callout>
+
+## Self-check
+
+1. Why does native ESM dev mode produce a large number of HTTP requests?
+2. What does Full Bundle Mode give up in exchange for what?
+3. What types of projects would benefit most from Full Bundle Mode?
+4. How does HMR work under Full Bundle Mode?
+
+```ts filename="Exercise"
+// Thought exercise:
+// If your project has 2,000 modules,
+// using native ESM dev might take 3–5 seconds on first load (on a slow network)
+// using Full Bundle Mode might take 5 seconds to cold start, but first load is fast
+//
+// For each of the following development scenarios, which mode would you choose? Explain your reasoning:
+// A: Local development, SSD, Chrome
+// B: Developing via SSH remote connection to a server
+// C: Running integration tests in CI
+// D: Showing results to a designer (their network may be slow)
+```

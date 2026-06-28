@@ -1,0 +1,154 @@
+---
+title: Vite 8 Devtools in Practice
+description: Vite 8's built-in developer tools — how to enable them, what they show you, and how to use them to diagnose performance problems and plugin behavior.
+order: 2
+part: 12-performance
+chapter: "12.2"
+difficulty: 2
+readingTime: 10
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - How to enable Vite 8 Devtools - What you can see: module graph, transform timing, plugin cost - Using
+  `vite-plugin-inspect` alongside Devtools - A practical workflow for performance diagnosis
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Basic familiarity with Chrome DevTools
+</Callout>
+
+## Vite 8 built-in Devtools
+
+Vite 8 introduces built-in devtools support. Enable it in `vite.config.ts`:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  // Refer to the official Vite 8.1.x documentation
+  // The devtools option API is being finalized in 8.1.x
+})
+```
+
+<Callout type="warning">
+  The full Devtools API in Vite 8 is still being finalized as of 8.1.x. This section covers the features that are
+  already stable. Always refer to the official [vitejs.dev](https://vitejs.dev/config/) documentation.
+</Callout>
+
+## vite-plugin-inspect: plugin-level debugging
+
+`vite-plugin-inspect` is the most useful debugging tool in the Vite ecosystem:
+
+```bash
+pnpm add -D vite-plugin-inspect
+```
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import Inspect from "vite-plugin-inspect"
+
+export default defineConfig({
+  plugins: [
+    Inspect(),
+    // ... other plugins
+  ],
+})
+```
+
+After starting the dev server, visit `http://localhost:5173/__inspect`:
+
+### What you can see
+
+1. **Module list**: all loaded modules and their transform times
+2. **Transform chain**: which plugins processed each module and how long each took
+3. **Code diff**: before-and-after code comparison for each plugin
+4. **Plugin graph**: plugin call relationships
+
+### Typical use cases
+
+**Case 1: A specific file loads very slowly**
+
+Sort the module list by time to find the slowest module. Click in to see which plugin is responsible.
+
+**Case 2: A plugin isn't taking effect**
+
+Look for your plugin in the module's transform chain. If it's not in the list:
+
+- Check whether the `apply` configuration is correct
+- Check the file filter conditions
+
+**Case 3: Code is being modified unexpectedly**
+
+Use diff mode to see what each plugin changed, and find the plugin modifying content you didn't expect.
+
+## Chrome DevTools Performance
+
+For lower-level performance analysis, use Chrome DevTools directly:
+
+```bash
+# Enable the V8 profiler
+node --prof $(which vite) dev
+node --prof-process isolate-*.log > processed.txt
+```
+
+Or use Clinic.js:
+
+```bash
+pnpm add -g clinic
+clinic doctor -- node ./node_modules/.bin/vite dev
+```
+
+## Debugging transform timing
+
+Add timing instrumentation inside your own plugins:
+
+```ts
+import type { Plugin } from "vite"
+
+export function timedPlugin(wrappedPlugin: Plugin): Plugin {
+  const original = wrappedPlugin.transform
+
+  return {
+    ...wrappedPlugin,
+    transform(code, id, options) {
+      const start = performance.now()
+      const result = original?.call(this, code, id, options)
+      const elapsed = performance.now() - start
+
+      if (elapsed > 10) {
+        console.log(`[${wrappedPlugin.name}] transform ${id}: ${elapsed.toFixed(1)}ms`)
+      }
+
+      return result
+    },
+  }
+}
+```
+
+## Self-check
+
+1. Does `vite-plugin-inspect` need to be enabled in production? Why?
+2. How do you find out which plugin is making a specific file's transform the slowest?
+3. If your plugin doesn't appear in the transform chain, what might be the reason?
+4. What is the difference between Vite 8 Devtools and `vite-plugin-inspect`? What scenarios is each suited for?
+
+```ts filename="Exercise"
+// Use vite-plugin-inspect to diagnose the following hypothetical problem:
+// One file in your project has an extremely slow transform (over 500ms)
+// Steps:
+// 1. How do you identify which file it is?
+// 2. How do you find out which plugin is causing it?
+// 3. Once you've found it, how do you make it only process files that actually
+//    need processing — without modifying the plugin's source code?
+//    (Hint: you can wrap it in a wrapper plugin)
+
+import type { Plugin } from "vite"
+
+// Write the wrapper plugin implementation:
+function withFileFilter(plugin: Plugin, pattern: RegExp): Plugin {
+  // TODO: wrap the plugin so only files whose id matches `pattern` enter transform
+}
+```

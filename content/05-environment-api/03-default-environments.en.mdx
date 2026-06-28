@@ -1,0 +1,266 @@
+---
+title: "Default Environments: client and ssr"
+description: How are Vite's two built-in default environments configured? What are the differences in their default behavior? How do you customize the resolve rules for each?
+order: 3
+part: 05-environment-api
+chapter: "5.3"
+difficulty: 4
+readingTime: 12
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "rc"
+---
+
+<Callout type="warning">
+  The Environment API is currently in **RC stage**. Specific API names and interface behavior may change in future minor
+  releases. This chapter is based on Vite 8.1.x. Verify the official documentation for your Vite version before using it
+  in production.
+</Callout>
+
+<Callout type="note" title="What you will learn">
+  - The default configuration of Vite's built-in `client` and `ssr` environments - The core resolve condition
+  differences between the two environments - How to customize these two environments - When you must explicitly
+  configure the `environments` field
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "Core Concepts" (section 5.2) - Familiarity with the `exports` field and `conditions` concept in package.json
+</Callout>
+
+## The two default environments
+
+Even if you configure no `environments` at all, Vite provides two built-in default environments:
+
+```ts
+// Vite's internal equivalent configuration (simplified)
+export default defineConfig({
+  environments: {
+    client: {
+      // browser environment
+      resolve: {
+        conditions: ["browser", "module", "import"],
+      },
+    },
+    ssr: {
+      // Node.js server environment
+      resolve: {
+        conditions: ["node", "module", "import", "require"],
+        noExternal: [], // no node_modules bundled by default
+      },
+    },
+  },
+})
+```
+
+These two environments cover the needs of traditional SSR applications. If your project uses a standard client + ssr architecture, you do not need to explicitly configure `environments`.
+
+## The client environment
+
+The `client` environment corresponds to the browser execution context.
+
+### Resolve conditions
+
+The `client` environment's resolve uses the `browser` condition:
+
+```ts
+// When importing "some-pkg"
+// Vite will preferentially read from package.json:
+// "exports": {
+//   "browser": "./dist/browser.js",  ← preferred
+//   "import": "./dist/index.js",
+//   "require": "./dist/index.cjs"
+// }
+```
+
+This ensures that the client bundle uses the browser-specific version of a package (for example, a version without Node.js-exclusive APIs).
+
+### HMR support
+
+The `client` environment has full built-in HMR support:
+
+- Establishes a WebSocket connection with the browser
+- Automatically notifies `import.meta.hot` callbacks when a module updates
+- Supports `accept`, `dispose`, `invalidate`, and other HMR APIs
+
+### Output target
+
+In build mode, the `client` environment produces a JavaScript bundle targeting the browser.
+
+## The ssr environment
+
+The `ssr` environment corresponds to the Node.js server execution context.
+
+### Resolve conditions
+
+The `ssr` environment uses the `node` condition:
+
+```ts
+// When importing "some-pkg"
+// Vite SSR will preferentially read:
+// "exports": {
+//   "node": "./dist/node.js",    ← preferred
+//   "import": "./dist/index.js",
+// }
+```
+
+This allows the same package to provide different implementations for the browser and Node.js (for example, the `crypto` module has a native implementation in Node but requires a polyfill in the browser).
+
+### External behavior
+
+The `ssr` environment treats all `node_modules` packages as external by default — meaning they are not bundled into the SSR bundle, but are instead `require`d directly by Node.js at runtime:
+
+```ts
+// To bundle certain packages into the SSR output (e.g. ESM-only packages)
+ssr: {
+  resolve: {
+    noExternal: ["some-esm-only-package"],
+  },
+}
+```
+
+This is the opposite of the client environment's build behavior: the client bundles all `import`s.
+
+### HMR support
+
+The `ssr` environment's HMR is implemented via a server-side message mechanism (not WebSocket). When a server-side module updates, the `ModuleRunner`'s module cache is marked as invalid, and the next `runner.import` call reloads the latest version.
+
+## Comparing client and ssr environments
+
+<EnvironmentExplorer />
+
+| Dimension         | client                     | ssr                           |
+| ----------------- | -------------------------- | ----------------------------- |
+| Execution target  | Browser                    | Node.js                       |
+| Primary condition | `browser`                  | `node`                        |
+| node_modules      | All bundled                | External by default           |
+| HMR channel       | WebSocket                  | Server-side message           |
+| import.meta.env   | `VITE_*` + `DEV/PROD/MODE` | Same as client + SSR-specific |
+| Output format     | ESM (browser)              | ESM/CJS (Node.js)             |
+
+## Customizing the two default environments
+
+Although you do not need to explicitly configure `environments`, the following situations require overriding the defaults:
+
+### Scenario 1: SSR needs to bundle specific packages
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  environments: {
+    ssr: {
+      resolve: {
+        // Some ESM-only packages cannot be directly required by Node.js at runtime and need to be bundled
+        noExternal: ["marked", "shiki", "@some/esm-package"],
+      },
+    },
+  },
+})
+```
+
+### Scenario 2: client needs additional resolve conditions
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  environments: {
+    client: {
+      resolve: {
+        // Append a condition to support a specific package format
+        conditions: ["browser", "module", "import", "custom-condition"],
+      },
+    },
+  },
+})
+```
+
+### Scenario 3: adding environment-specific plugins to ssr
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  environments: {
+    ssr: {
+      plugins: [
+        // A plugin that only runs in the ssr environment
+        ssrOnlyPlugin(),
+      ],
+    },
+  },
+})
+```
+
+## Migration: from the old SSR API to the Environment API
+
+If you have SSR implemented using Vite 7's `ssrLoadModule`, the basic migration approach to the Environment API is:
+
+<V7Note title="Vite 7 SSR usage">
+  In Vite 7, SSR was implemented via `server.ssrLoadModule()`:
+
+```ts
+// Vite 7
+const vite = await createServer({ server: { middlewareMode: true } })
+const module = await vite.ssrLoadModule("/src/entry-server.tsx")
+```
+
+This API is still available in Vite 8 (backward compatible), but internally it maps to the `ssr` Environment. The official recommendation is to use the Environment API directly in new code.
+
+</V7Note>
+
+The recommended approach after migration:
+
+```ts
+// Vite 8 recommended style (conceptual illustration — refer to official docs for the exact API)
+const vite = await createServer({
+  server: { middlewareMode: true },
+})
+
+// Use the ModuleRunner from the ssr Environment
+const runner = createModuleRunner(vite.environments.ssr)
+
+app.use("*", async (req, res) => {
+  const { render } = await runner.import("/src/entry-server.tsx")
+  const html = await render(req.url)
+  res.send(html)
+})
+```
+
+<Callout type="warning">
+  The exact API signature of `createModuleRunner` is still being confirmed during the RC stage. Refer to the Vite 8.1.x
+  official documentation. The code above only illustrates the conceptual direction of the migration.
+</Callout>
+
+## Self-check
+
+1. Why does the `client` environment prefer the `browser` condition over `node`? Give a real-world example of the difference.
+2. What is the reason the `ssr` environment externalizes all node_modules by default? When should you use `noExternal` to override this?
+3. If a package's `package.json` has `browser`, `node`, and `import` export conditions simultaneously, which one is used in the `client` environment and which in the `ssr` environment?
+4. How does the HMR behavior of Vite 7's `ssrLoadModule` differ from the `ModuleRunner` in Vite 8's Environment API?
+
+```ts filename="Exercise"
+// The following package has this exports configuration in its package.json:
+// {
+//   "exports": {
+//     ".": {
+//       "browser": "./dist/browser.esm.js",
+//       "node": "./dist/node.cjs.js",
+//       "import": "./dist/index.esm.js",
+//       "require": "./dist/index.cjs.js"
+//     }
+//   }
+// }
+
+// Q1: Which file does Vite use when importing this package in the client environment?
+// Q2: Which file is used when importing in the ssr environment?
+// Q3: If the ssr environment is configured with noExternal: ["this-package"],
+//     is this package inlined or referenced via require in the ssr bundle?
+// Q4: If you were to add a Cloudflare Worker environment,
+//     which conditions should you use? Why?
+export default defineConfig({
+  environments: {
+    worker: {
+      resolve: {
+        conditions: [
+          /* TODO */
+        ],
+      },
+    },
+  },
+})
+```

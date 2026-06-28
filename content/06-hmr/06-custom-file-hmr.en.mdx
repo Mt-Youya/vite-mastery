@@ -1,0 +1,273 @@
+---
+title: "Hands-on: Implementing HMR for Custom File Types"
+description: Bring together everything learned in the previous sections — implement full hot update support for a .yaml config file, including server-side handleHotUpdate logic and client-side import.meta.hot acceptance.
+order: 6
+part: 06-hmr
+chapter: "6.6"
+difficulty: 3
+readingTime: 16
+updatedAt: "2026-06-26"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you'll learn">
+  - The complete workflow for implementing HMR for a custom file type - How server-side `handleHotUpdate` and
+  client-side `import.meta.hot.accept` work together - Implementing precise hot updates for YAML config files - Error
+  handling: graceful degradation when a config file has a syntax error
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read "The `handleHotUpdate` hook" (section 6.3) - Read "The `import.meta.hot` API" (section 6.2) - Understand
+  virtual modules (section 3.4)
+</Callout>
+
+## Goal: Hot Updates for YAML Config
+
+Turn a YAML config file into a hot-updatable module:
+
+```ts filename="src/main.ts"
+import config from "virtual:app-config"
+
+// Use the config during initialization
+initApp(config)
+
+if (import.meta.hot) {
+  // When the config file hot-updates: automatically re-apply the config
+  import.meta.hot.accept("virtual:app-config", (newConfig) => {
+    if (newConfig) {
+      updateApp(newConfig.default)
+      console.log("[HMR] config updated:", newConfig.default)
+    }
+  })
+}
+```
+
+Modify `app.config.yaml`, and the browser applies the new config automatically — no page reload, no loss of application state.
+
+## Full Implementation
+
+### Step 1: YAML loader plugin skeleton
+
+```ts filename="src/yaml-config-plugin.ts"
+import type { Plugin } from "vite"
+import { readFileSync, existsSync } from "node:fs"
+import { resolve } from "node:path"
+
+// Simple YAML parser (use a mature yaml package in production)
+function parseSimpleYaml(content: string): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const line of content.split("\n")) {
+    const colonIdx = line.indexOf(":")
+    if (colonIdx === -1 || line.trim().startsWith("#")) continue
+    const key = line.slice(0, colonIdx).trim()
+    const value = line
+      .slice(colonIdx + 1)
+      .trim()
+      .replace(/^["']|["']$/g, "")
+    if (key) result[key] = value
+  }
+  return result
+}
+
+const VIRTUAL_ID = "virtual:app-config"
+const RESOLVED_ID = "\0" + VIRTUAL_ID
+
+export function yamlConfigPlugin(configFile = "app.config.yaml"): Plugin {
+  const configPath = resolve(configFile)
+
+  function loadConfig(): Record<string, unknown> {
+    if (!existsSync(configPath)) {
+      console.warn(`[yaml-config] config file not found: ${configPath}`)
+      return {}
+    }
+    try {
+      const content = readFileSync(configPath, "utf-8")
+      return parseSimpleYaml(content)
+    } catch (e) {
+      console.error(`[yaml-config] parse failed:`, e)
+      return {}
+    }
+  }
+
+  return {
+    name: "vite-plugin-yaml-config",
+
+    resolveId(id) {
+      if (id === VIRTUAL_ID) return RESOLVED_ID
+      return null
+    },
+
+    load(id) {
+      if (id !== RESOLVED_ID) return null
+
+      // Watch the config file for changes
+      this.addWatchFile(configPath)
+
+      const config = loadConfig()
+      return `export default ${JSON.stringify(config)}`
+    },
+
+    handleHotUpdate({ file, server }) {
+      if (file !== configPath) return
+
+      console.log(`[yaml-config] config file updated: ${configFile}`)
+
+      // Invalidate the virtual module
+      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (module) {
+        server.moduleGraph.invalidateModule(module)
+        return [module]
+      }
+
+      return []
+    },
+  }
+}
+```
+
+### Step 2: Use the plugin
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import { yamlConfigPlugin } from "./src/yaml-config-plugin"
+
+export default defineConfig({
+  plugins: [yamlConfigPlugin("app.config.yaml")],
+})
+```
+
+### Step 3: Create the config file
+
+```yaml filename="app.config.yaml"
+apiUrl: https://api.example.com
+theme: dark
+language: en
+featureFlags: experimentalFeature,newUI
+```
+
+### Step 4: Type declarations
+
+```ts filename="src/virtual-config.d.ts"
+declare module "virtual:app-config" {
+  const config: {
+    apiUrl: string
+    theme: string
+    language: string
+    featureFlags: string
+    [key: string]: string
+  }
+  export default config
+}
+```
+
+### Step 5: Use it in the application
+
+```ts filename="src/main.ts"
+import config from "virtual:app-config"
+
+// Initialize the app
+const app = createApp(config)
+
+if (import.meta.hot) {
+  // Accept updates from virtual:app-config
+  import.meta.hot.accept("virtual:app-config", (newModule) => {
+    if (!newModule) return
+
+    const newConfig = newModule.default
+    console.log("[HMR] app config hot updated:", newConfig)
+
+    // Re-apply the config
+    app.updateConfig(newConfig)
+
+    // If certain config changes require a full reload, use invalidate
+    if (newConfig.theme !== config.theme) {
+      console.log("[HMR] theme changed, may need a reload")
+      // import.meta.hot!.invalidate()  // uncomment if a reload is needed
+    }
+  })
+}
+```
+
+## Error Handling: Graceful Degradation on Syntax Errors
+
+```ts filename="src/yaml-config-plugin.ts"
+// Add error handling inside the load hook
+load(id) {
+  if (id !== RESOLVED_ID) return null
+
+  this.addWatchFile(configPath)
+
+  let config: Record<string, unknown>
+  try {
+    config = loadConfig()
+  } catch (e) {
+    // When the config file has a syntax error, return the last successful config
+    // and show an error overlay in the browser
+    this.error(`YAML config file parse failed: ${e instanceof Error ? e.message : e}`)
+    return null  // this.error throws, so this line is never reached
+  }
+
+  return `export default ${JSON.stringify(config)}`
+},
+```
+
+## Browser Side: Complete HMR Acceptance Logic
+
+```ts filename="src/config-manager.ts"
+import config from "virtual:app-config"
+
+type Config = typeof config
+
+let currentConfig: Config = config
+
+export function getConfig(): Config {
+  return currentConfig
+}
+
+export function onConfigUpdate(callback: (config: Config) => void) {
+  if (import.meta.hot) {
+    import.meta.hot.accept("virtual:app-config", (newModule) => {
+      if (!newModule) return
+      currentConfig = newModule.default
+      callback(currentConfig)
+    })
+  }
+}
+```
+
+## Self-check
+
+1. Why do you call `this.addWatchFile()` inside the `load` hook rather than inside `handleHotUpdate`?
+2. What happens when `this.error()` is called due to a YAML syntax error? What does the browser display?
+3. In the client-side `accept()` callback, `newModule` can sometimes be `undefined`. Under what circumstances does that happen?
+4. Why use `accept("virtual:app-config", callback)` instead of `accept(callback)`? What is the difference between the two?
+
+```ts filename="Exercise"
+// Extend yamlConfigPlugin to:
+// 1. Watch all .yaml files under a directory
+//    e.g. the configs/ directory contains database.yaml / redis.yaml / app.yaml
+// 2. Each file maps to a virtual module: virtual:config/database, virtual:config/redis, etc.
+// 3. When any file changes, only update the corresponding virtual module — leave others untouched
+
+import type { Plugin } from "vite"
+import { readdirSync } from "node:fs"
+import { resolve, basename } from "node:path"
+
+export function multiYamlPlugin(configDir: string): Plugin {
+  const dir = resolve(configDir)
+
+  return {
+    name: "vite-plugin-multi-yaml",
+    resolveId(id) {
+      // TODO: handle IDs in the virtual:config/<name> format
+    },
+    load(id) {
+      // TODO: find the corresponding yaml file from the ID and load it
+    },
+    handleHotUpdate({ file, server }) {
+      // TODO: when a yaml file under configDir changes, update only the corresponding virtual module
+    },
+  }
+}
+```

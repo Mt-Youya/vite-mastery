@@ -12,6 +12,7 @@
 ```
 <type>: <简短摘要>
 ```
+
 - `<type>` 从 conventional commits 中选择：feat / fix / docs / refactor / style / test / chore / perf / ci / build
 - 摘要用祈使语气（如 "add" 而非 "added"），首字母小写，不超过 50 字符
 
