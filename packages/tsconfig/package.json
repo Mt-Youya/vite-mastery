@@ -1,6 +1,6 @@
 {
   "name": "@vite-mastery/tsconfig",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "description": "共享 tsconfig 预设:base / nextjs / react-library",
   "files": [
