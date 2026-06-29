@@ -24,7 +24,7 @@ export function Tabs({ items, children }: TabsProps) {
           <BaseTabs.Tab
             key={label}
             value={label}
-            className="-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-fg-muted data-[selected]:border-primary data-[selected]:text-fg"
+            className="-mb-px border-b-2 border-transparent px-3 py-2 text-sm font-medium text-fg-muted data-selected:border-primary data-selected:text-fg"
           >
             {label}
           </BaseTabs.Tab>

@@ -39,7 +39,7 @@ export function CodeGroup({ children }: CodeGroupProps) {
             <Tabs.Tab
               key={`${groupId}-${label}`}
               value={label}
-              className="rounded-t-md px-3 py-1.5 font-mono text-xs text-fg-muted data-[selected]:bg-bg-elevated data-[selected]:text-fg"
+              className="rounded-t-md px-3 py-1.5 font-mono text-xs text-fg-muted data-selected:bg-bg-elevated data-selected:text-fg"
             >
               {label}
             </Tabs.Tab>

@@ -88,7 +88,7 @@ configResolved(config) {
     },
     example: `transformIndexHtml(html) {
   return html.replace(
-    /<title>(.*?)<\/title>/,
+    /<title>(.*?)<\\/title>/,
     \`<title>My App</title>\`
   )
 }`,
@@ -215,7 +215,7 @@ resolveId(id) {
     example: `renderChunk(code, chunk) {
   if (chunk.type === "chunk" && chunk.isEntry) {
     return {
-      code: \`/* bundle version 8.1 */\n\` + code,
+      code: \`/* bundle version 8.1 */\\n\` + code,
     }
   }
   return null
@@ -313,7 +313,7 @@ export function HookExplorer({ filter }: HookExplorerProps) {
 
       <div className="flex flex-col md:flex-row">
         {/* 左:hook 列表 */}
-        <div className="w-full overflow-y-auto border-b border-border md:w-56 md:border-b-0 md:border-r">
+        <div className="w-full overflow-y-auto border-b border-border md:w-60 md:min-w-56 md:border-b-0 md:border-r">
           <ul>
             {visibleHooks.map((hook, i) => {
               const phase = PHASES.find((p) => p.key === hook.phase)
@@ -323,7 +323,7 @@ export function HookExplorer({ filter }: HookExplorerProps) {
                   <button
                     onClick={() => setActive(isActive ? null : hook.name)}
                     className={cn(
-                      "flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm",
+                      "flex w-full items-center gap-2 px-4 py-2 text-left text-sm",
                       "transition-colors duration-[--duration-fast]",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/50",
                       isActive
@@ -333,9 +333,8 @@ export function HookExplorer({ filter }: HookExplorerProps) {
                     )}
                     aria-pressed={isActive}
                   >
-                    {/* 阶段色条 */}
                     <span className={cn("h-3 w-0.5 rounded-full shrink-0", phase?.color.replace("text-", "bg-"))} />
-                    <span className="font-mono">{hook.name}</span>
+                    <span className="truncate font-mono">{hook.name}</span>
                   </button>
                 </li>
               )
@@ -343,81 +342,68 @@ export function HookExplorer({ filter }: HookExplorerProps) {
           </ul>
         </div>
 
-        {/* 右:详情面板 */}
-        <div className="flex-1 min-h-[280px] p-5">
-          {activeHook ? (
-            <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-start gap-2">
-                <h3 className="font-mono text-lg font-bold text-fg">{activeHook.name}</h3>
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-2xs font-medium",
-                    COMPAT_LABELS[activeHook.compat].className
-                  )}
+        {/* 右:详情面板 —— 限宽避免在宽列下被拉成大字报 */}
+        <div className="min-h-50 flex-1 p-4">
+          <div className="max-w-2xl">
+            {activeHook ? (
+              <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-mono text-base font-bold text-fg">{activeHook.name}</h3>
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5 text-2xs font-medium",
+                      COMPAT_LABELS[activeHook.compat].className
+                    )}
+                  >
+                    {COMPAT_LABELS[activeHook.compat].label[locale]}
+                  </span>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.trigger}</p>
+                  <p className="text-sm text-fg">{activeHook.trigger[locale]}</p>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.description}</p>
+                  <p className="text-sm leading-relaxed text-fg-muted">{activeHook.description[locale]}</p>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.signature}</p>
+                  <pre className="whitespace-pre-wrap wrap-break-word rounded-md bg-bg-muted px-3 py-2 font-mono text-2xs text-fg">
+                    {activeHook.signature}
+                  </pre>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.example}</p>
+                  <pre className="overflow-x-auto rounded-md bg-bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed text-fg">
+                    {activeHook.example}
+                  </pre>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-fg-subtle">
+                <svg
+                  className="h-8 w-8 opacity-30"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  aria-hidden
                 >
-                  {COMPAT_LABELS[activeHook.compat].label[locale]}
-                </span>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M15.75 15.75l-2.489-2.489m0 0a3.375 3.375 0 10-4.773-4.773 3.375 3.375 0 004.774 4.774zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                <p className="text-sm">{copy.empty}</p>
               </div>
-
-              <div className="space-y-1">
-                <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.trigger}</p>
-                <p className="text-sm text-fg">{activeHook.trigger[locale]}</p>
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.description}</p>
-                <p className="text-sm leading-relaxed text-fg-muted">{activeHook.description[locale]}</p>
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.signature}</p>
-                <pre className="overflow-x-auto rounded-md bg-bg-muted px-3 py-2 font-mono text-2xs text-fg">
-                  {activeHook.signature}
-                </pre>
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-2xs font-medium uppercase tracking-wider text-fg-subtle">{copy.example}</p>
-                <pre className="overflow-x-auto rounded-md bg-bg-muted px-3 py-2.5 font-mono text-xs text-fg leading-relaxed">
-                  {activeHook.example}
-                </pre>
-              </div>
-            </div>
-          ) : (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-fg-subtle">
-              <svg
-                className="h-8 w-8 opacity-30"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-                aria-hidden
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M15.75 15.75l-2.489-2.489m0 0a3.375 3.375 0 10-4.773-4.773 3.375 3.375 0 004.774 4.774zM21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              <p className="text-sm">{copy.empty}</p>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* 图例 */}
-      <div className="flex flex-wrap gap-3 border-t border-border px-5 py-2.5">
-        {Object.entries(COMPAT_LABELS).map(([key, val]) => (
-          <span key={key} className="flex items-center gap-1.5 text-2xs text-fg-subtle">
-            <span
-              className={cn(
-                "h-1.5 w-3 rounded-full",
-                val.className.split(" ").find((c) => c.startsWith("bg-"))
-              )}
-            />
-            {val.label[locale]}
-          </span>
-        ))}
       </div>
     </figure>
   )
