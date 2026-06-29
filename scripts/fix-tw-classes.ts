@@ -105,6 +105,11 @@ const TRANSFORMS: Array<{ desc: string; pattern: RegExp; replace: string }> = [
     pattern: /\bflex-grow\b/,
     replace: "grow",
   },
+  {
+    desc: "break-words → wrap-break-word  （Tailwind v4 新名）",
+    pattern: /\bbreak-words\b/,
+    replace: "wrap-break-word",
+  },
 
   // ━━ 5. 任意 rem 值 → Tailwind 数字比例 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Tailwind 间距：1 单位 = 0.25rem；1.125rem / 0.25 = 4.5，10rem / 0.25 = 40
@@ -122,6 +127,11 @@ const TRANSFORMS: Array<{ desc: string; pattern: RegExp; replace: string }> = [
     desc: "h-[13rem] → h-52",
     pattern: /\bh-\[13rem\]/,
     replace: "h-52",
+  },
+  {
+    desc: "min-h-[200px] → min-h-50  （200px = 50 × 4px spacing unit）",
+    pattern: /\bmin-h-\[200px\]/,
+    replace: "min-h-50",
   },
 
   // ━━ 6. 任意 px 值 → @theme 文字 token ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

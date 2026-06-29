@@ -1,7 +1,10 @@
 {
-  "files": [],
-  "references": [],
+  "extends": "./packages/tsconfig/base.json",
   "compilerOptions": {
-    "composite": false
-  }
+    "composite": false,
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["scripts/**/*.ts"]
 }
