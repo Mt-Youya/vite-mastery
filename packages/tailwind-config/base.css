@@ -21,6 +21,8 @@
       "calt" 1,
       "ss01" 1,
       "ss03" 1;
+    /* 跨 [lang] root layout 切换时,body 短暂未绘制,这里兜底避免露出浏览器白底 */
+    background-color: var(--color-bg);
   }
 
   body {

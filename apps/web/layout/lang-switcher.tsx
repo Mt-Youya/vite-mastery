@@ -11,7 +11,10 @@ import { cn } from "@/lib/utils"
  * 顶部语言切换 —— 显示 `中文 / English` 两个并排按钮。
  * 触发时:
  *   1. 写 cookie 记忆用户选择(覆盖 Accept-Language 协商)
- *   2. router.replace 到对端 locale 的同一路径,使用 transition 避免页面闪烁
+ *   2. router.replace 到对端 locale 的同一路径,用 transition 避免阻塞 UI
+ *
+ * 不再调用 router.refresh():跨 [lang] 段导航本身就会拉新 locale 的 RSC,
+ * 多一次 refresh 反而会失效 Router Cache、放大跨 root layout 卸载的白屏。
  */
 export function LangSwitcher() {
   const t = useTranslations("lang")
@@ -27,7 +30,6 @@ export function LangSwitcher() {
     const target = bare === "/" ? `/${next}` : `/${next}${bare}`
     startTransition(() => {
       router.replace(target)
-      router.refresh()
     })
   }
 

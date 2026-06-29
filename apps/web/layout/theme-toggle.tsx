@@ -5,7 +5,7 @@ import { HugeiconsIcon } from "@hugeicons/react"
 import { IconButton, Popover } from "@vite-mastery/ui"
 import { useTranslations } from "next-intl"
 import { useEffect, useState } from "react"
-import { useTheme } from "@/components/layout/theme-provider"
+import { useTheme } from "@/layout/theme-provider"
 import { cn } from "@/lib/utils"
 
 const OPTIONS = [
