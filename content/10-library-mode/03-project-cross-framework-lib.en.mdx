@@ -109,7 +109,7 @@ export default defineConfig({
       formats: ["es", "cjs"],
       fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: ["react", "react/jsx-runtime", "@ui-kit/core"],
       output: {
         globals: { react: "React", "@ui-kit/core": "UIKitCore" },
@@ -185,7 +185,7 @@ import { Button } from "@ui-kit/svelte"
 ## Self-check
 
 1. Why put the core logic in a separate `core` package instead of duplicating it in each framework adapter?
-2. Why should `@ui-kit/core` also be listed in `rollupOptions.external`?
+2. Why should `@ui-kit/core` also be listed in `rolldownOptions.external`?
 3. If a user installs both `@ui-kit/react` and `@ui-kit/vue`, will there be two copies of the `core` package's code?
 4. How should CSS be handled in this library? If a user doesn't use Tailwind, how do you make the styles work?
 

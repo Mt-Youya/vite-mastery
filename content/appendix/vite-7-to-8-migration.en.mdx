@@ -110,16 +110,20 @@ react({
 })
 
 // Migrating to v6:
-// v6 supports the same babel options, but you need to install @babel/core manually:
-pnpm add -D @babel/core babel-plugin-styled-components
+// v6 no longer treats Babel as an internal react() option.
+// When you need Babel plugins, compose @rolldown/plugin-babel.
+pnpm add -D @rolldown/plugin-babel @babel/core babel-plugin-styled-components
 
-// v6 config:
-react({
-  babel: {
-    plugins: ["babel-plugin-styled-components"],
-  },
+import babel from "@rolldown/plugin-babel"
+
+export default defineConfig({
+  plugins: [
+    react(),
+    babel({
+      plugins: ["babel-plugin-styled-components"],
+    }),
+  ],
 })
-// ← Same syntax; v6 automatically uses Babel when it detects babel options
 ```
 
 ## Plugin compatibility self-audit

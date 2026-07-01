@@ -5,8 +5,8 @@ order: 2
 part: 07-build-pipeline
 chapter: "7.2"
 difficulty: 2
-readingTime: 10
-updatedAt: "2026-06-26"
+readingTime: 15
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
@@ -101,8 +101,13 @@ import { version, name } from "./package.json"
 import data from "./data.json"
 // data 的类型是从 JSON 结构推断的
 
-// 如果需要更精确的类型,用断言
-import config from "./config.json" assert { type: "json" }
+// 如果需要更精确的业务类型,在使用侧约束
+interface AppConfig {
+  apiBase: string
+  featureFlags: Record<string, boolean>
+}
+
+const config = data as AppConfig
 ```
 
 ## WASM 导入
@@ -150,12 +155,113 @@ public/
 
 适合:浏览器直接请求的特殊文件(favicon、manifest、sitemap 等)。
 
+不要把会被组件 import 的图片、字体、SVG 都放进 `public/`。那会绕过 hash、压缩、依赖追踪和路径重写。经验规则:
+
+| 文件位置 | 适合内容 | 访问方式 |
+| -------- | -------- | -------- |
+| `src/assets/` | 被组件、CSS、JS import 的资源 | `import logo from "./logo.png"` |
+| `public/` | 浏览器按固定路径请求的资源 | `"/favicon.ico"` |
+
+部署到子路径时，`public/` 资源也要考虑 `base`:
+
+```ts
+const favicon = `${import.meta.env.BASE_URL}favicon.ico`
+```
+
+如果路径写死成 `"/favicon.ico"`，部署到 `/docs/` 这类子路径时就会请求到域名根路径。
+
+## CSS `url()` 也进入资源管线
+
+CSS 里的相对资源同样会被 Vite 处理:
+
+```css filename="card.css"
+.card {
+  background-image: url("./card-bg.png");
+}
+```
+
+构建后会变成指向 hash 文件的 URL:
+
+```css
+.card {
+  background-image: url("/assets/card-bg-HASH.png");
+}
+```
+
+这也是为什么不要在 CSS 里手写 `public/` 的绝对路径，除非你明确需要固定 URL。
+
+## `assetsInclude`:让自定义后缀当资源处理
+
+Vite 默认识别常见图片、字体、媒体、WASM 等资源。如果你的项目有自定义资源后缀，比如 `.gltf`、`.glb`、`.hdr`，可以用 `assetsInclude`:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  assetsInclude: ["**/*.gltf", "**/*.glb", "**/*.hdr"],
+})
+```
+
+之后这些文件被 import 时，会按静态资源规则处理:
+
+```ts
+import modelUrl from "./scene.gltf"
+```
+
+如果你需要“读取并转换内容”，写插件更合适；如果只是“让它成为可引用 URL”，`assetsInclude` 更简单。
+
+## inline 阈值不是越大越好
+
+`assetsInlineLimit` 的默认值小，是为了平衡请求数量和 JS/CSS 体积:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    assetsInlineLimit: 4096,
+  },
+})
+```
+
+把阈值调很大可能带来副作用:
+
+- JS/CSS 文件变大，影响首包解析
+- data URL 不能像独立文件一样被浏览器单独缓存
+- sourcemap 和调试体验变差
+- CSP 可能需要允许 `data:`
+
+适合 inline 的资源通常是极小、强依赖当前模块、复用价值低的图标或占位图。大图、字体、视频、复用 logo 更适合保持独立文件。
+
+## Git LFS 占位文件
+
+如果仓库使用 Git LFS，未拉取真实文件时，本地看到的可能只是一个很小的 LFS pointer。Vite 会避免把这类占位文件当成真实小资源 inline。
+
+排查资源异常时可以先看文件内容:
+
+```text
+version https://git-lfs.github.com/spec/v1
+oid sha256:...
+size 123456
+```
+
+如果看到这种内容，说明你还没有拉取 LFS 资源。先运行团队约定的 LFS 拉取命令，再排查 Vite 配置。
+
+## 常见错误
+
+| 现象 | 原因 | 修复 |
+| ---- | ---- | ---- |
+| 构建后图片 404 | 部署 `base` 与真实路径不一致 | 配置正确 `base` |
+| SVG 想当组件用却得到字符串 | 默认 asset import 返回 URL | 用框架插件或自定义 SVG loader |
+| 大 PNG 被打进 JS | 使用了 `?inline` 或阈值过大 | 改用默认 import / `?url` |
+| public 资源部署到子路径失败 | 写死了根路径 | 使用 `BASE_URL` |
+| 自定义模型文件 import 报错 | 后缀不在默认资源列表 | 配置 `assetsInclude` |
+
 ## 自测题
 
 1. 一个 3KB 的 SVG 文件,默认情况下 Vite 会 inline 还是复制?如何强制让它保持文件形式?
 2. `?raw` 和 `?url` 有什么区别?各自返回什么类型的值?
 3. `public/` 目录里的文件和 `src/assets/` 里的文件,构建产物有什么不同?
 4. 如果你需要在 CSS 里用一个 PNG 图片的 base64 data URL,应该用哪个修饰符?
+5. `assetsInclude` 和自定义插件分别适合什么场景?
 
 ```ts filename="练习"
 // 以下场景选择合适的导入方式:

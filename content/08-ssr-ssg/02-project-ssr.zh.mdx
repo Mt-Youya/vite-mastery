@@ -1,24 +1,57 @@
 ---
-title: 实战项目 7:手写 SSR(用 Environment API)
-description: 不用任何 SSR 框架,从零用 Vite + Node.js 实现一个完整的 SSR 应用——理解 SSR 的每个环节,并使用 Environment API 实现更干净的架构。
+title: 实战项目 7:手写 SSR(从 ssrLoadModule 到 ModuleRunner)
+description: 不依赖 SSR 框架，从零实现 Vite + Node.js SSR；先跑通兼容写法，再理解为什么 Environment API / ModuleRunner 是后续主线。
 order: 2
 part: 08-ssr-ssg
 chapter: "8.2"
 difficulty: 3
-readingTime: 18
-updatedAt: "2026-06-26"
+readingTime: 22
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
-apiStability: "stable"
+apiStability: "rc"
 ---
 
+<Callout type="warning" title="Environment API 处于 RC 阶段">
+  官方 SSR 指南仍保留 `vite.ssrLoadModule()` 的低层示例，同时变更文档说明未来会迁移到 `ModuleRunner.import()`。本项目采用“先跑通兼容实现，再抽象加载入口”的写法，方便你在 API 稳定后替换加载层。
+</Callout>
+
 <Callout type="note" title="你将学到什么">
-  - 从零实现 SSR:不依赖 Next.js / Nuxt 等框架 - dev 模式:Vite 中间件 + ssrLoadModule - production 模式:预构建产物 + 直接
-  import - HMR:SSR 代码变化时自动刷新 - 配套实战项目:`examples/ssr-with-env-api`
+  - 一个最小 SSR 应用需要哪些文件
+  - dev 模式为什么要用 Vite middleware
+  - production 模式为什么要先构建 client 和 server 两份产物
+  - `ssrLoadModule` 与 `ModuleRunner.import()` 的职责差异
+  - 如何验证 SSR、hydration、数据注入和错误堆栈
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 阅读「Vite 8 时代的 SSR API」(8.1 节) - 了解 React renderToString / hydrateRoot - 了解 Node.js HTTP server 基础
+  - 阅读 [8.1 · Vite 8 时代的 SSR API](/docs/08-ssr-ssg/01-vite8-ssr-api)
+  - 理解 React `renderToString` / `hydrateRoot`
+  - 了解 Node.js HTTP server 基础
 </Callout>
+
+## 目标架构
+
+我们要做的是低层 SSR，不是复刻 Next.js:
+
+```text
+浏览器请求 /
+  → Node HTTP server
+  → dev: Vite middleware 处理 /@vite/client、源码、HMR
+  → 加载 server entry
+  → render(url) 生成 HTML + 初始数据
+  → transformIndexHtml 处理模板
+  → 注入 <!--ssr-outlet--> 与 <!--ssr-data-->
+  → 浏览器 hydrateRoot 接管交互
+```
+
+开发和生产最大的差异是“server entry 从哪里来”:
+
+| 阶段 | server entry 来源 | 为什么 |
+| ---- | ----------------- | ------ |
+| dev | Vite 即时转换后的源码 | 支持 HMR、源码堆栈、按需转换 |
+| prod | `dist/server/entry-server.js` | 不在生产环境依赖 dev server |
+
+这也是 SSR 项目一般要构建两次的原因:client build 给浏览器，server build 给 Node/Worker runtime。
 
 ## 项目结构
 
@@ -26,13 +59,21 @@ apiStability: "stable"
 examples/ssr-with-env-api/
 ├── package.json
 ├── vite.config.ts
-├── server.js          ← HTTP server(dev + prod 两用)
-├── index.html         ← HTML 模板
+├── server.js
+├── index.html
 └── src/
-    ├── main.tsx       ← client 入口(hydration)
-    ├── App.tsx        ← 共享组件
-    └── entry-server.tsx  ← server 入口(renderToString)
+    ├── App.tsx
+    ├── main.tsx
+    └── entry-server.tsx
 ```
+
+三个入口分工:
+
+| 文件 | 运行环境 | 职责 |
+| ---- | -------- | ---- |
+| `src/App.tsx` | client + server | 共享 React 树 |
+| `src/entry-server.tsx` | server | 把 React 树渲染成 HTML |
+| `src/main.tsx` | client | hydrate 服务端 HTML |
 
 ## Vite 配置
 
@@ -51,8 +92,20 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    manifest: true,
+  },
 })
 ```
+
+配置含义:
+
+- `plugins: [react()]`:client 端 JSX、Fast Refresh、server 端 React transform 都需要它。
+- `environments.ssr.resolve.conditions`:让 SSR 环境按 Node 条件解析包入口。
+- `noExternal`:示例里把 React 相关包交给 Vite/Rolldown 处理，避免 ESM/CJS 边界在演示里干扰主线。
+- `build.manifest`:生产 HTML 注入和 preload 优化会用到。
+
+真实项目里不要机械照抄 `noExternal: ["react", "react-dom"]`。多数 Node SSR 项目会 externalize 大部分依赖，只把确实需要 Vite 转换的包放进 `noExternal`。
 
 ## 共享组件
 
@@ -64,15 +117,22 @@ interface AppProps {
 
 export function App({ url = "/", data }: AppProps) {
   return (
-    <div>
+    <main>
       <h1>Vite SSR 演示</h1>
       <p>当前路径: {url}</p>
-      {data && <p>服务端数据: {data.message}</p>}
+      {data ? <p>服务端数据: {data.message}</p> : null}
       <button onClick={() => alert("client 侧交互正常!")}>测试 Hydration</button>
-    </div>
+    </main>
   )
 }
 ```
+
+这个组件会执行两次:
+
+1. 服务端执行一次，产出 HTML 字符串。
+2. 浏览器执行一次，`hydrateRoot` 绑定事件并复用现有 DOM。
+
+所以共享组件里不要直接访问 `window`、`document`、`localStorage`。如果必须访问，放进 `useEffect` 或用 `import.meta.env.SSR` 分支保护。
 
 ## 服务端入口
 
@@ -80,17 +140,29 @@ export function App({ url = "/", data }: AppProps) {
 import { renderToString } from "react-dom/server"
 import { App } from "./App"
 
-export async function render(url: string): Promise<{ html: string; data: unknown }> {
-  // 在这里可以做服务端数据获取
+export interface RenderResult {
+  html: string
+  data: { message: string }
+}
+
+export async function render(url: string): Promise<RenderResult> {
   const data = {
     message: `在服务端获取的数据 (${new Date().toISOString()})`,
   }
 
   const html = renderToString(<App url={url} data={data} />)
-
   return { html, data }
 }
 ```
+
+`render()` 返回 `html` 和 `data`。`html` 放进模板的 `<!--ssr-outlet-->`，`data` 序列化后交给浏览器复用。
+
+如果不注入初始数据，浏览器 hydrate 时会重新请求一次数据，很容易出现:
+
+- 服务端 HTML 和客户端首帧不一致
+- hydration warning
+- 页面闪烁
+- 同一接口被请求两次
 
 ## 客户端入口
 
@@ -98,11 +170,26 @@ export async function render(url: string): Promise<{ html: string; data: unknown
 import { hydrateRoot } from "react-dom/client"
 import { App } from "./App"
 
-// 从 window.__SSR_DATA__ 获取服务端注入的数据
-const data = (window as { __SSR_DATA__?: unknown }).__SSR_DATA__
+declare global {
+  interface Window {
+    __SSR_DATA__?: { message: string }
+  }
+}
 
-hydrateRoot(document.getElementById("root")!, <App url={window.location.pathname} data={data as { message: string }} />)
+hydrateRoot(
+  document.getElementById("root")!,
+  <App url={window.location.pathname} data={window.__SSR_DATA__} />
+)
 ```
+
+这里用的是 `hydrateRoot`，不是 `createRoot`。区别:
+
+| API | 适合场景 |
+| --- | -------- |
+| `createRoot` | 纯客户端渲染，容器里通常是空的 |
+| `hydrateRoot` | SSR 后接管已有 HTML |
+
+如果 SSR 页面用了 `createRoot`，React 会丢弃服务端 HTML 重新渲染，SSR 的首屏优势就没了。
 
 ## HTML 模板
 
@@ -124,12 +211,62 @@ hydrateRoot(document.getElementById("root")!, <App url={window.location.pathname
 </html>
 ```
 
-## 开发服务器
+生产项目里序列化数据时要防 XSS。不要直接把用户输入拼进 `<script>`:
+
+```ts
+html.replace("<!--ssr-data-->", JSON.stringify(data))
+```
+
+更稳妥的实现需要转义 `<`、`</script>`、U+2028、U+2029 等字符，或使用成熟序列化库。这里为了聚焦 Vite SSR 主流程，示例保持最小。
+
+## 抽象 server entry 加载器
+
+为了从 `ssrLoadModule` 平滑迁移到 `ModuleRunner.import()`，不要把加载逻辑散落在请求处理里。先抽象:
+
+```ts filename="server-entry-loader.ts"
+interface ServerEntry {
+  render(url: string): Promise<{ html: string; data: unknown }>
+}
+
+interface ServerEntryLoader {
+  load(url: string): Promise<ServerEntry>
+}
+```
+
+dev 兼容实现:
+
+```ts filename="server-entry-loader.ts"
+import type { ViteDevServer } from "vite"
+
+export function createSsrLoadModuleLoader(vite: ViteDevServer): ServerEntryLoader {
+  return {
+    async load(_url) {
+      return vite.ssrLoadModule("/src/entry-server.tsx") as Promise<ServerEntry>
+    },
+  }
+}
+```
+
+未来迁移到 ModuleRunner 时，目标形态是把内部替换成:
+
+```ts filename="server-entry-loader.ts"
+export function createModuleRunnerLoader(runner: { import<T>(url: string): Promise<T> }): ServerEntryLoader {
+  return {
+    async load(_url) {
+      return runner.import<ServerEntry>("/src/entry-server.tsx")
+    },
+  }
+}
+```
+
+关键不是这段接口多复杂，而是**请求处理层不关心入口模块怎么被执行**。这样官方 API 变化时，只替换 loader。
+
+## HTTP server
 
 ```js filename="server.js"
-import { createServer as createViteServer } from "vite"
 import { createServer as createHttpServer } from "node:http"
 import { readFileSync } from "node:fs"
+import { createServer as createViteServer } from "vite"
 
 const isProd = process.argv.includes("--prod")
 
@@ -138,22 +275,18 @@ async function startServer() {
   let template
 
   if (!isProd) {
-    // 开发模式:启动 Vite dev server
     vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "custom",
     })
   } else {
-    // 生产模式:读取预构建产物
     template = readFileSync("dist/client/index.html", "utf-8")
   }
 
   const server = createHttpServer(async (req, res) => {
     const url = req.url ?? "/"
 
-    // 开发模式:让 Vite 处理静态资源
     if (!isProd && vite) {
-      // 检查是否是 Vite 的请求(/@vite/ 开头等)
       await new Promise((resolve) => {
         vite.middlewares(req, res, resolve)
       })
@@ -161,79 +294,96 @@ async function startServer() {
     }
 
     try {
-      let html: string
-      let appHtml: string
-      let data: unknown
+      let appHtml
+      let data
+      let html
 
       if (!isProd && vite) {
-        // 开发模式:用 ssrLoadModule 执行服务端入口
         const { render } = await vite.ssrLoadModule("/src/entry-server.tsx")
         ;({ html: appHtml, data } = await render(url))
 
         const rawTemplate = readFileSync("index.html", "utf-8")
         html = await vite.transformIndexHtml(url, rawTemplate)
       } else {
-        // 生产模式:直接 require 预构建产物
         const { render } = await import("./dist/server/entry-server.js")
         ;({ html: appHtml, data } = await render(url))
-        html = template!
+        html = template
       }
 
-      // 注入渲染结果
       html = html
         .replace("<!--ssr-outlet-->", appHtml)
         .replace("<!--ssr-data-->", JSON.stringify(data))
 
       res.setHeader("Content-Type", "text/html; charset=utf-8")
       res.end(html)
-    } catch (e) {
-      if (vite) vite.ssrFixStacktrace(e)
-      console.error(e)
+    } catch (error) {
+      if (vite) vite.ssrFixStacktrace(error)
+      console.error(error)
       res.statusCode = 500
-      res.end(String(e))
+      res.end(String(error))
     }
   })
 
-  const port = 3000
-  server.listen(port, () => {
-    console.log(`SSR server: http://localhost:${port}`)
-    if (!isProd) console.log("  开发模式:HMR 已启用")
+  server.listen(3000, () => {
+    console.log("SSR server: http://localhost:3000")
   })
 }
 
 startServer()
 ```
 
-## 运行项目
+dev 分支里 `vite.middlewares` 必须先运行。否则 `/@vite/client`、`/src/main.tsx`、CSS、HMR websocket 相关请求不会被 Vite 正确处理。
 
-```bash
-cd examples/ssr-with-env-api
-pnpm install
+## 生产构建脚本
 
-# 开发模式(支持 HMR)
-pnpm dev
-
-# 生产模式
-pnpm build   # 构建 client + server
-node server.js --prod
+```json filename="package.json"
+{
+  "scripts": {
+    "dev": "node server.js",
+    "build": "vite build --outDir dist/client && vite build --ssr src/entry-server.tsx --outDir dist/server",
+    "preview": "node server.js --prod"
+  }
+}
 ```
 
-访问 `http://localhost:3000`,查看页面源码应看到完整 HTML(不是空 div),说明 SSR 正常工作。
+生产模式不使用 `ssrLoadModule`，因为生产环境不应依赖 Vite dev server。`dist/server/entry-server.js` 是已经构建好的服务端入口，可以直接 `import()`。
+
+## 验证清单
+
+1. 访问 `http://localhost:3000`。
+2. 查看页面源码，`#root` 内应该有完整 HTML，而不是空容器。
+3. 点击按钮，确认 hydration 后事件正常。
+4. 修改 `src/App.tsx`，确认 dev 下页面更新。
+5. 运行 `pnpm build && pnpm preview`，确认生产路径正常。
+6. 故意在 `entry-server.tsx` 抛错，确认堆栈能指回源码。
+
+## 什么时候该放弃手写 SSR
+
+手写 SSR 适合学习底层机制，或做很薄的内部框架。生产项目通常还需要:
+
+- 路由匹配
+- 数据加载与缓存
+- streaming
+- head/meta 管理
+- preload 链接生成
+- 错误边界
+- 安全序列化
+- 部署平台适配
+
+如果这些都要自己做，应该考虑 Remix、Nuxt、SvelteKit、React Router Framework Mode、Astro 或已有 Vite SSR 集成。理解本章的价值在于:你能看懂这些框架为什么这么封装。
 
 ## 自测题
 
-1. 如何在页面源码里验证 SSR 正常工作(而不是纯 client 渲染)?
-2. 为什么 `entry-server.tsx` 要返回 `data`,并且要注入 `window.__SSR_DATA__`?
-3. 开发模式和生产模式的主要区别是什么?为什么生产模式不用 `ssrLoadModule`?
-4. 如果 `renderToString` 结果和 `hydrateRoot` 接收的 React 树不匹配,会发生什么?
+1. 为什么 SSR 项目通常要构建 client 和 server 两份产物?
+2. dev 模式为什么要先执行 `vite.middlewares`?
+3. `ssrLoadModule` 和 `ModuleRunner.import()` 的抽象差异是什么?
+4. 为什么初始数据要注入浏览器，而不是让客户端再请求一次?
+5. 如何验证页面真的经过 SSR，而不是纯客户端渲染?
 
 ```ts filename="练习"
-// 扩展这个 SSR 实现:
-// 1. 添加基于文件路径的路由(/)→ Home、/about → About 页面)
-// 2. 每个页面有独立的 server-side data fetching
-// 3. 页面 title 在 SSR 时正确设置
-
-// 提示:
-// - vite.transformIndexHtml 的第二个参数可以传入处理后的 HTML
-// - 可以用 useEffect(client) 和初始数据(server)两阶段处理 title
+// 把本文 server.js 改造成 loader 分层:
+// - createDevEntryLoader(vite):内部使用 ssrLoadModule
+// - createProdEntryLoader():内部 import dist/server/entry-server.js
+// - 请求处理逻辑只调用 loader.load(url)
+// - 保留 vite.transformIndexHtml 和 ssrFixStacktrace
 ```

@@ -3,6 +3,7 @@ import { allDocs } from "content-collections"
 import type { Metadata } from "next"
 import { getTranslations, setRequestLocale } from "next-intl/server"
 import { notFound } from "next/navigation"
+import type { ComponentPropsWithoutRef } from "react"
 import { useMDXComponents } from "@/hooks/use-mdx-components"
 import { Breadcrumb } from "@/components/docs/breadcrumb"
 import { FallbackBanner } from "@/components/docs/fallback-banner"
@@ -24,6 +25,18 @@ import { PARTS } from "@/lib/site-config"
 
 interface PageProps {
   params: Promise<{ lang: Locale; slug: string[] }>
+}
+
+function localizeMdxHref(locale: Locale, href?: string) {
+  if (!href || !href.startsWith("/") || href.startsWith("//")) return href
+  if (LOCALES.some((item) => href === `/${item}` || href.startsWith(`/${item}/`))) return href
+  return localizedHref(href, locale)
+}
+
+function createLocalizedMdxAnchor(locale: Locale) {
+  return function LocalizedMdxAnchor({ href, ...props }: ComponentPropsWithoutRef<"a">) {
+    return <a {...props} href={localizeMdxHref(locale, href)} />
+  }
 }
 
 /**
@@ -82,7 +95,7 @@ export default async function DocsCatchAllPage({ params }: PageProps) {
   /** —— 单篇文档 —— */
   const { current, prev, next } = findDocWithSiblings(flat, joined)
   if (current) {
-    const mdxComponents = useMDXComponents({})
+    const mdxComponents = useMDXComponents({ a: createLocalizedMdxAnchor(lang) })
     const part = PARTS.find((p) => p.id === current.part)
     const breadcrumb = getBreadcrumb(
       current,

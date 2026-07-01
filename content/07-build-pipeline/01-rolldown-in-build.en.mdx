@@ -1,115 +1,156 @@
 ---
 title: Rolldown's Role in the Vite 8 Build
-description: What changes in the build configuration after the production build switches from Rollup to Rolldown? Does rollupOptions still work? How do you write Rolldown-specific configuration?
+description: How Vite build uses Rolldown, how to configure rolldownOptions, how rollupOptions migration works, and how minification, manifests, and chunk caching fit together.
 order: 1
 part: 07-build-pipeline
 chapter: "7.1"
 difficulty: 2
-readingTime: 12
-updatedAt: "2026-06-26"
+readingTime: 16
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
-<Callout type="note" title="What you'll learn">
-  - The specific changes Vite 8 makes by using Rolldown for builds - Whether `rollupOptions` is still valid in Vite 8 -
-  Rolldown-specific configuration options - What to watch out for when migrating build config from Vite 7
+<Callout type="note" title="What you will learn">
+  - How `vite build` invokes Rolldown in Vite 8
+  - Why new config should use `build.rolldownOptions`
+  - What `build.rollupOptions` means during migration
+  - How Oxc, Lightning CSS, manifests, and chunk import maps fit into the build
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Read "What is Rolldown" (section 2.2) - Understand the basic `vite build` flow
+  - Read [2.2 · What is Rolldown](/docs/02-bundler-evolution/02-what-is-rolldown)
+  - Understand [3.1 · Vite Plugins vs Rollup Plugins](/docs/03-plugin-system/01-vite-vs-rollup-plugin)
 </Callout>
 
-## Is build.rollupOptions still valid?
+## `vite build` Is Still a Vite Command
 
-Yes, **completely valid**. This is one of Vite 8's core design promises — `rollupOptions` is backwards compatible:
+Vite 8 uses Rolldown for production bundling, but `vite build` is not just raw Rolldown. Vite still:
+
+1. loads and merges `vite.config.ts`
+2. loads mode and `.env` files
+3. creates the plugin container and Vite core plugins
+4. turns HTML, CSS, assets, workers, and WASM into bundler inputs
+5. calls Rolldown to emit chunks and assets
+6. emits Vite-level outputs such as manifests and license files
+
+Think in two layers:
+
+| Layer | Config entry | Examples |
+| ----- | ------------ | -------- |
+| Vite build semantics | `build.*` | `outDir`, `target`, `manifest`, `minify` |
+| Bundler options | `build.rolldownOptions` | `input`, `external`, `output`, Rolldown plugins |
+
+Use Vite's high-level options first. Drop into `build.rolldownOptions` only when controlling bundler behavior directly.
+
+## `rolldownOptions` Is the Vite 8 Path
 
 ```ts filename="vite.config.ts"
+import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
 export default defineConfig({
   build: {
-    // ✅ All of these options work under Vite 8 + Rolldown
-    rollupOptions: {
+    sourcemap: true,
+    manifest: true,
+    rolldownOptions: {
       input: {
-        main: "index.html",
-        admin: "admin.html",
-      },
-      output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-          utils: ["lodash-es", "date-fns"],
-        },
-        chunkFileNames: "assets/[name]-[hash].js",
-        entryFileNames: "assets/[name].js",
-        assetFileNames: "assets/[name]-[hash][extname]",
+        index: resolve("index.html"),
+        admin: resolve("admin/index.html"),
       },
       external: ["some-cdn-lib"],
+      output: {
+        entryFileNames: "assets/[name]-[hash].js",
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
     },
   },
 })
 ```
 
-## Key build configuration quick reference
+`build.rollupOptions` still exists as an alias, but it is deprecated in current Vite 8 config docs. New code should use `build.rolldownOptions`.
 
-| Option                        | Default                       | Description                          |
-| ----------------------------- | ----------------------------- | ------------------------------------ |
-| `build.outDir`                | `"dist"`                      | Output directory for build artifacts |
-| `build.assetsDir`             | `"assets"`                    | Subdirectory for static assets       |
-| `build.sourcemap`             | `false`                       | Source map for build output          |
-| `build.minify`                | `"esbuild"`                   | Minifier                             |
-| `build.target`                | `"baseline-widely-available"` | Browser compatibility target         |
-| `build.cssMinify`             | `"lightningcss"`              | CSS minifier (new default in Vite 8) |
-| `build.lib`                   | `undefined`                   | Library mode configuration           |
-| `build.chunkSizeWarningLimit` | `500`                         | Chunk size warning threshold (KB)    |
+<Callout type="warning" title="Migration note">
+  During migration, keeping `rollupOptions` can help you get a build passing first. After validation, rename it to `rolldownOptions` and review each output/plugin option.
+</Callout>
 
-## Changes to minification configuration in Vite 8
+## Key Build Options
 
-<V7Note title="Vite 7: CSS minified with esbuild">
-  In Vite 7, CSS minification used esbuild by default. Vite 8 switches to **lightningcss** as the default CSS minifier.
+| Option | Default / meaning | Change it when |
+| ------ | ----------------- | -------------- |
+| `build.outDir` | `"dist"` | deployment expects another directory |
+| `build.assetsDir` | `"assets"` | static paths are constrained |
+| `build.target` | `baseline-widely-available` | lower browser target required |
+| `build.sourcemap` | `false` | production debugging or error tracking |
+| `build.manifest` | `false` | backend templates need asset mapping |
+| `build.ssrManifest` | `false` | SSR needs preload/style info |
+| `build.minify` | Oxc for client, `false` for SSR | debugging or terser compatibility |
+| `build.cssMinify` | Lightning CSS | CSS minification target differs |
+| `build.chunkImportMap` | experimental, `false` | optimizing chunk cache invalidation |
 
-`lightningcss` is implemented in Rust and supports more modern CSS features: nested rules, color-mix, cascade layers, and more.
+## Target
 
-Migration note: if your CSS relies on certain esbuild-specific behavior, you may need to verify lightningcss output. To restore the old behavior:
-
-```ts
-build: {
-  cssMinify: "esbuild" // explicitly revert to esbuild
-}
-```
-
-</V7Note>
-
-## JS minification configuration
+The default production target is `baseline-widely-available`. Lowering the target performs syntax transforms; it does not automatically polyfill every runtime API.
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
-
 export default defineConfig({
   build: {
-    // JS minifier (Vite 8 still defaults to esbuild; Rolldown's built-in OXC minifier is also available)
-    minify: "esbuild", // "esbuild" | "terser" | false
-
-    // OXC minifier (built into Rolldown, experimental in Vite 8)
-    // minify: "rolldown",  // use Rolldown's built-in OXC minifier
+    target: "es2020",
   },
 })
 ```
 
-## Multi-entry builds
+## Minification
+
+Vite 8 client builds default to Oxc minifier; SSR builds default to no minification:
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
+export default defineConfig({
+  build: {
+    minify: "oxc",
+  },
+})
+```
+
+`build.minify: "esbuild"` is deprecated and should only be used as a temporary migration choice when you have verified a specific need.
+
+For debugging:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    minify: false,
+    sourcemap: true,
+  },
+})
+```
+
+CSS minification is separate:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    cssMinify: "lightningcss",
+  },
+})
+```
+
+Disable JS and CSS minification separately when diagnosing output bugs.
+
+## Multi-Page Builds
+
+```ts filename="vite.config.ts"
 import { resolve } from "node:path"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: {
-        // Multiple HTML entry points
         index: resolve("index.html"),
-        about: resolve("about.html"),
-        admin: resolve("admin/index.html"),
+        dashboard: resolve("dashboard.html"),
+        settings: resolve("settings.html"),
       },
     },
   },
@@ -121,68 +162,78 @@ Output:
 ```text
 dist/
   index.html
-  about.html
-  admin/index.html
+  dashboard.html
+  settings.html
   assets/
     index-HASH.js
-    about-HASH.js
-    admin-HASH.js
-    vendor-HASH.js  ← shared chunk
+    dashboard-HASH.js
+    settings-HASH.js
+    shared-HASH.js
 ```
 
-## Code splitting strategy
+Validate every entry with `pnpm preview` or a real static server, especially when deploying under a sub-path.
+
+## Backend Entry Builds
+
+When HTML is rendered by a backend, build JS/TS entries and enable a manifest:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    rollupOptions: {
-      output: {
-        // Manually control chunk splitting
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            // Split all node_modules by package name
-            const packageName = id.match(/node_modules\/(.+?)\//)?.[1]
-            if (packageName) {
-              // Group react-related packages together
-              if (["react", "react-dom", "react-router-dom"].includes(packageName)) {
-                return "react-vendor"
-              }
-              // Split other large packages individually
-              if (["lodash-es", "date-fns", "axios"].includes(packageName)) {
-                return packageName
-              }
-              // Everything else goes into vendor
-              return "vendor"
-            }
-          }
-        },
+    manifest: true,
+    rolldownOptions: {
+      input: {
+        app: "src/main.ts",
+        admin: "src/admin.ts",
       },
     },
   },
 })
 ```
 
-## Self-check
+If modulepreload polyfill is needed, import it in the custom entry:
 
-1. Can `rollupOptions` configuration from Vite 7 still be used in Vite 8? Why?
-2. What did the default CSS minification tool change from and to in Vite 8?
-3. What is the difference between `build.minify: "esbuild"` and `build.minify: false`? When is each appropriate?
-4. How do you configure Vite to build multiple HTML entry points simultaneously?
+```ts filename="src/main.ts"
+import "vite/modulepreload-polyfill"
+```
 
-```ts filename="Exercise"
-// Configure a Vite build for a multi-page application:
-// - 3 pages: index.html, dashboard.html, settings.html
-// - react and react-dom bundled separately as react-vendor.js
-// - lodash-es in its own chunk
-// - sourcemap enabled
-// - CSS minified with lightningcss
+See [7.8 · Backend Integration](/docs/07-build-pipeline/08-backend-integration).
 
-import { defineConfig } from "vite"
-import { resolve } from "node:path"
+## Chunk Import Map
 
+`build.chunkImportMap` is experimental and optimizes chunk cache invalidation:
+
+```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    // TODO
+    chunkImportMap: true,
   },
 })
+```
+
+It solves cache cascading caused by hashed chunk URLs. It is not a code splitting strategy.
+
+## Migration Checklist
+
+1. Write new config under `build.rolldownOptions`; keep `rollupOptions` only temporarily.
+2. Review `build.minify: "esbuild"` and remove it unless required.
+3. Enable `build.manifest` if a backend reads build output.
+4. Open every multi-page entry after build.
+5. Align `base` with the deployment path.
+6. Clearly mark experimental build options in project docs.
+
+## Check Yourself
+
+1. Why is `vite build` not simply raw Rolldown?
+2. How should `build.rollupOptions` be migrated in Vite 8?
+3. What do `build.minify: false` and `build.cssMinify: false` help debug?
+4. Why do backend integrations usually need `build.manifest`?
+
+```ts filename="exercise"
+// Configure a multi-entry build:
+// - index.html, dashboard.html, settings.html
+// - sourcemap enabled
+// - manifest enabled
+// - output JS as assets/[name]-[hash].js
+// - do not use deprecated rollupOptions
 ```

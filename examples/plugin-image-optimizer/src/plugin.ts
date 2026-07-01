@@ -11,7 +11,7 @@ interface ImageOptimizerOptions {
  * 核心用到了 generateBundle hook —— 产物已生成,但还没写入磁盘,
  * 可以在此访问并修改 bundle 对象,或调用 this.emitFile 输出新文件。
  */
-export function imageOptimizer(options: ImageOptimizerOptions = {}): Plugin {
+export function imageOptimizer(_options: ImageOptimizerOptions = {}): Plugin {
   let config: ResolvedConfig
 
   return {

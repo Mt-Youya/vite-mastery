@@ -1,181 +1,280 @@
 ---
 title: "`build.lib` Configuration Reference"
-description: Vite's library mode — use a single config to publish your code as an npm package others can install. What every field means and typical usage for entry / formats / name / fileName.
+description: Vite library mode is not just a different entry. Learn build.lib, formats, external, exports, CSS output, peerDependencies, and consumer verification.
 order: 1
 part: 10-library-mode
 chapter: "10.1"
 difficulty: 2
-readingTime: 12
-updatedAt: "2026-06-26"
+readingTime: 18
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
-<Callout type="note" title="What you'll learn">
-  - The difference between library mode and application mode - All configuration options in `build.lib` - Choosing
-  between ESM / CJS / UMD output formats - How the `exports` field in `package.json` fits in
+<Callout type="note" title="What you will learn">
+  - The real difference between application mode and library mode
+  - What each `build.lib` field controls
+  - Why libraries externalize peer dependencies
+  - How `package.json exports` controls consumer imports
+  - How to verify that another project can actually consume the package
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Familiarity with the basic npm package publishing workflow - Understanding the difference between ESM and CommonJS
+  - Understand ESM and CommonJS
+  - Read [7.1 · Vite build and Rolldown](/docs/07-build-pipeline/01-rolldown-in-build)
 </Callout>
 
-## Library mode vs. application mode
+## Library Mode Is About Being Imported
 
-| Dimension      | Application mode             | Library mode                  |
-| -------------- | ---------------------------- | ----------------------------- |
-| Entry point    | HTML file                    | TypeScript/JS file            |
-| Output purpose | Deployed directly to browser | Imported by other projects    |
-| Output formats | ESM (modern browsers)        | ESM + CJS + UMD               |
-| External deps  | Bundled into output          | Typically as peerDependencies |
-| index.html     | Required                     | Not required                  |
+Application output is deployed to browsers:
 
-## Minimal library config
+```text
+index.html -> assets/index-HASH.js -> assets/index-HASH.css
+```
+
+Library output is published to npm and imported by another project:
+
+```ts
+import { Button } from "@myorg/ui"
+```
+
+| Dimension | App mode | Library mode |
+| --------- | -------- | ------------ |
+| Entry | HTML | JS/TS public API |
+| Consumer | browser | another bundler/runtime |
+| Filenames | hash-friendly | stable paths |
+| Dependencies | often bundled | frameworks often peer |
+| package.json | not browser entry | defines import surface |
+| CSS | injected/extracted for app | delivery strategy required |
+
+The question is not just "does it build?" It is "can consumers resolve the right JS and types?"
+
+## Minimal Config
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
 import { resolve } from "node:path"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   build: {
     lib: {
-      // Entry file: the library's public API is exported from here
       entry: resolve("src/index.ts"),
-
-      // Global variable name for UMD format
-      name: "MyLibrary",
-
-      // Output filename pattern
-      fileName: "my-library",
-      // Default outputs:
-      //   my-library.js (ES Module)
-      //   my-library.umd.js (UMD)
-    },
-
-    // Don't bundle these dependencies (consumers install them)
-    rollupOptions: {
-      external: ["react", "react-dom"],
-      output: {
-        globals: {
-          react: "React",
-          "react-dom": "ReactDOM",
-        },
-      },
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
     },
   },
 })
 ```
 
-## `build.lib` configuration in detail
+`src/index.ts` should export only public API:
 
-### `entry` — entry file
+```ts filename="src/index.ts"
+export { Button } from "./components/Button"
+export { createTheme } from "./theme"
+export type { ButtonProps, ThemeOptions } from "./types"
+```
+
+If a deep path should be public, expose it explicitly through `exports`.
+
+## `build.lib`
+
+### `entry`
 
 ```ts
 lib: {
-  // Single entry
-  entry: "src/index.ts",
-
-  // Multiple entries (each entry generates a separate file)
   entry: {
     index: "src/index.ts",
-    utils: "src/utils/index.ts",
-    components: "src/components/index.ts",
+    react: "src/react.ts",
+    theme: "src/theme.ts",
   },
-},
+}
 ```
 
-### `formats` — output formats
+Multiple entries are useful when you intend to expose subpaths:
+
+```ts
+import { Button } from "@myorg/ui/react"
+import { tokens } from "@myorg/ui/theme"
+```
+
+### `formats`
+
+| Format | Use case |
+| ------ | -------- |
+| `es` | modern bundlers and tree-shaking |
+| `cjs` | tools still using `require()` |
+| `umd` | CDN script global |
+| `iife` | rare direct browser global |
+
+Modern packages usually start with `["es"]` or `["es", "cjs"]`. Add UMD/IIFE only when you really support globals.
+
+### `name`
+
+`name` matters for `umd` and `iife`:
 
 ```ts
 lib: {
-  formats: ["es", "cjs"],  // Default: ["es", "umd"]
-  // "es"   → ES Module (.js)
-  // "cjs"  → CommonJS (.cjs)
-  // "umd"  → UMD (requires name)
-  // "iife" → Immediately Invoked Function Expression (browser global)
-},
+  name: "MyLibrary",
+  formats: ["es", "umd"],
+}
 ```
 
-**Recommended combinations**:
+It is not central for pure `es` / `cjs` output.
 
-- Modern npm packages: use only `["es", "cjs"]`
-- Needs CDN usage: add `"umd"` or `"iife"`
-
-### `fileName` — output filename
+### `fileName` and `cssFileName`
 
 ```ts
 lib: {
-  // String format: filename template
-  fileName: "my-lib",
-  // es:  my-lib.js
-  // cjs: my-lib.cjs
-
-  // Function format: fully customized
   fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,
-},
+  cssFileName: "style",
+}
 ```
 
-## The companion package.json
+Published package filenames should be stable because `exports` points to them.
 
-Library mode requires a correctly configured `exports` field in `package.json`:
+## External and Peer Dependencies
+
+React libraries should not bundle React:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    lib: {
+      entry: "src/index.ts",
+      formats: ["es", "cjs"],
+    },
+    rolldownOptions: {
+      external: ["react", "react-dom", "react/jsx-runtime"],
+    },
+  },
+})
+```
 
 ```json filename="package.json"
 {
-  "name": "@myorg/my-lib",
-  "version": "1.0.0",
-  "type": "module",
-
-  "exports": {
-    ".": {
-      "import": "./dist/index.js", // ESM
-      "require": "./dist/index.cjs", // CJS
-      "types": "./dist/index.d.ts" // TypeScript types
-    },
-    "./utils": {
-      "import": "./dist/utils.js",
-      "require": "./dist/utils.cjs",
-      "types": "./dist/utils.d.ts"
-    }
-  },
-
-  "main": "./dist/index.cjs", // Legacy compatibility
-  "module": "./dist/index.js", // Legacy ESM
-  "types": "./dist/index.d.ts", // TypeScript
-
-  "files": ["dist"],
-
   "peerDependencies": {
-    "react": ">=18"
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }
 ```
 
-## Complete example: React component library config
+Externalizing peer dependencies avoids duplicate React copies, lets the app control versions, reduces package size, and prevents hooks/context breakage.
+
+Not every dependency should be external. Small implementation dependencies can be bundled. Frameworks and singleton host dependencies should be peers.
+
+## `exports` Is the Public API
+
+```json filename="package.json"
+{
+  "name": "@myorg/ui",
+  "type": "module",
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js",
+      "require": "./dist/theme.cjs"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}
+```
+
+Paths not listed in `exports` are not stable public imports. `main` and `module` are legacy compatibility fields, not replacements for `exports`.
+
+Consumer code:
+
+```ts
+import { Button } from "@myorg/ui"
+import { tokens } from "@myorg/ui/theme"
+import "@myorg/ui/style.css"
+```
+
+## CSS Delivery
+
+| Strategy | Usage | Fits |
+| -------- | ----- | ---- |
+| separate CSS | `import "@myorg/ui/style.css"` | classic component libraries |
+| per-component side effect CSS | component entry imports CSS | small internal libraries |
+| runtime styles | JS generates styles | highly dynamic themes |
+
+If consumers import CSS explicitly:
+
+```json filename="package.json"
+{
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "sideEffects": ["**/*.css"]
+}
+```
+
+`sideEffects` prevents CSS imports from being incorrectly tree-shaken.
+
+## Type Declarations
+
+Vite bundles JS/CSS/assets. It does not solve complex declaration bundling by itself. Pair library mode with `tsc --emitDeclarationOnly`, `vue-tsc`, `tsdown`, `rolldown-plugin-dts`, or API Extractor.
+
+See [10.2 · Type Declarations](/docs/10-library-mode/02-type-declarations).
+
+## Verify with a Consumer
+
+```bash
+pnpm build
+pnpm pack
+```
+
+Then install the tarball in a temporary Vite app:
+
+```bash
+pnpm create vite@latest consumer --template react-ts
+cd consumer
+pnpm add ../myorg-ui-1.0.0.tgz
+pnpm dev
+pnpm build
+```
+
+Verify import types, CSS loading, production build, no duplicate React, and any declared CJS path.
+
+## Complete React Library Example
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
-import react from "@vitejs/plugin-react"
 import { resolve } from "node:path"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [react()],
   build: {
     lib: {
-      entry: resolve("src/index.ts"),
-      name: "MyComponentLib",
+      entry: {
+        index: resolve("src/index.ts"),
+        theme: resolve("src/theme.ts"),
+      },
       formats: ["es", "cjs"],
-      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+      fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,
+      cssFileName: "style",
     },
-    rollupOptions: {
-      // Don't bundle react — let consumers provide it
-      external: ["react", "react/jsx-runtime", "react-dom"],
+    rolldownOptions: {
+      external: ["react", "react-dom", "react/jsx-runtime"],
       output: {
-        globals: {
-          react: "React",
-          "react/jsx-runtime": "jsxRuntime",
-          "react-dom": "ReactDOM",
-        },
-        // Prevent CSS from being inlined into JS
         assetFileNames: "assets/[name][extname]",
       },
     },
@@ -183,31 +282,19 @@ export default defineConfig({
 })
 ```
 
-## Self-check
+## Check Yourself
 
-1. What are the main differences between library mode and application mode?
-2. Why should packages listed in `peerDependencies` be excluded via `rollupOptions.external`?
-3. What does the `exports` field in `package.json` do? How does it differ from the `main` field?
-4. When do you need to output UMD format?
+1. Why should a component library externalize React and list it as a peer dependency?
+2. What is the difference between `exports` and `main`?
+3. Why might CSS need to be listed in `sideEffects`?
+4. How should multi-entry `build.lib.entry` map to `package.json exports`?
+5. Why verify a library in a separate consumer project?
 
-```ts filename="Exercise"
-// Configure a Vite build for a utility function library:
-// - Pure TypeScript, no framework dependencies
-// - Output both ESM and CJS formats
-// - Multiple entries: main entry / date utilities / string utilities
-// - Don't bundle any node_modules dependencies
-
-import { defineConfig } from "vite"
-import { resolve } from "node:path"
-
-export default defineConfig({
-  build: {
-    lib: {
-      // TODO
-    },
-    rollupOptions: {
-      // TODO
-    },
-  },
-})
+```ts filename="exercise"
+// Configure a utility library:
+// - entries: index / date / string
+// - output ESM + CJS
+// - lodash-es is an implementation detail and may be bundled
+// - zod is provided by consumers, so external + peerDependencies
+// - exports exposes "."、"./date"、"./string"
 ```

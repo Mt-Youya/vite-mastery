@@ -45,7 +45,7 @@ vite-mastery/
 │   ├── tailwind-config/            设计 token（theme.css / base.css）
 │   ├── tsconfig/                   共享 tsconfig 基础配置
 │   └── eslint-config/              oxlint 共享配置
-├── content/                        79 篇 MDX 教程（.zh.mdx + .en.mdx 双语，100% 覆盖）
+├── content/                        85 篇 MDX 教程（.zh.mdx + .en.mdx 双语，100% 覆盖）
 ├── examples/                       10 个实战项目（含 README.en.md）
 ├── scripts/                        new-doc / new-example / check-content / new-v7note
 ├── CLAUDE.md                       完整 10 阶段构建指令
@@ -113,23 +113,23 @@ packages/mdx-components/src/
 
 ## 4 · 内容进度
 
-**79 篇 MDX 全部完成，ZH + EN 双语 100% 覆盖。**
+**85 篇 MDX 全部完成，ZH + EN 双语 100% 覆盖。**
 
 | Part     | 主题                  | 篇数 |
 | -------- | --------------------- | ---- |
-| 00       | Getting Started       | 4    |
-| 01       | Core Concepts         | 4    |
+| 00       | Getting Started       | 5    |
+| 01       | Core Concepts         | 6    |
 | 02       | Bundler Evolution ⭐  | 5    |
 | 03       | Plugin System         | 6    |
 | 04       | Hooks Deep Dive ⭐    | 9    |
 | 05       | Environment API ⭐ RC | 10   |
 | 06       | HMR                   | 6    |
-| 07       | Build Pipeline        | 7    |
+| 07       | Build Pipeline        | 9    |
 | 08       | SSR & SSG             | 4    |
 | 09       | Framework Integration | 6    |
 | 10       | Library Mode          | 3    |
 | 11       | Monorepo              | 4    |
-| 12       | Performance           | 6    |
+| 12       | Performance           | 7    |
 | 13       | Real World Plugins    | 4    |
 | Appendix | Vite 7→8 迁移指南     | 1    |
 
@@ -243,7 +243,7 @@ export default async function nextConfig() {
 | 8      | Vercel 部署配置 + CI                        | ✅   |
 | 9      | Part 0 + Part 3 前半内容                    | ✅   |
 | 10     | Part 2 + Part 5 开篇内容                    | ✅   |
-| 追加 A | 全部 79 篇 MDX（Parts 1–13 + Appendix）     | ✅   |
+| 追加 A | 全部 85 篇 MDX（Parts 1–13 + Appendix）     | ✅   |
 | 追加 B | 中英文切换（i18n 基础设施 + 100% 翻译覆盖） | ✅   |
 | 追加 C | Next.js 16 build warnings 清零              | ✅   |
 

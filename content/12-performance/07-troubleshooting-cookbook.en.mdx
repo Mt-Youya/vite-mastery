@@ -1,0 +1,223 @@
+---
+title: Troubleshooting Cookbook
+description: "A systematic guide for Vite failures: stalled dev servers, broken HMR, blank production pages, dynamic chunk 404s, stale optimized deps, and Node module externalization."
+order: 7
+part: 12-performance
+chapter: "12.7"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - How to classify Vite problems before changing config
+  - Common failures in dev server, HMR, build, and dependency optimization
+  - When to use `--debug`, `--force`, `vite-plugin-inspect`, and DevTools
+  - How to trace blank pages to paths, cache, chunks, or browser extensions
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understand [0.5 · CLI Workflow](/docs/00-getting-started/05-cli-workflow)
+  - Understand [12.2 · Vite DevTools](/docs/12-performance/02-vite-devtools)
+</Callout>
+
+## Classify First
+
+| Stage | Symptom | First tool |
+| ----- | ------- | ---------- |
+| CLI/config | startup or config failure | terminal stack |
+| dev server | pending requests, blank page | Network + `--debug` |
+| HMR | changes ignored or full reloads | `DEBUG=vite:hmr` |
+| deps | slow startup, repeated optimization | `DEBUG=vite:deps` + `--force` |
+| build | blank production, chunk 404 | `pnpm build` + `pnpm preview` |
+| plugins | slow transform or wrong order | DevTools / inspect |
+
+Do not start by deleting `node_modules`. First identify the stage, or you may erase the evidence.
+
+## 0. Minimal Reproduction Info
+
+Collect:
+
+```bash
+node -v
+pnpm -v
+pnpm vite --version
+pnpm vite --debug
+```
+
+Also note the OS, package manager, lockfile state, monorepo/WSL/Docker/remote-container usage, HTTPS/proxy/port-forwarding, and whether dev or build fails.
+
+## 1. Dev Server Requests Stay Pending
+
+Check file descriptor limits, inotify limits, browser tabs, and custom middleware. Then run:
+
+```bash
+pnpm vite --debug
+```
+
+Common middleware bug:
+
+```ts filename="bad-plugin.ts"
+configureServer(server) {
+  server.middlewares.use((req, res, next) => {
+    if (req.url?.startsWith("/api")) {
+      res.end("ok")
+      return
+    }
+    // missing next()
+  })
+}
+```
+
+Fix:
+
+```ts filename="good-plugin.ts"
+configureServer(server) {
+  server.middlewares.use((req, res, next) => {
+    if (req.url?.startsWith("/api")) {
+      res.end("ok")
+      return
+    }
+    next()
+  })
+}
+```
+
+## 2. HMR Detects Changes but Does Not Update
+
+```bash
+DEBUG=vite:hmr pnpm dev
+```
+
+| Cause | How to tell | Fix |
+| ----- | ----------- | --- |
+| no HMR boundary | full reload logs | add `import.meta.hot.accept` or framework plugin |
+| circular dependency | debug log shows path | break the cycle |
+| custom hook returns wrong modules | after adding `handleHotUpdate` | return correct modules or full reload |
+| watcher does not fire | no terminal log after save | check WSL/Docker/network drive |
+
+Do not return an empty array casually from `handleHotUpdate`; it means no module should be updated.
+
+## 3. Dev Works, Build Is Blank
+
+Always reproduce production locally:
+
+```bash
+pnpm build
+pnpm preview
+```
+
+Then check console errors, JS/CSS/chunk 404s, `base`, uploaded `assets/`, HTML cache, and browser extensions.
+
+If the app is deployed under `/app/`, configure:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  base: "/app/",
+})
+```
+
+Long-cached HTML is another common cause. Old HTML points to chunks that no longer exist.
+
+## 4. Dynamic Import Fails
+
+```text
+Failed to fetch dynamically imported module
+```
+
+Use the Network panel:
+
+- Is the URL missing the deployment sub-path?
+- Does the chunk exist on the server?
+- Is the response actually an HTML 404 page?
+- Is a Service Worker caching old files?
+- Did the CDN update HTML but not assets?
+
+For broad dynamic imports, prefer `import.meta.glob`:
+
+```ts
+const pages = import.meta.glob("./pages/*.tsx")
+const page = pages[`./pages/${name}.tsx`]
+```
+
+## 5. Optimized Dependencies Are Stale
+
+Symptoms: startup refresh, linked package stale, or dependencies optimize every run.
+
+```bash
+DEBUG=vite:deps pnpm dev
+pnpm vite --force
+```
+
+If it keeps happening, fix the cause:
+
+| Cause | Fix |
+| ----- | --- |
+| dynamic import dependency missed | `optimizeDeps.include` |
+| workspace package optimized as dependency | `optimizeDeps.exclude` or alias to source |
+| lockfile and node_modules mismatch | reinstall |
+| patches or overrides change often | stabilize overrides |
+
+## 6. Node Module Externalized in Browser
+
+```text
+Module "fs" has been externalized for browser compatibility
+```
+
+This means browser code imported a Node built-in. Vite does not automatically polyfill `fs`, `path`, or `crypto`.
+
+Check whether the code should run in the browser, split server-only code, replace it with Web APIs, or choose a browser-compatible package. Avoid adding broad polyfills unless you understand the bundle cost.
+
+## 7. Plugin Missing or Slow
+
+For missing plugins, check `plugins`, `apply`, `enforce`, filters, and whether the hook only runs in build.
+
+For slow transforms:
+
+- Use [Vite DevTools](/docs/12-performance/02-vite-devtools) for plugin timing
+- Use `vite-plugin-inspect` for a single module transform chain
+- Add timing to `resolveId`, `load`, and `transform`
+
+Most plugin performance bugs come from overly broad filters, not a single slow line.
+
+## 8. ESM/CJS Config Problems
+
+Prefer ESM config:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({})
+```
+
+If an ESM-only package is loaded through `require()`, use ESM syntax, set `"type": "module"` if appropriate, upgrade old plugins, and avoid mixing `require()` with ESM-only dependencies in Vite config.
+
+## Recommended Flow
+
+```text
+1. Reproduce: dev, build, or preview?
+2. Classify: config / dev server / HMR / deps / build / plugin
+3. Enable the matching debug logs
+4. Narrow to one module, plugin, chunk, or request
+5. Make one minimal fix
+6. Verify with build + preview
+```
+
+Change one variable at a time.
+
+## Check Yourself
+
+1. Why start HMR debugging with `DEBUG=vite:hmr`?
+2. How do you decide if a dynamic import failure is code or deployment?
+3. What does `--force` fix, and why should it not be permanent?
+4. What is the right order for browser-side Node externalization warnings?
+
+```bash filename="exercise"
+# A project works in dev but sometimes blanks after deployment.
+# Console shows Failed to fetch dynamically imported module.
+# CDN has long cache enabled.
+# Write your debugging order and likely fix.
+```
+

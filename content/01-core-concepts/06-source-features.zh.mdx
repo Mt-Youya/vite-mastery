@@ -1,0 +1,271 @@
+---
+title: 源码能力总览:CSS、JSON、Glob、WASM 与 Worker
+description: Vite 不只是启动器，还内置了现代前端源码处理能力。本节系统梳理 CSS、JSON、import.meta.glob、动态导入、WASM、Web Worker 与 CSP 的边界。
+order: 6
+part: 01-core-concepts
+chapter: "1.6"
+difficulty: 2
+readingTime: 18
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - Vite 默认支持哪些源码能力
+  - `import.meta.glob` 如何把文件系统变成模块列表
+  - Worker、WASM、JSON、CSS Modules 的导入边界
+  - 什么时候该用官方能力，什么时候该写插件
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 理解 [1.1 · Native ESM](/docs/01-core-concepts/01-native-esm)
+  - 了解 [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+</Callout>
+
+## Vite 的“开箱能力”来自插件管线
+
+很多人以为 Vite 只负责启动 dev server，其他能力都靠框架插件。实际不是。Vite 自己就内置了一组源码特性:
+
+| 能力 | 典型写法 | 返回值 |
+| ---- | -------- | ------ |
+| CSS 导入 | `import "./style.css"` | 注入页面或抽取为 CSS 产物 |
+| CSS Modules | `import styles from "./a.module.css"` | class name 映射对象 |
+| JSON 导入 | `import pkg from "./package.json"` | JSON 对象或命名导出 |
+| 静态资源 | `import logo from "./logo.png"` | URL 字符串或 data URL |
+| Glob 导入 | `import.meta.glob("./pages/*.tsx")` | 模块映射表 |
+| Worker | `new Worker(new URL("./w.ts", import.meta.url))` | 独立线程入口 |
+| WASM | `import init from "./math.wasm"` | 初始化函数或 URL |
+
+这些能力都不是“魔法语法”。它们进入的是同一条模块解析、加载、转换管线。理解这一点，后面写插件时就能判断:我要复用 Vite 内置规则，还是接管某一类文件?
+
+## CSS:导入就是依赖
+
+Vite 把 CSS 当成模块图的一部分:
+
+```ts filename="src/main.ts"
+import "./global.css"
+import styles from "./button.module.css"
+
+document.body.className = styles.page
+```
+
+开发阶段，CSS 会被转换后注入页面，并支持 HMR。生产构建时，CSS 会参与依赖追踪、代码分割和抽取。
+
+### CSS Modules
+
+```css filename="button.module.css"
+.button {
+  color: rebeccapurple;
+}
+```
+
+```ts filename="Button.tsx"
+import styles from "./button.module.css"
+
+export function Button() {
+  return <button className={styles.button}>Save</button>
+}
+```
+
+`.module.css` 的默认行为是局部作用域 class name。它适合组件级样式；全局 reset、字体、主题变量仍建议放普通 CSS。
+
+### CSS 预处理器
+
+Vite 不内置 Sass/Less/Stylus 编译器，但会自动调用已安装的预处理器:
+
+```bash
+pnpm add -D sass
+```
+
+```ts
+import "./theme.scss"
+```
+
+这类能力的边界是:Vite 负责接入和依赖图，具体语法由对应预处理器负责。
+
+## JSON:默认导入与命名导入
+
+JSON 可以直接导入:
+
+```ts
+import pkg from "../package.json"
+import { version } from "../package.json"
+
+console.log(pkg.name, version)
+```
+
+命名导入对 tree-shaking 更友好，但不要滥用它处理大配置。大型 JSON 如果只在运行时需要，通常用 `fetch()` 从 public 目录加载更合理，避免把整份数据打进 JS bundle。
+
+## `import.meta.glob`:文件系统到模块表
+
+这是 Vite 最实用的源码能力之一。它把一组文件展开成模块映射:
+
+```ts filename="routes.ts"
+const pages = import.meta.glob("./pages/**/*.tsx")
+
+for (const [path, loader] of Object.entries(pages)) {
+  console.log(path)
+  // loader 是函数:() => import("./pages/xxx.tsx")
+}
+```
+
+默认是懒加载。每个值都是动态 import 函数，只有调用时才加载模块。
+
+### eager:启动时全部导入
+
+```ts
+const modules = import.meta.glob("./plugins/*.ts", {
+  eager: true,
+})
+```
+
+`eager: true` 会把所有匹配模块同步导入，适合插件注册、文档元数据、主题列表这类启动时必须完整知道的场景。不适合页面组件懒加载。
+
+### import:只导入指定导出
+
+```ts
+const routeMeta = import.meta.glob("./pages/**/*.tsx", {
+  import: "meta",
+  eager: true,
+})
+```
+
+如果页面文件这样写:
+
+```tsx filename="pages/about.tsx"
+export const meta = { title: "About" }
+export default function About() {
+  return <h1>About</h1>
+}
+```
+
+那么 `routeMeta["./pages/about.tsx"]` 就是 `meta` 对象，而不是整个模块。
+
+### as/query:读取原始内容或 URL
+
+```ts
+const markdown = import.meta.glob("./posts/*.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})
+```
+
+这常用于文档站、小型 CMS、图标系统。但参数必须是字面量，不能这样写:
+
+```ts
+const dir = "./posts"
+const posts = import.meta.glob(`${dir}/*.md`) // 不行
+```
+
+Vite 需要在编译期分析 glob 参数，所以它必须是字符串字面量或字面量数组。
+
+## 动态导入:适合运行时分支
+
+`import.meta.glob` 适合“编译期已知的一组文件”。如果路径来自业务状态，通常用动态 import:
+
+```ts
+async function loadLocale(locale: string) {
+  return import(`./locales/${locale}.ts`)
+}
+```
+
+动态 import 仍然需要让 bundler 能推断边界。路径过于自由会导致构建无法确定要包含哪些文件。实践中建议把动态段限制在文件名或一层目录内。
+
+## Web Worker
+
+Vite 支持标准 Worker 构造方式:
+
+```ts filename="main.ts"
+const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+  type: "module",
+})
+
+worker.postMessage({ type: "start" })
+```
+
+也支持 query 后缀:
+
+```ts
+import WorkerConstructor from "./worker.ts?worker"
+import InlineWorker from "./worker.ts?worker&inline"
+
+const worker = new WorkerConstructor()
+const inlineWorker = new InlineWorker()
+```
+
+选择方式:
+
+| 写法 | 适合场景 |
+| ---- | -------- |
+| `new Worker(new URL(...))` | 最接近浏览器标准，库代码更推荐 |
+| `?worker` | 应用代码更短，Vite 项目内部方便 |
+| `?worker&inline` | 小 worker、离线场景、减少额外请求 |
+
+Worker 有自己的模块图和构建配置。复杂 worker 项目可以看 `worker` 配置项，而不是把所有逻辑塞进主应用配置。
+
+## WASM
+
+Vite 支持 WASM 资源进入模块图:
+
+```ts
+import init from "./math.wasm"
+
+const instance = await init()
+```
+
+如果需要手动控制实例化:
+
+```ts
+import wasmUrl from "./math.wasm?url"
+
+const response = await fetch(wasmUrl)
+const result = await WebAssembly.instantiateStreaming(response)
+```
+
+自动初始化适合简单用法；URL 方式适合传自定义 imports、做缓存、或把实例化放到 Worker 里。
+
+## CSP 注意事项
+
+如果项目启用了严格 Content Security Policy，需要关注两点:
+
+1. dev 阶段的 HMR client、错误 overlay、style 注入可能需要额外策略。
+2. `?inline`、内联 worker、data URL 资源可能触发 `script-src` / `worker-src` / `img-src` 限制。
+
+安全策略不是 Vite 独有问题，但 Vite 的开发体验依赖一些运行时代码。生产环境建议在真实部署服务上验证 CSP，而不是只看 `vite preview`。
+
+## 什么时候写插件
+
+内置能力够用时，不要急着写插件:
+
+| 需求 | 优先方案 |
+| ---- | -------- |
+| 批量收集页面文件 | `import.meta.glob` |
+| 读取 Markdown 原文 | `?raw` |
+| 读取图片 URL | 默认 asset import 或 `?url` |
+| 启动 Worker | 标准 Worker URL 或 `?worker` |
+| JSON 配置 | JSON import 或运行时 fetch |
+
+需要写插件的信号:
+
+- 文件类型不是 Vite 内置支持的类型
+- 需要在 dev 和 build 中保持一致转换
+- 需要参与 HMR 边界控制
+- 需要生成虚拟模块或注入 HTML
+- 需要分析完整模块图或构建产物
+
+## 自测题
+
+1. `import.meta.glob` 为什么要求参数是字面量?
+2. `eager: true` 对 bundle 和启动时机有什么影响?
+3. `?worker&inline` 和普通 worker 文件有什么取舍?
+4. 大 JSON 文件应该 import 还是运行时 fetch?判断标准是什么?
+
+```ts filename="练习"
+// 写一个 docs loader:
+// - 收集 ./docs/**/*.md
+// - 只读取原始 markdown 字符串
+// - 启动时一次性拿到所有内容
+// - 返回 { path, content }[]
+```

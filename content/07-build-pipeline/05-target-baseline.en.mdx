@@ -42,14 +42,13 @@ export default defineConfig({
 
 ## What browsers does it actually cover
 
-"Widely Available" means the **stable release and the two most recent versions** of all major browsers support the feature. As of 2026, this is roughly equivalent to:
+"Widely Available" means a feature has been stable across major browsers for a meaningful period of time. The Vite config docs expand this abstract target into concrete browser versions; when writing long-lived documentation or config, treat the current Vite docs as the source of truth rather than hard-coding old versions.
 
-- Chrome 95+
-- Firefox 95+
-- Safari 15+
-- Edge 95+
+For the Vite 8 mental model, remember:
 
-This covers approximately 95%+ of browser users worldwide.
+- `baseline-widely-available` is the default; most apps do not need to write it.
+- It controls which modern syntax the build output may use; it is not a polyfill policy.
+- Concrete browser versions may move as Vite and Baseline data evolve.
 
 ## Comparing with a manual target
 
@@ -78,6 +77,24 @@ export default defineConfig({
 
 The advantage of Baseline: as time passes, it automatically represents "features supported by current mainstream browsers" without requiring manual updates.
 
+## Should You Change The Target?
+
+Do not raise the target just because it looks more modern. The target affects two things:
+
+1. **Syntax lowering**: whether class fields, optional chaining, top-level await, and similar syntax need transforms.
+2. **Build failure conditions**: if source or dependencies use features that cannot be safely transformed for the target, build may fail.
+
+Use this rule of thumb:
+
+| Project type | Recommended target |
+| --- | --- |
+| Public web app | Keep the default `baseline-widely-available` |
+| Internal tool on latest Chromium only | A newer Chrome target or `esnext` can work, but document the runtime |
+| Embedded WebView / old mobile browsers | List explicit versions and test on real devices |
+| Component library | Avoid setting it too high, or you push compatibility risk to consumers |
+
+Library mode needs special care. Apps know their users' browsers; libraries usually do not. A library target that is too modern may prevent downstream apps from safely lowering syntax later.
+
 ## Supporting older browsers
 
 If your user base requires IE11 or older Safari versions:
@@ -104,6 +121,16 @@ export default defineConfig({
 1. Build a modern ES Module version (for new browsers)
 2. Also build a legacy SystemJS format (for old browsers)
 3. Use `<script type="module">` and `<script nomodule>` in HTML to distinguish between them
+
+## Verifying The Target
+
+Target choice needs validation. Before release:
+
+1. Run `pnpm build` and watch for syntax that cannot be transformed.
+2. Open the production build in real target browsers or BrowserStack; do not trust only your local latest Chrome.
+3. Inspect bundle reports and confirm legacy output does not blow up initial JS size.
+
+If your support matrix is older than Baseline, write that requirement in the README or product technical constraints. Compatibility is a product decision, not something the bundler can solve alone.
 
 ## Self-check
 

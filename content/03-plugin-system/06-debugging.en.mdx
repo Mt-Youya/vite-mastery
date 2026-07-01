@@ -1,6 +1,6 @@
 ---
 title: Debugging Vite Plugins
-description: Plugin not working? Hook not firing? Use Vite Devtools, DEBUG mode, and the plugin Inspector to quickly locate the problem.
+description: Plugin not working? Hook not firing? Use @vitejs/devtools, DEBUG mode, and the plugin Inspector to quickly locate the problem.
 order: 6
 part: 03-plugin-system
 chapter: "3.6"
@@ -12,7 +12,7 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - How to use Vite 8's built-in Devtools - What the `DEBUG=vite:*` environment variable reveals - The core features of
+  - How to use `@vitejs/devtools` - What the `DEBUG=vite:*` environment variable reveals - The core features of
   the `vite-plugin-inspect` plugin - A systematic checklist for debugging hooks that don't fire
 </Callout>
 
@@ -131,25 +131,25 @@ After starting the dev server, visit `http://localhost:5173/__inspect`:
 
 The full transform chain for each module can be expanded, showing the before-and-after diff for each plugin.
 
-## Vite 8 built-in Devtools
+## Layer 4: @vitejs/devtools
 
-Vite 8 provides a `devtools` option in `vite.config.ts`:
+`@vitejs/devtools` is the Vite team's debugging toolkit, currently in early preview. It is not a built-in `devtools` field in `vite.config.ts`; it is used through a standalone command or integration modes documented by the DevTools site.
 
-```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  devtools: {
-    // Expose debug information in the dev server
-    // Refer to the Vite 8.1.x official docs for specific options
-  },
-})
+```bash
+pnpm dlx @vitejs/devtools@latest
 ```
 
+After installing or launching it, choose the Standalone, Embedded, or Rolldown integration mode from the official guide. For plugin debugging, it helps answer questions like:
+
+- Which Vite plugins did the project actually load?
+- Which transforms touched a given module?
+- Where are dependency pre-bundling, module graph, or build-time hotspots?
+- Do Rolldown bundle and chunk details match your expectations?
+
 <Callout type="warning">
-  The specific API of Vite 8 Devtools is still being finalized in the 8.1.x release. Refer to the official docs at
-  [vitejs.dev/config/devtools](https://vitejs.dev/config/) for the latest information. This section focuses on the
-  already-stable debugging tools.
+  `@vitejs/devtools` is still an early preview. Treat
+  [devtools.vite.dev/guide/](https://devtools.vite.dev/guide/) as the source of truth for commands and integration APIs.
+  For production debugging, keep using `DEBUG=vite:*`, minimal reproductions, and build logs alongside visual panels.
 </Callout>
 
 ## Systematic troubleshooting steps

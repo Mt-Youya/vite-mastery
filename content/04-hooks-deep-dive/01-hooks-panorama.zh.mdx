@@ -150,7 +150,7 @@ Vite 8 修复了这个问题:dev server 启动时会触发 `buildStart`,与 buil
 1. `resolveId` 和 `transform` 分别用什么调用约定?为什么它们不同?
 2. `configureServer` 在 `pnpm build` 时会触发吗?如果你的插件需要在 build 时初始化,应该用哪个 hook?
 3. `buildEnd` 和 `closeBundle` 的触发时机有什么区别?
-4. 在 Vite 7 中,一个依赖 `buildStart` 做全局初始化的插件在 dev 模式下会有什么问题?
+4. 上方 V7Note 提到的旧双引擎行为里,一个依赖 `buildStart` 做全局初始化的插件在 dev 模式下会有什么问题?
 
 ```ts filename="练习"
 // 判断以下插件中每个 hook 在 dev / build 两种模式下是否会触发:

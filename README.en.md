@@ -21,27 +21,27 @@ Vite Mastery covers the parts of Vite that are usually treated as black boxes:
 
 The current content set is bilingual:
 
-- 79 English MDX lessons
-- 79 Chinese MDX lessons
+- 85 English MDX lessons
+- 85 Chinese MDX lessons
 - 14 main chapters
 - 10 standalone examples
 - 8 interactive documentation components
 
 | Part     | Topic                      | Lessons |
 | -------- | -------------------------- | ------- |
-| 00       | Getting Started            | 4       |
-| 01       | Core Concepts              | 4       |
+| 00       | Getting Started            | 5       |
+| 01       | Core Concepts              | 6       |
 | 02       | Bundler Evolution          | 5       |
 | 03       | Plugin System              | 6       |
 | 04       | Hooks Deep Dive            | 9       |
 | 05       | Environment API            | 10      |
 | 06       | HMR                        | 6       |
-| 07       | Build Pipeline             | 7       |
+| 07       | Build Pipeline             | 9       |
 | 08       | SSR & SSG                  | 4       |
 | 09       | Framework Integration      | 6       |
 | 10       | Library Mode               | 3       |
 | 11       | Monorepo Engineering       | 4       |
-| 12       | Performance                | 6       |
+| 12       | Performance                | 7       |
 | 13       | Real World Plugins         | 4       |
 | Appendix | Vite 7 to Vite 8 Migration | 1       |
 

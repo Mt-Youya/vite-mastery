@@ -63,9 +63,72 @@ export default defineConfig({
 
 - React Fast Refresh(HMR 期间保留组件状态)
 - JSX 编译
-- 自动 import `React`(Vite 8+)
+- automatic JSX runtime 支持,多数新代码不需要手写 `import React from "react"`
 
 后面我们会拆解这个插件做了什么。
+
+## 这四条命令分别做了什么
+
+刚才运行的命令看起来只是脚手架流程,但它们对应了 Vite 项目的 4 个阶段:
+
+| 命令 | 真正发生的事 |
+| --- | --- |
+| `pnpm create vite@latest` | 下载 create-vite,按模板生成最小项目文件 |
+| `pnpm install` | 安装 Vite、React 插件、React 运行时和 TypeScript 相关依赖 |
+| `pnpm dev` | 启动 Vite dev server,用原生 ESM 按需服务源码 |
+| 浏览器打开 `localhost:5173` | 浏览器请求 `index.html`,再顺着 module import 拉取源码模块 |
+
+如果 `pnpm dev` 启动很快,不要误以为 Vite 已经把整个项目编译完了。它只是准备好了服务器和依赖缓存;源码模块是在浏览器请求时才转换的。
+
+## 你应该立刻验证的三件事
+
+第一次跑通项目后,不要只看欢迎页。建议马上做三个小验证:
+
+1. **改 React 组件文本**:修改 `src/App.tsx`,观察页面是否无刷新更新。
+2. **改 CSS**:修改 `src/App.css`,确认样式也能热更新。
+3. **打开 Network 面板**:刷新页面,看 `main.tsx`、`App.tsx` 等源码模块是单独请求的。
+
+这三个验证对应 Vite 的三条主线:源码按需转换、HMR、浏览器原生 ESM。后面的章节会反复回到这三件事。
+
+## 常见启动问题
+
+<Callout type="warning" title="不要跳过环境版本">
+  Vite 当前版本对 Node 有明确要求。项目跑不起来时,先执行 `node -v` 和 `pnpm -v`,不要先怀疑插件配置。
+</Callout>
+
+常见问题可以按这个顺序排:
+
+| 现象 | 优先检查 |
+| --- | --- |
+| `pnpm create vite@latest` 很慢 | npm registry、代理、公司网络 |
+| `pnpm dev` 报 Node 版本错误 | Node 是否满足项目要求 |
+| 端口不是 5173 | 5173 被占用,Vite 会自动尝试下一个端口 |
+| 页面打开但 HMR 不动 | 浏览器控制台、WebSocket 连接、是否通过代理访问 |
+| TypeScript 报找不到 Vite 类型 | `src/vite-env.d.ts` 是否存在 |
+
+## 下一步不要急着改配置
+
+新手最容易犯的错是刚创建项目就开始堆配置。更好的顺序是:
+
+1. 先理解 `index.html` 为什么是入口。
+2. 再看 `vite.config.ts` 里插件数组的意义。
+3. 然后学习 CLI 的 `dev`、`build`、`preview` 分工。
+4. 最后再添加 alias、proxy、build output 这类真实需求。
+
+也就是说,配置不是越早越好。Vite 的默认值已经覆盖了大多数前端应用的第一阶段需求。
+
+## 什么时候算真的跑通
+
+“浏览器出现页面”只是第一步。一个 Vite 项目真正跑通,至少要满足:
+
+1. `pnpm dev` 能启动,并且 HMR 对 TSX 和 CSS 都有效。
+2. `pnpm build` 能生成 `dist/`,没有 TypeScript 或构建错误。
+3. `pnpm preview` 能预览生产产物,页面资源路径正常。
+4. 浏览器控制台没有 React Refresh preamble、模块解析或资源 404 错误。
+
+这个检查顺序会贯穿后面的实战项目。dev 能跑只能说明开发服务器没问题;build 和 preview 通过,才说明部署路径和生产构建也基本成立。
+
+养成这个习惯后,你以后排查“本地没问题、上线白屏”会快很多:先看 build 是否成功,再看 preview 是否复现,最后才进入部署平台和 CDN 配置。
 
 ## 自测题
 

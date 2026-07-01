@@ -1,81 +1,244 @@
 ---
 title: Vite 插件 vs Rollup 插件
-description: 两套 hook 体系怎么共存 / 互通,以及决定写哪种插件的判断流程。
+description: 两套 hook 体系怎么共存、互通与分工；如何判断一个插件该写成 Vite 插件、Rollup/Rolldown 插件，还是同时兼容三者。
 order: 1
 part: 03-plugin-system
 chapter: "3.1"
 difficulty: 2
-readingTime: 12
-updatedAt: "2026-06-25"
+readingTime: 16
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - Vite 插件和 Rollup 插件的关系 - Vite 独有 hooks 何时被调用 - 一个 Rollup 插件能不能不改代码就用在 Vite 上
+  - Vite 插件、Rollup 插件、Rolldown 插件的关系
+  - 哪些 hook 能跨工具复用，哪些只能在 Vite 里运行
+  - dev server 与 production build 为什么会触发不同 hook
+  - 判断插件形态的实际决策流程
 </Callout>
 
-## 一句话总结
+<Callout type="tip" title="前置知识">
+  - 理解 [1.2 · Vite 8 统一架构](/docs/01-core-concepts/02-unified-architecture)
+  - 了解 [2.4 · 插件 API 兼容层](/docs/02-bundler-evolution/04-plugin-api-compat)
+</Callout>
 
-**Vite 插件就是 Rollup 插件 + 几个 Vite 独有 hook**。所以绝大多数 Rollup 插件可以直接用在 Vite 里,反之不一定。
+## 先给结论
 
-## 共享的 hook(构建期通用)
+**Vite 插件 = Rollup/Rolldown 兼容 hook + Vite 专有 hook + dev server 语义。**
 
-这些 hook 在 dev 和 build 阶段都会被调用:
+这句话拆开看:
 
-- `options`
-- `buildStart`
-- `resolveId`
-- `load`
-- `transform`
-- `buildEnd`
-- `generateBundle`(只在 build)
-- `writeBundle`(只在 build)
+1. `resolveId`、`load`、`transform`、`generateBundle` 这类 hook 来自 Rollup 插件模型，Vite 会复用。
+2. Vite 8 生产构建由 Rolldown 执行，但保持 Rollup 风格插件 API 兼容。
+3. `config`、`configureServer`、`transformIndexHtml`、`handleHotUpdate` 这类 hook 是 Vite 自己加的。
+4. dev 阶段没有完整打包过程，所以有些 build-only hook 不会按生产构建方式触发。
 
-## Vite 独有 hook
+所以多数“纯转换类” Rollup 插件可以直接放进 Vite；但一个使用 dev server、HTML、HMR 的 Vite 插件，不能直接拿去 Rollup 使用。
 
-| Hook                     | 时机                  | 典型场景                      |
-| ------------------------ | --------------------- | ----------------------------- |
-| `config`                 | 解析用户配置之前      | 注入默认值、改 alias          |
-| `configResolved`         | 配置确定后            | 拿到最终配置做后续准备        |
-| `configureServer`        | dev server 启动时     | 注入 middleware               |
-| `configurePreviewServer` | preview server 启动时 | 同上,但用于 `vite preview`    |
-| `transformIndexHtml`     | 处理 `index.html` 时  | 注入 script / meta / 注入数据 |
-| `handleHotUpdate`        | HMR 发生时            | 自定义热更新行为              |
+## 三层模型
 
-## 一个最小的 Vite 插件
+可以把插件生态理解成三层:
 
-```ts
-// my-plugin.ts
+```text
+Vite plugin
+  ├─ Vite-only hooks: config / configureServer / transformIndexHtml / handleHotUpdate
+  ├─ Universal build hooks: resolveId / load / transform / renderChunk / generateBundle
+  └─ Rolldown/Rollup compatibility layer
+```
+
+| 插件形态 | 面向对象 | 典型能力 | 能否直接用于 Vite |
+| -------- | -------- | -------- | ---------------- |
+| Rollup 插件 | Rollup/Rolldown 构建管线 | 路径解析、加载、转换、产物处理 | 通常可以 |
+| Rolldown 插件 | Rolldown 构建管线 | 更贴近 Rolldown 的构建扩展 | build 阶段可以 |
+| Vite 插件 | Vite dev + build 全流程 | 配置、dev server、HTML、HMR、构建 | 原生支持 |
+
+Vite 插件不是“比 Rollup 插件高级”的替代品，而是把同一套构建 hook 放进了更大的开发服务器模型里。
+
+## 能跨工具复用的 hook
+
+这些 hook 只关心“模块如何被解析、读取、转换、输出”，因此更容易跨 Vite / Rollup / Rolldown 复用:
+
+| Hook | 作用 | 典型场景 |
+| ---- | ---- | -------- |
+| `options` | 调整构建选项 | 给 Rollup/Rolldown 传默认值 |
+| `buildStart` | 构建开始 | 初始化缓存、扫描文件 |
+| `resolveId` | 解析 import 路径 | alias、虚拟模块、条件导出 |
+| `load` | 提供模块源码 | 虚拟模块、自定义文件读取 |
+| `transform` | 转换模块源码 | 编译 DSL、注入代码、替换常量 |
+| `renderChunk` | 渲染每个 chunk | 包裹代码、后处理 chunk |
+| `generateBundle` | 产物生成后 | 生成额外文件、分析 bundle |
+| `writeBundle` | 写盘后 | 上传 sourcemap、打印报告 |
+
+如果你的插件只用这些 hook，并且不依赖 Vite 的 `server`、`config`、`moduleGraph`，它就更适合写成“兼容 Rollup/Rolldown 的插件”，再在 Vite 中复用。
+
+示例:一个纯虚拟模块插件:
+
+```ts filename="virtual-version.ts"
 import type { Plugin } from "vite"
 
-export function myPlugin(): Plugin {
+export function virtualVersionPlugin(version: string): Plugin {
+  const virtualId = "virtual:app-version"
+  const resolvedId = "\0" + virtualId
+
   return {
-    name: "my-plugin",
+    name: "virtual-version",
     resolveId(id) {
-      if (id === "virtual:hello") return id
+      if (id === virtualId) return resolvedId
     },
     load(id) {
-      if (id === "virtual:hello") {
-        return `export default "hello from virtual module"`
+      if (id === resolvedId) {
+        return `export const version = ${JSON.stringify(version)}`
       }
     },
   }
 }
 ```
 
-这就是一个完整的 Vite 插件。**它实际上只用了 Rollup 的 hooks**,所以拿到 Rollup 项目里也能跑。
+这段代码没有 Vite-only hook，迁移到 Rollup 或 Rolldown 独立构建时成本很低。
 
-## 决策树:我该写哪种?
+## Vite 专有 hook
+
+这些 hook 依赖 Vite 的应用模型:
+
+| Hook | 只属于 Vite 的原因 |
+| ---- | ------------------ |
+| `config` | Vite 有自己的配置合并、mode、env 加载流程 |
+| `configResolved` | 读取最终 `ResolvedConfig` |
+| `configureServer` | dev server 和 middleware 是 Vite 提供的 |
+| `configurePreviewServer` | `vite preview` 是 Vite 的本地预览服务 |
+| `transformIndexHtml` | Vite 把 HTML 当入口模块处理 |
+| `handleHotUpdate` | HMR、module graph、websocket 都是 Vite dev server 语义 |
+
+示例:注入 dev middleware:
+
+```ts filename="dev-health-plugin.ts"
+import type { Plugin } from "vite"
+
+export function devHealthPlugin(): Plugin {
+  return {
+    name: "dev-health",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__health", (_req, res) => {
+        res.setHeader("Content-Type", "application/json")
+        res.end(JSON.stringify({ ok: true }))
+      })
+    },
+  }
+}
+```
+
+这个插件无法直接用于 Rollup，因为 Rollup 没有 dev server，也没有 middleware。
+
+## dev 和 build 的 hook 差异
+
+Vite dev server 是“按请求转换”，build 是“完整图谱打包”。这会影响 hook 触发方式:
+
+| 问题 | dev 阶段 | build 阶段 |
+| ---- | -------- | ---------- |
+| 模块何时处理 | 浏览器请求到才处理 | 从入口递归扫描完整图谱 |
+| 是否生成 bundle | 不生成完整 bundle | 生成 chunks/assets |
+| `generateBundle` | 通常没有意义 | 核心产物 hook |
+| `configureServer` | 会调用 | 不调用 |
+| `transform` | 每个被请求模块触发 | 构建图谱中每个模块触发 |
+| HMR | 有 | 没有 |
+
+这也是为什么很多插件需要 `apply`:
+
+```ts
+export function reportBundleSize(): Plugin {
+  return {
+    name: "report-bundle-size",
+    apply: "build",
+    generateBundle(_, bundle) {
+      console.log(Object.keys(bundle).length)
+    },
+  }
+}
+```
+
+如果忘了 `apply: "build"`，这个插件在 dev 阶段虽然不会真正生成报告，但它仍然会被注册，可能造成误解或副作用。
+
+## `enforce`、hook order 与插件数组顺序
+
+Vite 插件顺序分三层:
 
 ```text
-你的插件用到了 dev server / index.html / HMR 吗?
-  ├── 用到了 → 写 Vite 插件(用 enforce / apply 控制范围)
-  └── 没用到 → 写 Rollup 插件,Vite 自动兼容
+user pre plugins
+Vite core plugins
+user normal plugins
+Vite build plugins
+user post plugins
 ```
+
+`enforce: "pre"` / `"post"` 控制的是插件在 Vite 插件队列里的位置。它和单个 hook 的 `order` 不是同一件事。
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [
+    aliasBeforeEverything(),
+    markdownPlugin(),
+    analyzerPlugin(),
+  ],
+})
+```
+
+如果 `markdownPlugin` 需要在 React 插件之前处理 `.mdx`，可能要设置 `enforce: "pre"`；如果 `analyzerPlugin` 要看最终产物，就应该 `apply: "build"` 并使用 `generateBundle`。
+
+## 兼容性决策流程
+
+```text
+你的插件是否需要 dev server / middleware / websocket?
+  ├─ 是 → Vite 插件
+  └─ 否
+      是否需要处理 index.html?
+        ├─ 是 → Vite 插件
+        └─ 否
+            是否需要 HMR 自定义边界?
+              ├─ 是 → Vite 插件
+              └─ 否
+                  是否只做 resolve/load/transform/generateBundle?
+                    ├─ 是 → 写成 Rollup/Rolldown 兼容插件
+                    └─ 否 → 先明确目标运行时，再决定插件形态
+```
+
+几个具体判断:
+
+| 需求 | 推荐形态 |
+| ---- | -------- |
+| 把 `.md` 转成 JS 模块 | Rollup/Rolldown 兼容插件 |
+| 给 dev server 加 `/api/mock` | Vite 插件 |
+| 注入 `<script>` 到 HTML | Vite 插件 |
+| 分析 build 产物大小 | build-only Vite 插件或 Rolldown 插件 |
+| 给 `.yaml` 做 HMR | Vite 插件 |
+| 发布给多 bundler 使用 | 尽量只依赖通用 hook |
+
+## 常见误区
+
+### 误区一:Rollup 插件在 Vite dev 中一定完整运行
+
+不一定。dev 阶段没有完整 bundle 输出，所以产物类 hook 不会像 build 那样工作。一个只在 `generateBundle` 里做事的 Rollup 插件，在 Vite dev 阶段几乎没有价值。
+
+### 误区二:Vite 插件天然兼容 Rollup
+
+只要用了 Vite-only hook，就不兼容 Rollup。即使类型上都叫 `Plugin`，运行时上下文也不同。
+
+### 误区三:所有逻辑都塞进 `transform`
+
+`transform` 会频繁触发。路径解析放 `resolveId`，虚拟模块内容放 `load`，产物分析放 `generateBundle`。把所有事塞进 `transform` 会让插件慢且难调试。
 
 ## 自测题
 
-1. `transformIndexHtml` 为什么是 Vite 独有,而不是 Rollup 的标准 hook?
-2. 一个用了 `configureServer` 的插件,会在 build 阶段被调用吗?
-3. 写一个虚拟模块插件,导出当前 git commit hash。
+1. 为什么 `transformIndexHtml` 是 Vite-only hook?
+2. 一个只使用 `resolveId` / `load` / `transform` 的插件，为什么更容易跨 Rollup/Rolldown/Vite 复用?
+3. `generateBundle` 为什么不适合作为 dev 阶段调试入口?
+4. 给 dev server 增加 mock API 应该写成哪类插件?
+
+```ts filename="练习"
+// 判断下面需求应写成哪种插件，并说明理由:
+// 1. 把 .txt 文件转换成 JS 字符串模块
+// 2. 给 /__debug 返回当前模块图
+// 3. 构建后输出 bundle-size.json
+// 4. 修改 index.html 注入一段 analytics script
+```

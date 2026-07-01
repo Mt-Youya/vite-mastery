@@ -52,7 +52,7 @@ dist/
 ```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks: {
           // 指定 chunk 名 → 包含的模块(包名或文件路径)
@@ -111,7 +111,7 @@ manualChunks(id: string) {
 ```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // 动态 chunk(懒加载的)的文件名
         chunkFileNames: (chunkInfo) => {

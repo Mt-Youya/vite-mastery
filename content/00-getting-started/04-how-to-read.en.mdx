@@ -146,6 +146,31 @@ A few components on this site are built specifically to visualize Vite internals
 
 ---
 
+## Recommended Reading Order
+
+This guide is not an API dictionary. It is closer to an engineering learning path:
+
+1. **Parts 0-1**: build the mental model for entries, CLI workflow, environment variables, the module graph, and source features.
+2. **Parts 2-4**: understand Rolldown, the plugin system, and hook timing. These are the foundation for all hands-on work later.
+3. **Parts 5-8**: connect the Environment API, HMR, the build pipeline, and SSR.
+4. **Parts 9-13**: finish with frameworks, library mode, monorepos, performance, and real plugin source walkthroughs.
+
+If your goal is to debug projects, read Parts 0, 1, 7, and 12 first. If your goal is to write plugins, Parts 3, 4, 6, and 13 are the spine. If your goal is framework or SSR work, Parts 5, 8, and 9 matter most.
+
+## How To Read Each Lesson
+
+Do not only copy code. Read each lesson in this order:
+
+1. Check `apiStability` in frontmatter: stable, RC, or experimental.
+2. Read "What you'll learn" to identify whether the lesson solves a concept, config, or hands-on problem.
+3. When reading code blocks, check the filename first, then decide whether the code runs in dev, build, SSR, or plugin runtime.
+4. Expand `<V7Note>` only if you maintain Vite 7 projects or are migrating.
+5. Finish with the self-check questions; move on only when you can explain the answers out loud.
+
+This is slower than scrolling top to bottom, but it prevents treating experimental APIs as stable config and prevents historical architecture from leaking into the current Vite 8 mental model.
+
+---
+
 ## Self-check
 
 The "Self-check" at the end of every section has two parts:

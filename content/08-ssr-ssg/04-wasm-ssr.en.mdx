@@ -120,6 +120,31 @@ export async function render(url: string) {
 2. **Memory management**: in a long-running SSR server, Wasm memory leaks are a real concern
 3. **Node.js Wasm API**: Node.js's `WebAssembly` API is largely compatible with the browser, but there are subtle differences
 
+## When Not To Use Wasm SSR
+
+Wasm SSR is attractive, but it is not the right answer for every performance problem:
+
+| Scenario | Better choice |
+| --- | --- |
+| A mature maintained Node native package exists | Use it first, for example evaluate `sharp` for image processing |
+| The logic is light and the bottleneck is database or network I/O | Optimize I/O instead of adding Wasm initialization cost |
+| The module depends on DOM, Canvas, or WebGL | Keep it on the client or in a worker |
+| A new instance is created per request | Design a singleton or instance pool first |
+
+Wasm fits pure computation that can be initialized once and reused for a long time: Markdown, syntax highlighting, compression, parsers, codecs. It should not replace every Node.js package by default.
+
+## Production Deployment Checklist
+
+Before release, verify:
+
+1. The `.wasm` file is included in the server output and readable on the deployment platform.
+2. Initialization happens once, not on every request.
+3. Concurrent requests can share the instance safely, or mutable global state is isolated.
+4. Failure paths are defined: return 500, fall back to JS, or disable the feature.
+5. Monitoring captures initialization time, memory growth, and request latency.
+
+If you deploy to serverless or edge runtimes, also confirm that the platform allows Wasm loading and that cold-start initialization cost is acceptable.
+
 ## Self-check
 
 1. Why does using Wasm in an SSR environment save more memory than using it on the client?

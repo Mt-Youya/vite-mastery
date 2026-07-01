@@ -1,6 +1,6 @@
 ---
 title: 调试 Vite 插件
-description: 插件不生效?Hook 没触发?用 Vite Devtools、DEBUG 模式、插件 Inspector 三种工具快速定位问题。
+description: 插件不生效?Hook 没触发?用 @vitejs/devtools、DEBUG 模式、插件 Inspector 三种工具快速定位问题。
 order: 6
 part: 03-plugin-system
 chapter: "3.6"
@@ -12,7 +12,7 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - Vite 8 内置 Devtools 的用法 - `DEBUG=vite:*` 环境变量能看到什么 - `vite-plugin-inspect` 插件的核心功能 - 调试 hook
+  - `@vitejs/devtools` 的用法 - `DEBUG=vite:*` 环境变量能看到什么 - `vite-plugin-inspect` 插件的核心功能 - 调试 hook
   不触发的系统排查步骤
 </Callout>
 
@@ -131,24 +131,25 @@ export default defineConfig({
 
 每个模块的 transform 链路都可以展开查看,包括每个插件的处理前后 diff。
 
-## Vite 8 内置 Devtools
+## 第四层:@vitejs/devtools
 
-Vite 8 在 `vite.config.ts` 里提供了 `devtools` 选项:
+`@vitejs/devtools` 是 Vite 团队维护的调试工具,目前处于 early preview。它不是 `vite.config.ts` 里的内置 `devtools` 字段,而是通过独立命令或插件方式查看 Vite 项目的模块、配置、插件和 Rolldown 相关信息。
 
-```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
-
-export default defineConfig({
-  devtools: {
-    // 在 dev server 里暴露调试信息
-    // 具体选项以 Vite 8.1.x 官方文档为准
-  },
-})
+```bash
+pnpm dlx @vitejs/devtools@latest
 ```
 
+也可以在项目里安装后按官方文档选择 Standalone、Embedded 或 Rolldown 集成模式。插件调试时,它适合回答这类问题:
+
+- 当前项目实际加载了哪些 Vite 插件?
+- 某个模块经过了哪些 transform?
+- 依赖预构建、模块图和构建耗时的热点在哪里?
+- Rolldown 侧的 bundle / chunk 信息是否符合预期?
+
 <Callout type="warning">
-  Vite 8 Devtools 的具体 API 在 8.1.x 版本中处于完善阶段,建议以官方文档
-  [vitejs.dev/config/devtools](https://vitejs.dev/config/) 为准。本章重点介绍已稳定的调试工具。
+  `@vitejs/devtools` 当前仍是 early preview,安装命令和集成 API 应以
+  [devtools.vite.dev/guide/](https://devtools.vite.dev/guide/) 为准。排查生产问题时,不要只依赖可视化面板,仍要保留
+  `DEBUG=vite:*`、最小复现和构建日志。
 </Callout>
 
 ## 系统排查步骤

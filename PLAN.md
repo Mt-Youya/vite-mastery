@@ -16,7 +16,7 @@
 | ------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | 2025-06       | **Vite 7** 发布             | 新增 `buildApp` hook;默认 target 切到 `baseline-widely-available`;Rolldown 通过 `rolldown-vite` 实验性提供                          |
 | 2025-12       | Vite 8 beta(Rolldown 集成)  | 早期采用者迁移                                                                                                                      |
-| **2026-03**   | **Vite 8 稳定版**发布       | **Rolldown 成为唯一 bundler**,替换 esbuild + Rollup;`@vitejs/plugin-react` v6 改用 Oxc;内置 Devtools;CSS minifier 切到 lightningcss |
+| **2026-03**   | **Vite 8 稳定版**发布       | **Rolldown 成为唯一 bundler**,替换 esbuild + Rollup;`@vitejs/plugin-react` v6 改用 Oxc;`@vitejs/devtools` 进入 early preview;CSS minifier 切到 lightningcss |
 | 2026-06(现在) | Vite 8.1.x 是 current minor | Vite 7.3 接收重要修复;Vite 6.4 仅安全补丁                                                                                           |
 
 ### 1.2 双版本策略(确认版)
@@ -170,6 +170,7 @@ vite-mastery/
 | 0.2 | 五分钟跑通第一个 Vite 8 项目 | `pnpm create vite@latest`           |
 | 0.3 | 项目结构与配置文件解剖       | `vite.config.ts` 每个字段           |
 | 0.4 | 本指南怎么读                 | 学习路径推荐 + Vite 7/8 标注约定    |
+| 0.5 | Vite CLI 工作流              | `dev` / `build` / `preview` / mode  |
 
 ### Part 1 · Core Concepts(核心概念)
 
@@ -179,6 +180,8 @@ vite-mastery/
 | 1.2 | Vite 8 的统一架构(Rolldown)  | 对比 Vite 5/6/7 的双引擎           |
 | 1.3 | 依赖预构建(Dep Pre-Bundling) | Rolldown 接管后的变化              |
 | 1.4 | Module Graph 模块图          | Environment API 下的"分环境模块图" |
+| 1.5 | 环境变量与模式               | `import.meta.env`、`.env` 优先级   |
+| 1.6 | 源码特性全景                 | CSS、JSON、Glob、Worker、WASM      |
 
 ### Part 2 · Bundler Evolution(Bundler 演进史 🆕)⭐
 
@@ -201,7 +204,7 @@ vite-mastery/
 | 3.3 | 插件执行顺序                              | `pre` / 默认 / `post` 在 Rolldown 下的时序     |
 | 3.4 | 实战项目 1:虚拟模块插件                   |                                                |
 | 3.5 | 插件间通信                                | `this.meta` / 共享状态                         |
-| 3.6 | 调试插件                                  | 内置 **Devtools**(Vite 8 新增)+ `DEBUG=vite:*` |
+| 3.6 | 调试插件                                  | `@vitejs/devtools` + `DEBUG=vite:*`             |
 
 ### Part 4 · Hooks Deep Dive(Hooks 深度解析)⭐
 
@@ -258,6 +261,8 @@ vite-mastery/
 | 7.5 | 默认 target:baseline-widely-available 🆕 | 浏览器兼容性新模型                                   |
 | 7.6 | Module Federation(Rolldown 解锁)🆕       | 概念介绍                                             |
 | 7.7 | 实战项目 4:图片优化插件                  | 集成 sharp,生成 webp/avif                            |
+| 7.8 | 后端集成                                 | 后端拥有 HTML 时的 dev/build 接入                     |
+| 7.9 | 部署路径、manifest 与缓存                | `base`、manifest、modulepreload、chunk 404            |
 
 ### Part 8 · SSR & SSG
 
@@ -272,7 +277,7 @@ vite-mastery/
 
 | 节  | 标题                       | 备注                                                    |
 | --- | -------------------------- | ------------------------------------------------------- |
-| 9.1 | React + Vite 8             | **`@vitejs/plugin-react` v6**(Oxc Refresh,告别 Babel)🆕 |
+| 9.1 | React + Vite 8             | **`@vitejs/plugin-react` v6**(Oxc Refresh,Babel 改为外接插件)🆕 |
 | 9.2 | Vue + Vite 8               | 单文件组件编译流程                                      |
 | 9.3 | Svelte + Vite              | Svelte preprocessor                                     |
 | 9.4 | Solid + Vite               | `vite-plugin-solid`                                     |
@@ -301,11 +306,12 @@ vite-mastery/
 | 节   | 标题                       | 重点                                  |
 | ---- | -------------------------- | ------------------------------------- |
 | 12.1 | 冷启动优化                 | `optimizeDeps` 调优 + Rolldown 预构建 |
-| 12.2 | Vite 8 Devtools 实战 🆕    | 内置 devtools 的用法                  |
+| 12.2 | `@vitejs/devtools` 实战 🆕 | Standalone / Embedded / Rolldown 集成 |
 | 12.3 | HMR 性能诊断               | `--debug hmr`                         |
 | 12.4 | Bundle 分析                | Rolldown 兼容的 analyzer              |
 | 12.5 | Full Bundle Mode(实验性)🆕 | Vite 8 后续路线图                     |
 | 12.6 | Tree-shaking 实战          | sideEffects 标注                      |
+| 12.7 | Troubleshooting Cookbook   | dev/build/HMR/deps/plugin 排障路径    |
 
 ### Part 13 · 真实世界的 Vite 插件赏析
 
@@ -497,7 +503,7 @@ Base UI 版本基线在 `packages/ui/README.md` 标注。
 - 发布日期:**2026-03-12**
 - Bundler:**Rolldown**(替代 esbuild + Rollup)
 - CSS minifier:**lightningcss**(普通依赖,不再是 optional peer)
-- Devtools:**内置** `devtools` 选项
+- Devtools:`@vitejs/devtools` early preview,支持 Standalone / Embedded / Rolldown 集成
 - Node 要求:**20.19+ / 22.12+**(同 Vite 7)
 - 默认 target:**`baseline-widely-available`**(从 Vite 7 起)
 - 性能:**10~30x 更快构建**;Linear 报告 46s → 6s

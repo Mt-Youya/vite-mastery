@@ -33,8 +33,6 @@ const PARTS = [
   { id: "appendix", title: "附录" },
 ] as const
 
-type PartId = (typeof PARTS)[number]["id"]
-
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
 
 function ask(question: string): Promise<string> {

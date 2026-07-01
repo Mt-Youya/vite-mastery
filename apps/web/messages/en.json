@@ -58,7 +58,7 @@
         { "q": "When exactly do resolveId / load / transform fire?", "a": "Hook timing · Part 3" },
         { "q": "What does the WebSocket protocol behind import.meta.hot look like?", "a": "HMR protocol · Part 4" },
         { "q": "How do pre / default / post change plugin behavior?", "a": "Plugin order · Part 2" },
-        { "q": "Why does build use Rollup instead of esbuild?", "a": "Dual-engine architecture · Part 1" }
+        { "q": "Why did Vite evolve from esbuild + Rollup to Rolldown?", "a": "Bundler evolution · Part 2" }
       ]
     },
     "partsOverview": {
@@ -91,7 +91,7 @@
     "metaDescription": "About vite-mastery — why this guide exists, who the author is, and how to contribute.",
     "eyebrow": "About this site",
     "title": "Why write this guide?",
-    "intro1": "In March 2026, Vite 8 shipped. It brought the unified Rolldown bundler, the Environment API, a built-in devtools surface and more — yet most tutorials still stop at the Vite 5 era: editing vite.config.ts, tweaking plugin options, running build.",
+    "intro1": "In March 2026, Vite 8 shipped. It brought the unified Rolldown bundler, the Environment API, the @vitejs/devtools early preview and more — yet most tutorials still stop at the Vite 5 era: editing vite.config.ts, tweaking plugin options, running build.",
     "intro2Strong": "This site does one thing",
     "intro2": ": it opens the core black boxes of Vite 8 and explains them.",
     "promiseTitle": "Promises",
@@ -332,7 +332,7 @@
     },
     "03-plugin-system": {
       "title": "Plugin system",
-      "summary": "How Vite / Rolldown / Rollup APIs relate, enforce ordering, and the built-in devtools."
+      "summary": "How Vite / Rolldown / Rollup APIs relate, enforce ordering, and @vitejs/devtools."
     },
     "04-hooks-deep-dive": {
       "title": "Hooks deep dive",
@@ -368,7 +368,7 @@
     },
     "12-performance": {
       "title": "Performance",
-      "summary": "Cold start, Vite 8 devtools, HMR diagnostics, tree-shaking."
+      "summary": "Cold start, @vitejs/devtools, HMR diagnostics, tree-shaking."
     },
     "13-real-world-plugins": {
       "title": "Real-world plugins",

@@ -1,118 +1,155 @@
 ---
 title: "`vite-plugin-pages` 源码导读"
-description: 扫描文件系统,自动生成路由——这个"魔法"是怎么实现的?glob 扫描、虚拟模块、HMR 更新路由表。
+description: 从文件系统路由看 Vite 插件的完整形态:目录扫描、路由解析、虚拟模块、类型声明、HMR 失效和真实项目里的边界条件。
 order: 2
 part: 13-real-world-plugins
 chapter: "13.2"
 difficulty: 4
-readingTime: 14
-updatedAt: "2026-06-26"
+readingTime: 20
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 文件路由的实现原理 - 扫描文件系统生成路由配置 - 用虚拟模块暴露路由表 - 当文件增删时 HMR 更新路由
+  - 文件路由插件为什么适合用虚拟模块实现
+  - 如何从 `src/pages` 扫描出稳定的路由表
+  - 文件新增、删除、重命名时如何让 HMR 更新路由模块
+  - 真实插件比教学版多处理了哪些复杂边界
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 理解虚拟模块插件(3.4 节) - 了解 handleHotUpdate hook(6.3 节)
+  - 先读 [3.4 · 虚拟模块](/docs/03-plugin-system/04-virtual-modules-plugin)
+  - 先读 [6.3 · `handleHotUpdate`](/docs/06-hmr/03-handle-hot-update)
+  - 理解 Vite dev server 的 module graph 和文件 watcher
 </Callout>
 
-## 功能目标
+## 先明确阅读对象
+
+`vite-plugin-pages` 的核心目标不是“生成一些字符串”,而是把文件系统变成路由模块:
 
 ```text
-pages/
-  index.tsx          → route "/"
-  about.tsx          → route "/about"
-  blog/
-    index.tsx        → route "/blog"
-    [id].tsx         → route "/blog/:id"
-    [...all].tsx     → route "/blog/*"
-
-自动生成路由配置:
-[
-  { path: "/", component: () => import("./pages/index.tsx") },
-  { path: "/about", component: ... },
-  { path: "/blog", component: ... },
-  { path: "/blog/:id", component: ... },
-]
+src/pages/
+  index.vue              -> /
+  about.vue              -> /about
+  blog/index.vue         -> /blog
+  blog/[id].vue          -> /blog/:id
+  [...all].vue           -> /*
 ```
 
-## 核心实现:glob 扫描
+应用侧只需要导入一个模块:
 
 ```ts
-import { globSync } from "node:fs"
-import { resolve, relative, basename, dirname } from "node:path"
+import routes from "~pages"
+```
 
-interface Route {
+这行 import 看起来像真实文件,但它通常由插件虚拟出来。Vite 解析到 `~pages` 时,插件在 `resolveId` / `load` 里返回一段生成代码,把页面文件转成路由数组。
+
+源码导读时要抓住 5 条主线:
+
+1. **选项归一化**:页面目录、扩展名、排除规则、路由导入模式、框架适配。
+2. **文件扫描**:找到候选页面,统一 Windows / POSIX 路径,排序。
+3. **路由解析**:把文件路径映射成 router 能理解的 path、name、children、meta。
+4. **虚拟模块**:暴露 `~pages` 或类似 ID,并生成稳定可调试的代码。
+5. **HMR 失效**:页面文件变化时,让虚拟路由模块失效并重新加载。
+
+## 为什么不用生成真实文件
+
+把路由表写到磁盘也能工作,但会带来几个问题:
+
+- 每次扫描都污染源码目录,用户容易把生成文件提交到 Git。
+- 编辑器、格式化器、lint 工具会把生成文件当成人写的代码处理。
+- dev server 必须处理“插件写文件 -> watcher 再触发 -> 插件再写文件”的循环。
+- SSR、测试、monorepo、多 root 场景里,生成文件位置会变成配置负担。
+
+虚拟模块把这些问题收进插件内部:用户只 import 一个稳定 ID,插件负责在内存里生成模块内容。生产构建时,同一套 `resolveId` / `load` 也会被 Rolldown 调用,因此 dev/build 行为保持一致。
+
+## 教学版的最小实现
+
+下面代码不是原项目源码逐行翻译,而是保留了文件路由插件的关键骨架。真实插件会有更多框架适配和选项,但主流程一致。
+
+```ts
+import path from "node:path"
+import { globSync } from "tinyglobby"
+import type { Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import { normalizePath } from "vite"
+
+const VIRTUAL_ID = "~pages"
+const RESOLVED_ID = "\0vite-plugin-pages:routes"
+
+interface PageRoute {
   path: string
-  component: string
-  children?: Route[]
+  file: string
 }
 
-function scanPages(pagesDir: string): Route[] {
-  const pattern = resolve(pagesDir, "**/*.{tsx,jsx,vue}")
-  const files = globSync(pattern)
-
-  return files.map((file) => {
-    const relativePath = relative(pagesDir, file)
-    const routePath = filePathToRoutePath(relativePath)
-    return {
-      path: routePath,
-      component: file,
-    }
-  })
+interface PagesOptions {
+  dir?: string
+  extensions?: string[]
 }
 
-function filePathToRoutePath(filePath: string): string {
-  // pages/blog/[id].tsx → /blog/:id
-  return (
-    "/" +
-      filePath
-        .replace(/\.(tsx|jsx|vue)$/, "") // 去掉扩展名
-        .replace(/index$/, "") // index → 空(代表父路径)
-        .replace(/\[\.\.\.(\w+)\]/, "*") // [...all] → *
-        .replace(/\[(\w+)\]/, ":$1") // [id] → :id
-        .replace(/\/$/, "") || // 去掉末尾斜杠
-    "/"
-  )
-}
-```
+export function pagesPlugin(options: PagesOptions = {}): Plugin {
+  let config: ResolvedConfig
+  let server: ViteDevServer | undefined
+  let pagesDir = ""
+  const extensions = options.extensions ?? ["vue", "tsx", "jsx"]
 
-## 用虚拟模块暴露路由
-
-```ts
-import type { Plugin } from "vite"
-
-const VIRTUAL_ID = "virtual:pages"
-const RESOLVED_ID = "\0" + VIRTUAL_ID
-
-export function pagesPlugin(options: { pagesDir: string }): Plugin {
-  let routes: Route[] = []
-
-  function loadRoutes() {
-    routes = scanPages(options.pagesDir)
+  function resolvePagesDir() {
+    pagesDir = path.resolve(config.root, options.dir ?? "src/pages")
   }
 
-  function generateCode(): string {
-    const routeImports = routes
-      .map((r, i) => `const page${i} = () => import(${JSON.stringify(r.component)})`)
+  function scanPages(): PageRoute[] {
+    const pattern = `**/*.{${extensions.join(",")}}`
+    const files = globSync(pattern, {
+      cwd: pagesDir,
+      absolute: true,
+      onlyFiles: true,
+    })
+
+    return files
+      .map((file) => normalizePath(file))
+      .sort()
+      .map((file) => ({
+        file,
+        path: fileToRoutePath(path.posix.relative(normalizePath(pagesDir), file)),
+      }))
+  }
+
+  function generateRoutesModule() {
+    const routes = scanPages()
+
+    const imports = routes
+      .map((route, index) => {
+        const importPath = "/" + path.posix.relative(config.root, route.file)
+        return `const page${index} = () => import(${JSON.stringify(importPath)})`
+      })
       .join("\n")
 
-    const routeArray = routes.map((r, i) => `{ path: ${JSON.stringify(r.path)}, component: page${i} }`).join(",\n  ")
+    const records = routes
+      .map((route, index) => {
+        return `{ path: ${JSON.stringify(route.path)}, component: page${index} }`
+      })
+      .join(",\n  ")
 
-    return `
-${routeImports}
+    return `${imports}
 
 export default [
-  ${routeArray}
+  ${records}
 ]
 `
   }
 
   return {
-    name: "vite-plugin-pages",
+    name: "vite-plugin-pages:teaching",
+
+    configResolved(resolved) {
+      config = resolved
+      resolvePagesDir()
+    },
+
+    configureServer(_server) {
+      server = _server
+      server.watcher.add(pagesDir)
+    },
 
     resolveId(id) {
       if (id === VIRTUAL_ID) return RESOLVED_ID
@@ -121,78 +158,193 @@ export default [
 
     load(id) {
       if (id !== RESOLVED_ID) return null
-
-      loadRoutes()
-
-      // 监听 pages 目录变化
-      this.addWatchFile(options.pagesDir)
-
-      return generateCode()
+      return generateRoutesModule()
     },
 
-    // 文件增删时更新路由
-    handleHotUpdate({ file, server }) {
-      if (!file.startsWith(resolve(options.pagesDir))) return
+    handleHotUpdate(ctx) {
+      const file = normalizePath(ctx.file)
+      if (!file.startsWith(normalizePath(pagesDir) + "/")) return
 
-      // 使路由虚拟模块失效
-      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
-      if (module) {
-        server.moduleGraph.invalidateModule(module)
-        return [module]
-      }
+      const mod = ctx.server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (!mod) return
+
+      ctx.server.moduleGraph.invalidateModule(mod)
+      ctx.server.ws.send({ type: "full-reload" })
+      return []
     },
   }
 }
 ```
 
-## 嵌套路由的处理
+这里有 3 个细节很容易漏:
+
+- `normalizePath` 必须用,否则 Windows 路径的反斜杠会让路由解析和 `startsWith` 判断不稳定。
+- 生成代码里的 import path 应该是 Vite 可解析的模块路径,不要把操作系统绝对路径直接塞进浏览器代码。
+- 监听目录比只监听已存在文件更重要,因为新增页面时,原本没有任何模块 import 这个新文件。
+
+## 路由路径解析
+
+路径解析是文件路由插件最容易“看起来简单,上线出错”的部分。一个教学版 parser 可以这样写:
 
 ```ts
-function scanPagesNested(pagesDir: string): Route[] {
-  const flat = scanPages(pagesDir)
+function fileToRoutePath(relativeFile: string) {
+  const withoutExt = relativeFile.replace(/\.(vue|tsx|jsx)$/, "")
+  const segments = withoutExt.split("/")
 
-  // 构建树形结构
-  const routeMap = new Map<string, Route>()
-  const roots: Route[] = []
+  const routeSegments = segments.flatMap((segment) => {
+    if (segment === "index") return []
+    if (/^\[\.\.\.(.+)\]$/.test(segment)) return ["*"]
+    if (/^\[(.+)\]$/.test(segment)) return [":" + segment.slice(1, -1)]
+    return [segment]
+  })
 
-  for (const route of flat) {
-    const parent = route.path.split("/").slice(0, -1).join("/")
-    routeMap.set(route.path, { ...route, children: [] })
-  }
-
-  for (const [path, route] of routeMap) {
-    const parentPath = path.split("/").slice(0, -1).join("/") || "/"
-    const parent = routeMap.get(parentPath)
-
-    if (parent && parent !== route) {
-      parent.children = parent.children ?? []
-      parent.children.push(route)
-    } else {
-      roots.push(route)
-    }
-  }
-
-  return roots
+  return "/" + routeSegments.join("/")
 }
 ```
+
+但真实项目通常还要回答这些问题:
+
+| 场景 | 不能忽略的处理 |
+| --- | --- |
+| `blog.vue` 和 `blog/index.vue` 同时存在 | 两者映射到同一路由,必须报错或定义优先级 |
+| `[id].vue` 与 `settings.vue` 同级 | 静态路由通常要排在动态路由前面 |
+| `[...all].vue` | catch-all 只能放在最后,否则会吞掉后续路由 |
+| `_layout.vue`、`_middleware.ts` | 这些可能是框架约定文件,不能直接当页面 |
+| `(admin)/users.vue` | 路由分组目录是否出现在 URL 中,必须由规则决定 |
+| `users.[id].vue` | 点号分段、嵌套路由、文件名约定要提前定清楚 |
+
+如果插件只服务一个团队,可以把规则写窄;如果要发布到 npm,这些规则必须写进 README、类型定义和测试。
+
+## 虚拟模块代码应该可读
+
+生成代码不是一次性字符串。它会出现在 sourcemap、错误堆栈、构建产物和用户调试里,所以要保持可读。
+
+```ts
+function generateReadableRouteModule(routes: PageRoute[]) {
+  const lines: string[] = []
+
+  routes.forEach((route, index) => {
+    lines.push(`const route${index} = () => import(${JSON.stringify(route.file)})`)
+  })
+
+  lines.push("")
+  lines.push("export const routes = [")
+
+  routes.forEach((route, index) => {
+    lines.push(`  {`)
+    lines.push(`    path: ${JSON.stringify(route.path)},`)
+    lines.push(`    component: route${index},`)
+    lines.push(`  },`)
+  })
+
+  lines.push("]")
+  lines.push("export default routes")
+
+  return lines.join("\n")
+}
+```
+
+不要在生成代码里做复杂字符串拼接。真实插件的可维护性经常取决于“用户看到这段虚拟模块时能不能读懂”。
+
+## 类型声明也属于插件体验
+
+如果用户写:
+
+```ts
+import routes from "~pages"
+```
+
+TypeScript 默认会报找不到模块。插件需要提供 client 类型:
+
+```ts filename="client.d.ts"
+declare module "~pages" {
+  const routes: unknown[]
+  export default routes
+}
+```
+
+用户项目再通过 `vite-env.d.ts` 引入:
+
+```ts filename="vite-env.d.ts"
+/// <reference types="vite-plugin-pages/client" />
+```
+
+这一步常被教学文章省略,但对开发者友好非常关键。没有类型声明,插件虽然能跑,编辑器体验却是不完整的。
+
+## HMR 为什么常常要 full reload
+
+页面组件内容变化时,正常模块 HMR 就能处理。但路由表结构变化不是同一种问题:
+
+- 新增 `src/pages/admin.vue`:路由数组多了一项。
+- 删除 `src/pages/blog/[id].vue`:路由数组少了一项。
+- 重命名 `about.vue` 为 `about-us.vue`:path 改了。
+- 修改 route block / meta:路由记录的附加数据改了。
+
+这些变化影响的是虚拟模块 `~pages`,而不是某个页面组件本身。最稳妥的教学版做法是失效虚拟模块并触发 full reload。更高级的实现可以向导入 `~pages` 的模块传播局部 HMR,但这要求应用侧 router 能安全替换路由表。
+
+```ts
+function invalidateRoutesModule(server: ViteDevServer) {
+  const mod = server.moduleGraph.getModuleById(RESOLVED_ID)
+  if (!mod) return
+
+  server.moduleGraph.invalidateModule(mod)
+  server.ws.send({ type: "full-reload" })
+}
+```
+
+如果你在写生产级插件,还要覆盖 `add`、`unlink`、`change`、目录重命名、大小写重命名和 monorepo symlink 场景。
+
+## 真实插件多出来的工作
+
+真实的 `vite-plugin-pages` 不只是上面的 100 行骨架。它通常还要处理:
+
+1. **框架输出差异**:Vue Router、React Router、Solid Router 需要的 route record 不完全一样。
+2. **同步/异步组件**:开发时 lazy import 方便,HMR 也轻;某些场景需要 eager import。
+3. **route block / meta**:Vue SFC 可能从 custom block 读取 route meta;React 项目可能从命名导出读取。
+4. **extendRoute / onRoutesGenerated**:用户需要最后机会修改路由树。
+5. **文件排序规则**:静态、动态、catch-all 的优先级必须稳定。
+6. **缓存与性能**:大型项目不能每次请求虚拟模块都完整重扫全部文件。
+7. **类型导出**:模块 ID、route 类型、插件选项都要有声明。
+8. **调试输出**:当路由不符合预期时,用户需要知道哪个文件生成了哪条 route。
+
+这也是为什么“文件路由插件”非常适合学习 Vite 插件系统:它横跨 `configResolved`、`configureServer`、`resolveId`、`load`、`handleHotUpdate`,同时又能用一个很小的 API 暴露给用户。
+
+## 源码阅读顺序
+
+读真实源码时,不要从字符串生成函数开始。建议按这个顺序:
+
+1. **README / options 类型**:先弄清插件承诺了哪些功能。
+2. **入口函数**:看默认选项、返回了几个 Vite plugin、每个 plugin 的名字。
+3. **Context 类或状态对象**:找 `scanPages`、`resolveOptions`、`generateRoutes` 这类核心方法。
+4. **resolver / parser**:看文件名怎么变成 route path。
+5. **virtual module**:找 `resolveId`、`load`、模块 ID 常量。
+6. **watcher / HMR**:找 `configureServer`、`handleHotUpdate`、`server.moduleGraph.invalidateModule`。
+7. **测试用例**:测试通常比源码更直接地表达边界规则。
+
+如果源码里用了缓存,先不要急着看缓存实现。先画出“输入文件 -> route record -> 虚拟模块代码”的数据流,再回头看缓存解决了哪一步的性能问题。
+
+## 常见踩坑
+
+<Callout type="warning" title="文件路由插件的高频 bug">
+  - 生成代码里使用了 OS 绝对路径,浏览器无法 import
+  - 没有 normalize Windows 路径,导致 Windows 用户路由全错
+  - 新增文件不会触发更新,因为只 watch 了旧文件
+  - 动态路由排序错误,`/:id` 抢在 `/settings` 前面
+  - 生成虚拟模块没有类型声明,TS 用户体验很差
+  - 删除页面后 module graph 没失效,路由表仍然保留旧页面
+</Callout>
 
 ## 自测题
 
-1. `pages/[id].tsx` 为什么映射到 `:id` 而不是 `$id` 或其他格式?
-2. 为什么要用虚拟模块而不是直接生成一个真实的 JS 文件?
-3. 当用户新建一个页面文件时,`handleHotUpdate` 为什么能检测到?
-4. 如何处理 `pages/blog/index.tsx` 和 `pages/blog.tsx` 的冲突?
+1. 为什么 `~pages` 更适合做虚拟模块,而不是写成 `src/generated/routes.ts`?
+2. 新增页面文件时,为什么只在 `load()` 里 `this.addWatchFile(file)` 不够?
+3. `pages/blog.vue` 和 `pages/blog/index.vue` 同时存在时,你会报错还是定义优先级?为什么?
+4. 如果要支持 route meta,你会在插件构建期解析源码,还是让运行时代码 import 后再读取?各有什么代价?
 
 ```ts filename="练习"
-// 扩展 pagesPlugin:
-// 1. 支持路由级别的元数据(从文件的 export const meta = {} 读取)
-// 2. 支持布局文件(_layout.tsx)自动包裹页面组件
-// 3. 对嵌套路由生成 children 数组
-
-// 元数据使用:
-// 在 pages/blog/index.tsx 里:
-// export const meta = { title: "博客列表", requiresAuth: true }
-//
-// 生成的路由:
-// { path: "/blog", component: ..., meta: { title: "博客列表", requiresAuth: true } }
+// 扩展教学版 pagesPlugin:
+// 1. 支持 route meta: 从页面文件的 `export const meta = {}` 读取
+// 2. 检测重复 route path 并抛出带文件名的错误
+// 3. 对静态 / 动态 / catch-all 路由做稳定排序
+// 4. 为 `~pages` 补一个 client.d.ts
 ```

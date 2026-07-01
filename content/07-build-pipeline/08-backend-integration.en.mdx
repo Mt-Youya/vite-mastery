@@ -1,0 +1,250 @@
+---
+title: "Backend Integration: When Vite Does Not Own HTML"
+description: "How to integrate Vite with Rails, Laravel, Express, Go templates, or any backend that renders HTML while Vite owns assets, HMR, and the production manifest."
+order: 8
+part: 07-build-pipeline
+chapter: "7.8"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - When backend integration is needed
+  - How to inject `@vite/client` and app entries in dev
+  - How to read `.vite/manifest.json` in production
+  - React Fast Refresh, asset URLs, and modulepreload caveats
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understand [7.1 · Rolldown in Build](/docs/07-build-pipeline/01-rolldown-in-build)
+  - Understand [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+</Callout>
+
+## When You Need Backend Integration
+
+In a standard Vite app, `index.html` is the entry:
+
+```text
+browser -> Vite dev server -> index.html -> /src/main.ts
+```
+
+Traditional backends often own HTML:
+
+```text
+browser -> Rails/Laravel/Express/Go -> server template
+                                      -> Vite owns JS/CSS/assets
+```
+
+Use this model when the backend handles auth before rendering, different routes produce different templates, an existing app is being migrated, or the framework already owns HTML.
+
+The rule: the backend owns HTML; Vite owns the frontend entry and asset graph.
+
+## Core Config: Entry and Manifest
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    cors: {
+      origin: "http://localhost:3000",
+    },
+  },
+  build: {
+    manifest: true,
+    rolldownOptions: {
+      input: "/absolute/path/to/src/main.tsx",
+    },
+  },
+})
+```
+
+| Option | Purpose |
+| ------ | ------- |
+| `server.cors.origin` | allow backend pages to load modules from the Vite dev server |
+| `build.manifest` | emit `.vite/manifest.json` for backend templates |
+| `build.rolldownOptions.input` | build from JS/TS entries instead of HTML |
+
+For multiple backend templates:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    manifest: true,
+    rolldownOptions: {
+      input: {
+        main: "src/main.ts",
+        admin: "src/admin.ts",
+        checkout: "src/checkout.ts",
+      },
+    },
+  },
+})
+```
+
+## Development: Inject Vite Scripts
+
+Do not read the manifest in dev. Inject the dev server entry directly:
+
+```html filename="server-template.html"
+<script type="module" src="http://localhost:5173/@vite/client"></script>
+<script type="module" src="http://localhost:5173/src/main.tsx"></script>
+```
+
+`/@vite/client` opens the HMR websocket, handles CSS updates, displays error overlays, and performs full reloads.
+
+## React Fast Refresh Preamble
+
+When using `@vitejs/plugin-react`, Vite cannot modify backend-rendered HTML. Add the preamble before the entry:
+
+```html filename="server-template.html"
+<script type="module">
+  import RefreshRuntime from "http://localhost:5173/@react-refresh"
+  RefreshRuntime.injectIntoGlobalHook(window)
+  window.$RefreshReg$ = () => {}
+  window.$RefreshSig$ = () => (type) => type
+  window.__vite_plugin_react_preamble_installed__ = true
+</script>
+<script type="module" src="http://localhost:5173/@vite/client"></script>
+<script type="module" src="http://localhost:5173/src/main.tsx"></script>
+```
+
+Many "React HMR is broken" backend integration bugs are missing this block.
+
+## Asset URLs in Dev
+
+If app code imports assets:
+
+```ts
+import logoUrl from "./logo.svg"
+```
+
+The browser may need to request assets from the Vite dev server. Use either backend proxying or `server.origin`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  server: {
+    origin: "http://localhost:5173",
+  },
+})
+```
+
+Pick one strategy and document it. Mixing proxying and absolute origins makes asset bugs harder to debug.
+
+## Production: Read the Manifest
+
+Build output:
+
+```text
+dist/
+  assets/
+    main-B7PI925R.js
+    main-ChJ_j-JJ.css
+  .vite/
+    manifest.json
+```
+
+Example manifest:
+
+```json filename="dist/.vite/manifest.json"
+{
+  "src/main.tsx": {
+    "file": "assets/main-B7PI925R.js",
+    "isEntry": true,
+    "css": ["assets/main-ChJ_j-JJ.css"],
+    "imports": ["_vendor-Df3x.js"]
+  }
+}
+```
+
+The backend should read the manifest, find the source entry, render CSS links, render modulepreload tags for imports, and then render the entry script.
+
+```ts filename="render-assets.ts"
+interface ManifestChunk {
+  file: string
+  css?: string[]
+  imports?: string[]
+  isEntry?: boolean
+}
+
+type Manifest = Record<string, ManifestChunk>
+
+export function renderViteAssets(manifest: Manifest, entry: string, base = "/") {
+  const chunk = manifest[entry]
+  if (!chunk) throw new Error(`Missing Vite manifest entry: ${entry}`)
+
+  const tags: string[] = []
+
+  for (const cssFile of chunk.css ?? []) {
+    tags.push(`<link rel="stylesheet" href="${base}${cssFile}">`)
+  }
+
+  for (const imported of chunk.imports ?? []) {
+    const importedChunk = manifest[imported]
+    if (importedChunk) {
+      tags.push(`<link rel="modulepreload" href="${base}${importedChunk.file}">`)
+    }
+  }
+
+  tags.push(`<script type="module" src="${base}${chunk.file}"></script>`)
+  return tags.join("\n")
+}
+```
+
+Real projects should recurse through imports and handle dynamic import CSS. Do not scrape `dist/index.html`; the manifest is the stable integration surface.
+
+## Modulepreload Polyfill
+
+If your backend bypasses Vite-generated HTML and you have not disabled the polyfill, import it at the top of your entry:
+
+```ts filename="src/main.ts"
+import "vite/modulepreload-polyfill"
+```
+
+It must run before the rest of the app.
+
+## Multi-Entry Mapping
+
+Use explicit mappings:
+
+```ts filename="entries.ts"
+export const viteEntries = {
+  home: "src/main.ts",
+  admin: "src/admin.ts",
+  checkout: "src/checkout.ts",
+} as const
+```
+
+Avoid building paths from template names. Explicit maps are easier to audit and safer during renames.
+
+## Common Failures
+
+| Symptom | Cause | Fix |
+| ------- | ----- | --- |
+| Page loads but HMR does not work | missing `@vite/client` | inject the client script |
+| React refresh loses state | missing preamble | inject React Refresh preamble |
+| Asset URLs point to backend port | no proxy or `server.origin` | choose one asset strategy |
+| CSS missing in production | backend renders only JS | read `css` from manifest |
+| Dynamic chunks 404 | `base` and static mount differ | align Vite `base` with backend static path |
+
+## Check Yourself
+
+1. Why should backend templates not hard-code production filenames?
+2. Why is `@vite/client` needed in dev?
+3. What problem does `build.manifest` solve?
+4. Why does React need a manual preamble here?
+
+```ts filename="exercise"
+// Implement renderViteAssets:
+// - input: manifest, entry, base
+// - output CSS links
+// - output modulepreload tags for imports
+// - output entry script
+// - throw a clear error for missing entries
+```
+

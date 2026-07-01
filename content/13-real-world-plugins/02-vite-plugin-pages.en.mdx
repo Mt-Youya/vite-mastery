@@ -1,119 +1,155 @@
 ---
 title: "Source Walkthrough: `vite-plugin-pages`"
-description: Scan the filesystem and auto-generate routes — how does this "magic" work? Glob scanning, virtual modules, and HMR route table updates.
+description: "Learn file-system routing as a complete Vite plugin: directory scanning, route parsing, virtual modules, type declarations, HMR invalidation, and production-grade edge cases."
 order: 2
 part: 13-real-world-plugins
 chapter: "13.2"
 difficulty: 4
-readingTime: 14
-updatedAt: "2026-06-26"
+readingTime: 20
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - How file-based routing is implemented - Scanning the filesystem to generate route configs - Exposing the route table
-  via a virtual module - Updating routes via HMR when files are added or deleted
+  - Why file-system routing is a natural fit for virtual modules
+  - How to scan `src/pages` into a stable route table
+  - How file add/delete/rename events should invalidate the generated route module
+  - Which edge cases real routing plugins handle beyond the teaching version
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understand virtual module plugins (section 3.4) - Familiar with the handleHotUpdate hook (section 6.3)
+  - Read [3.4 · Virtual Modules](/docs/03-plugin-system/04-virtual-modules-plugin)
+  - Read [6.3 · `handleHotUpdate`](/docs/06-hmr/03-handle-hot-update)
+  - Understand the Vite dev server module graph and file watcher
 </Callout>
 
-## Feature Goal
+## Start With The Target
+
+The core job of `vite-plugin-pages` is not "generate some strings". It turns the filesystem into a route module:
 
 ```text
-pages/
-  index.tsx          → route "/"
-  about.tsx          → route "/about"
-  blog/
-    index.tsx        → route "/blog"
-    [id].tsx         → route "/blog/:id"
-    [...all].tsx     → route "/blog/*"
-
-Auto-generated route config:
-[
-  { path: "/", component: () => import("./pages/index.tsx") },
-  { path: "/about", component: ... },
-  { path: "/blog", component: ... },
-  { path: "/blog/:id", component: ... },
-]
+src/pages/
+  index.vue              -> /
+  about.vue              -> /about
+  blog/index.vue         -> /blog
+  blog/[id].vue          -> /blog/:id
+  [...all].vue           -> /*
 ```
 
-## Core Implementation: Glob Scanning
+The application imports one module:
 
 ```ts
-import { globSync } from "node:fs"
-import { resolve, relative, basename, dirname } from "node:path"
+import routes from "~pages"
+```
 
-interface Route {
+That import looks like a real file, but it is usually virtual. When Vite resolves `~pages`, the plugin answers through `resolveId` / `load` and returns generated code containing the route array.
+
+Keep five threads in mind while reading the source:
+
+1. **Option normalization**: page directory, extensions, exclude rules, import mode, framework adapters.
+2. **Filesystem scanning**: find candidate pages, normalize Windows/POSIX paths, sort consistently.
+3. **Route parsing**: map file paths to router-friendly `path`, `name`, `children`, and `meta`.
+4. **Virtual module output**: expose `~pages` or a similar ID with generated, debuggable code.
+5. **HMR invalidation**: when page files change, invalidate and reload the route module.
+
+## Why Not Write A Real File?
+
+Writing `src/generated/routes.ts` can work, but it creates avoidable friction:
+
+- Every scan pollutes the source tree, and users may commit generated files by accident.
+- Editors, formatters, and linters treat generated output as hand-written code.
+- The dev server can fall into a loop: plugin writes file, watcher reacts, plugin writes again.
+- SSR, tests, monorepos, and multiple roots make the generated file location a configuration concern.
+
+Virtual modules keep this inside the plugin. Users import a stable ID. The plugin generates module code in memory. During production build, the same `resolveId` / `load` path is called by Rolldown, so dev and build stay aligned.
+
+## A Teaching Implementation
+
+This is not a line-by-line copy of the real package. It preserves the important shape of a file-routing plugin while keeping the code readable.
+
+```ts
+import path from "node:path"
+import { globSync } from "tinyglobby"
+import type { Plugin, ResolvedConfig, ViteDevServer } from "vite"
+import { normalizePath } from "vite"
+
+const VIRTUAL_ID = "~pages"
+const RESOLVED_ID = "\0vite-plugin-pages:routes"
+
+interface PageRoute {
   path: string
-  component: string
-  children?: Route[]
+  file: string
 }
 
-function scanPages(pagesDir: string): Route[] {
-  const pattern = resolve(pagesDir, "**/*.{tsx,jsx,vue}")
-  const files = globSync(pattern)
-
-  return files.map((file) => {
-    const relativePath = relative(pagesDir, file)
-    const routePath = filePathToRoutePath(relativePath)
-    return {
-      path: routePath,
-      component: file,
-    }
-  })
+interface PagesOptions {
+  dir?: string
+  extensions?: string[]
 }
 
-function filePathToRoutePath(filePath: string): string {
-  // pages/blog/[id].tsx → /blog/:id
-  return (
-    "/" +
-      filePath
-        .replace(/\.(tsx|jsx|vue)$/, "") // strip extension
-        .replace(/index$/, "") // index → empty (represents parent path)
-        .replace(/\[\.\.\.(\w+)\]/, "*") // [...all] → *
-        .replace(/\[(\w+)\]/, ":$1") // [id] → :id
-        .replace(/\/$/, "") || // strip trailing slash
-    "/"
-  )
-}
-```
+export function pagesPlugin(options: PagesOptions = {}): Plugin {
+  let config: ResolvedConfig
+  let server: ViteDevServer | undefined
+  let pagesDir = ""
+  const extensions = options.extensions ?? ["vue", "tsx", "jsx"]
 
-## Exposing Routes via a Virtual Module
-
-```ts
-import type { Plugin } from "vite"
-
-const VIRTUAL_ID = "virtual:pages"
-const RESOLVED_ID = "\0" + VIRTUAL_ID
-
-export function pagesPlugin(options: { pagesDir: string }): Plugin {
-  let routes: Route[] = []
-
-  function loadRoutes() {
-    routes = scanPages(options.pagesDir)
+  function resolvePagesDir() {
+    pagesDir = path.resolve(config.root, options.dir ?? "src/pages")
   }
 
-  function generateCode(): string {
-    const routeImports = routes
-      .map((r, i) => `const page${i} = () => import(${JSON.stringify(r.component)})`)
+  function scanPages(): PageRoute[] {
+    const pattern = `**/*.{${extensions.join(",")}}`
+    const files = globSync(pattern, {
+      cwd: pagesDir,
+      absolute: true,
+      onlyFiles: true,
+    })
+
+    return files
+      .map((file) => normalizePath(file))
+      .sort()
+      .map((file) => ({
+        file,
+        path: fileToRoutePath(path.posix.relative(normalizePath(pagesDir), file)),
+      }))
+  }
+
+  function generateRoutesModule() {
+    const routes = scanPages()
+
+    const imports = routes
+      .map((route, index) => {
+        const importPath = "/" + path.posix.relative(config.root, route.file)
+        return `const page${index} = () => import(${JSON.stringify(importPath)})`
+      })
       .join("\n")
 
-    const routeArray = routes.map((r, i) => `{ path: ${JSON.stringify(r.path)}, component: page${i} }`).join(",\n  ")
+    const records = routes
+      .map((route, index) => {
+        return `{ path: ${JSON.stringify(route.path)}, component: page${index} }`
+      })
+      .join(",\n  ")
 
-    return `
-${routeImports}
+    return `${imports}
 
 export default [
-  ${routeArray}
+  ${records}
 ]
 `
   }
 
   return {
-    name: "vite-plugin-pages",
+    name: "vite-plugin-pages:teaching",
+
+    configResolved(resolved) {
+      config = resolved
+      resolvePagesDir()
+    },
+
+    configureServer(_server) {
+      server = _server
+      server.watcher.add(pagesDir)
+    },
 
     resolveId(id) {
       if (id === VIRTUAL_ID) return RESOLVED_ID
@@ -122,78 +158,194 @@ export default [
 
     load(id) {
       if (id !== RESOLVED_ID) return null
-
-      loadRoutes()
-
-      // Watch the pages directory for changes
-      this.addWatchFile(options.pagesDir)
-
-      return generateCode()
+      return generateRoutesModule()
     },
 
-    // Update routes when files are added or deleted
-    handleHotUpdate({ file, server }) {
-      if (!file.startsWith(resolve(options.pagesDir))) return
+    handleHotUpdate(ctx) {
+      const file = normalizePath(ctx.file)
+      if (!file.startsWith(normalizePath(pagesDir) + "/")) return
 
-      // Invalidate the route virtual module
-      const module = server.moduleGraph.getModuleById(RESOLVED_ID)
-      if (module) {
-        server.moduleGraph.invalidateModule(module)
-        return [module]
-      }
+      const mod = ctx.server.moduleGraph.getModuleById(RESOLVED_ID)
+      if (!mod) return
+
+      ctx.server.moduleGraph.invalidateModule(mod)
+      ctx.server.ws.send({ type: "full-reload" })
+      return []
     },
   }
 }
 ```
 
-## Handling Nested Routes
+Three details are easy to miss:
+
+- Use `normalizePath`, or Windows backslashes will break route parsing and `startsWith` checks.
+- Generated import paths must be Vite-resolvable module paths. Do not emit OS absolute paths into browser code.
+- Watching the directory matters more than watching existing files, because a newly created page was not previously imported by anything.
+
+## Route Path Parsing
+
+Path parsing is where simple demos become production bugs. A small parser can look like this:
 
 ```ts
-function scanPagesNested(pagesDir: string): Route[] {
-  const flat = scanPages(pagesDir)
+function fileToRoutePath(relativeFile: string) {
+  const withoutExt = relativeFile.replace(/\.(vue|tsx|jsx)$/, "")
+  const segments = withoutExt.split("/")
 
-  // Build a tree structure
-  const routeMap = new Map<string, Route>()
-  const roots: Route[] = []
+  const routeSegments = segments.flatMap((segment) => {
+    if (segment === "index") return []
+    if (/^\[\.\.\.(.+)\]$/.test(segment)) return ["*"]
+    if (/^\[(.+)\]$/.test(segment)) return [":" + segment.slice(1, -1)]
+    return [segment]
+  })
 
-  for (const route of flat) {
-    const parent = route.path.split("/").slice(0, -1).join("/")
-    routeMap.set(route.path, { ...route, children: [] })
-  }
-
-  for (const [path, route] of routeMap) {
-    const parentPath = path.split("/").slice(0, -1).join("/") || "/"
-    const parent = routeMap.get(parentPath)
-
-    if (parent && parent !== route) {
-      parent.children = parent.children ?? []
-      parent.children.push(route)
-    } else {
-      roots.push(route)
-    }
-  }
-
-  return roots
+  return "/" + routeSegments.join("/")
 }
 ```
+
+Real projects need rules for more cases:
+
+| Case | Required handling |
+| --- | --- |
+| `blog.vue` and `blog/index.vue` both exist | They map to the same route; report an error or define priority |
+| `[id].vue` next to `settings.vue` | Static routes should usually sort before dynamic routes |
+| `[...all].vue` | Catch-all routes should come last |
+| `_layout.vue`, `_middleware.ts` | Convention files may not be pages |
+| `(admin)/users.vue` | Decide whether route groups appear in the URL |
+| `users.[id].vue` | Dot segments and nested conventions must be specified |
+
+If the plugin only serves one internal team, narrow rules are fine. If it is published to npm, those rules need to be in the README, type declarations, and tests.
+
+## Generated Modules Should Be Readable
+
+Generated code appears in sourcemaps, stack traces, build output, and user debugging sessions. Keep it readable.
+
+```ts
+function generateReadableRouteModule(routes: PageRoute[]) {
+  const lines: string[] = []
+
+  routes.forEach((route, index) => {
+    lines.push(`const route${index} = () => import(${JSON.stringify(route.file)})`)
+  })
+
+  lines.push("")
+  lines.push("export const routes = [")
+
+  routes.forEach((route, index) => {
+    lines.push(`  {`)
+    lines.push(`    path: ${JSON.stringify(route.path)},`)
+    lines.push(`    component: route${index},`)
+    lines.push(`  },`)
+  })
+
+  lines.push("]")
+  lines.push("export default routes")
+
+  return lines.join("\n")
+}
+```
+
+Avoid clever template gymnastics in generated code. A real plugin is easier to debug when users can inspect the virtual module and understand what happened.
+
+## Type Declarations Are Part Of The Plugin
+
+If users write:
+
+```ts
+import routes from "~pages"
+```
+
+TypeScript needs a declaration:
+
+```ts filename="client.d.ts"
+declare module "~pages" {
+  const routes: unknown[]
+  export default routes
+}
+```
+
+Then users reference it from their Vite env file:
+
+```ts filename="vite-env.d.ts"
+/// <reference types="vite-plugin-pages/client" />
+```
+
+Tutorials often skip this, but developer experience is incomplete without it. A plugin that runs but breaks editor feedback is still unfinished.
+
+## Why HMR Often Falls Back To Full Reload
+
+Editing a page component can use normal module HMR. Changing route structure is different:
+
+- Add `src/pages/admin.vue`: the route array gains an entry.
+- Delete `src/pages/blog/[id].vue`: the route array loses an entry.
+- Rename `about.vue` to `about-us.vue`: the path changes.
+- Edit route block / meta: extra route data changes.
+
+The affected module is `~pages`, not only the page component. The safest teaching implementation invalidates the virtual module and triggers a full reload. More advanced implementations can propagate partial HMR to importers of `~pages`, but the application router must be able to replace its route table safely.
+
+```ts
+function invalidateRoutesModule(server: ViteDevServer) {
+  const mod = server.moduleGraph.getModuleById(RESOLVED_ID)
+  if (!mod) return
+
+  server.moduleGraph.invalidateModule(mod)
+  server.ws.send({ type: "full-reload" })
+}
+```
+
+For a production plugin, also test `add`, `unlink`, `change`, directory renames, case-only renames, and monorepo symlinks.
+
+## What Real Plugins Add
+
+The real package does more than the small skeleton:
+
+1. **Framework-specific output**: Vue Router, React Router, and Solid Router records differ.
+2. **Lazy vs eager imports**: lazy imports are great for dev and code splitting; some cases need eager imports.
+3. **Route blocks and meta**: Vue SFC custom blocks or named exports can feed route metadata.
+4. **`extendRoute` / `onRoutesGenerated` hooks**: users need a last chance to mutate the route tree.
+5. **Stable ordering**: static, dynamic, and catch-all routes must sort deterministically.
+6. **Caching and performance**: large apps should not rescan every file on every virtual module request.
+7. **Type exports**: module IDs, route records, and plugin options need declarations.
+8. **Debug output**: users need to trace which file produced which route.
+
+That is why file-routing plugins are excellent Vite plugin study material. They touch `configResolved`, `configureServer`, `resolveId`, `load`, and `handleHotUpdate`, while exposing a very small user-facing API.
+
+## Recommended Reading Order
+
+When reading the real source, do not start from the string generation function. Use this order:
+
+1. **README and option types**: learn what the plugin promises.
+2. **Entry function**: inspect defaults, returned plugin objects, and plugin names.
+3. **Context/state object**: find methods such as `scanPages`, `resolveOptions`, and `generateRoutes`.
+4. **Resolver/parser**: learn how filenames become route paths.
+5. **Virtual module**: find `resolveId`, `load`, and module ID constants.
+6. **Watcher/HMR**: find `configureServer`, `handleHotUpdate`, and `server.moduleGraph.invalidateModule`.
+7. **Tests**: tests usually reveal edge-case semantics more clearly than implementation code.
+
+If the source uses caching, ignore the cache at first. Draw the flow from input files to route records to virtual module code, then revisit which step the cache optimizes.
+
+## Common Failure Modes
+
+<Callout type="warning" title="High-frequency bugs in file-routing plugins">
+  - Generated code emits OS absolute paths that the browser cannot import
+  - Windows paths are not normalized, so route parsing breaks
+  - New files do not update routes because only old files were watched
+  - Dynamic routes sort before static routes, so `/:id` captures `/settings`
+  - The virtual module has no TypeScript declaration
+  - Deleting a page does not invalidate the route module, leaving stale routes behind
+</Callout>
 
 ## Self-check
 
-1. Why does `pages/[id].tsx` map to `:id` rather than `$id` or some other format?
-2. Why use a virtual module instead of generating a real JS file on disk?
-3. When a user creates a new page file, how does `handleHotUpdate` detect it?
-4. How should a conflict between `pages/blog/index.tsx` and `pages/blog.tsx` be handled?
+1. Why is `~pages` better as a virtual module than as `src/generated/routes.ts`?
+2. Why is `this.addWatchFile(file)` inside `load()` not enough when users create new page files?
+3. If `pages/blog.vue` and `pages/blog/index.vue` both exist, would you throw or define priority? Why?
+4. If you support route meta, would you parse source at build time or import and read exports at runtime? What are the tradeoffs?
 
 ```ts filename="Exercise"
-// Extend pagesPlugin to:
-// 1. Support route-level metadata (read from the file's `export const meta = {}`)
-// 2. Support layout files (_layout.tsx) that automatically wrap page components
-// 3. Generate a children array for nested routes
-
-// Metadata usage:
-// In pages/blog/index.tsx:
-// export const meta = { title: "Blog List", requiresAuth: true }
-//
-// Generated route:
-// { path: "/blog", component: ..., meta: { title: "Blog List", requiresAuth: true } }
+// Extend the teaching pagesPlugin:
+// 1. Support route meta from `export const meta = {}`
+// 2. Detect duplicate route paths and throw an error with file names
+// 3. Sort static, dynamic, and catch-all routes deterministically
+// 4. Add a client.d.ts declaration for `~pages`
 ```
+

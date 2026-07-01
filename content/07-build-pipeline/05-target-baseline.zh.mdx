@@ -42,14 +42,13 @@ export default defineConfig({
 
 ## 它具体代表哪些浏览器
 
-"Widely Available"(广泛可用)意味着主流浏览器的**稳定版和前两个版本**都支持。2026 年时大致等效于:
+"Widely Available"(广泛可用)意味着特性已经跨主流浏览器稳定可用一段时间。Vite 官方配置文档会把这个抽象目标展开成具体浏览器版本;写教程或配置时,应以当前 Vite 文档为准,不要长期手写一组旧版本号。
 
-- Chrome 95+
-- Firefox 95+
-- Safari 15+
-- Edge 95+
+在 Vite 8 主线里,你更应该记住的是:
 
-这覆盖了全球约 95%+ 的浏览器用户。
+- `baseline-widely-available` 是默认值,大多数项目不用显式写。
+- 它描述的是“构建输出能使用哪些现代语法”,不是 polyfill 策略。
+- 具体浏览器版本会随着 Vite 和 Baseline 数据演进而调整。
 
 ## 与手动 target 的对比
 
@@ -78,6 +77,24 @@ export default defineConfig({
 
 Baseline 的优势:随着时间推移,它自动代表"当前主流浏览器支持的特性",不需要手动更新。
 
+## 该不该改 target
+
+不要为了“看起来更现代”随便把 target 改高。target 会影响两类输出:
+
+1. **语法降级**:例如 class fields、optional chaining、top-level await 是否需要转换。
+2. **构建失败条件**:如果源码或依赖用了目标环境无法安全转换的特性,build 可能直接报错。
+
+可以按这个规则决策:
+
+| 项目类型 | 推荐 target |
+| --- | --- |
+| 普通公开 Web 应用 | 保持默认 `baseline-widely-available` |
+| 内部工具,只跑最新版 Chromium | 可以设置为较新的 Chrome 或 `esnext`,但要写清楚部署环境 |
+| 嵌入式 WebView / 老移动端 | 明确列出目标版本,并加真实设备回归 |
+| 组件库 | 通常不要过高,否则会把兼容性成本转嫁给消费者 |
+
+组件库尤其要谨慎。应用可以知道自己的用户浏览器,库作者却不知道消费者会部署到哪里。库模式里把 target 设太高,可能让下游项目无法再安全降级。
+
 ## 如何支持更老的浏览器
 
 如果你的用户群需要支持 IE11 或老版本 Safari:
@@ -104,6 +121,16 @@ export default defineConfig({
 1. 构建现代 ES Module 版本(给新浏览器)
 2. 同时构建传统 SystemJS 格式(给旧浏览器)
 3. 在 HTML 里用 `<script type="module">` 和 `<script nomodule>` 区分
+
+## 验证 target 是否合理
+
+target 不是“配置完就结束”。上线前至少做三件事:
+
+1. 用 `pnpm build` 看是否有无法转换的语法报错。
+2. 用真实浏览器或 BrowserStack 打开构建产物,不要只信本地最新版 Chrome。
+3. 检查 bundle 分析报告,确认 legacy 产物没有让首屏 JS 体积失控。
+
+如果你支持的浏览器比 Baseline 更老,还要把这个要求写进 README 或产品技术约束里。兼容性是产品决策,不是构建工具单方面能解决的问题。
 
 ## 自测题
 

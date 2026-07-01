@@ -1,0 +1,309 @@
+---
+title: 故障排查 Cookbook
+description: Vite 项目出问题时如何系统定位：dev server 卡住、HMR 不生效、构建后白屏、动态 chunk 404、依赖预构建过期、Node 模块外部化等常见故障。
+order: 7
+part: 12-performance
+chapter: "12.7"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 用固定流程排查 Vite 问题，而不是凭感觉改配置
+  - dev server、HMR、build、依赖预构建各自的常见故障
+  - 什么时候用 `--debug`、`--force`、`vite-plugin-inspect`、DevTools
+  - 如何把“偶现白屏”定位到路径、缓存、chunk 或浏览器扩展
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 [0.5 · CLI 工作流](/docs/00-getting-started/05-cli-workflow)
+  - 了解 [12.2 · Vite DevTools](/docs/12-performance/02-vite-devtools)
+</Callout>
+
+## 先分类，再动手
+
+Vite 问题看起来很多，先按阶段分类:
+
+| 阶段 | 典型现象 | 第一工具 |
+| ---- | -------- | -------- |
+| CLI/config | 命令启动失败、配置文件报错 | 终端堆栈 |
+| dev server | 请求卡住、页面白屏、端口转发异常 | Network + `--debug` |
+| HMR | 文件变了但页面不更新、全量刷新 | `DEBUG=vite:hmr` |
+| deps | 首次启动慢、反复预构建、link 包过期 | `DEBUG=vite:deps` + `--force` |
+| build | build 失败、产物白屏、chunk 404 | `pnpm build` + `pnpm preview` |
+| plugins | transform 慢、顺序错、插件没生效 | DevTools / inspect |
+
+不要一上来就删 `node_modules`。先确认问题属于哪一层，否则很容易把可复现线索抹掉。
+
+## 0. 最小复现信息
+
+提交 issue 或问同事之前，先收集:
+
+```bash
+node -v
+pnpm -v
+pnpm vite --version
+pnpm vite --debug
+```
+
+同时记录:
+
+- 操作系统和终端
+- 包管理器与 lockfile 是否一致
+- 是否在 monorepo、WSL、Docker、远程容器中
+- 是否使用 HTTPS、自签证书、代理、端口转发
+- dev 正常但 build 失败，还是 dev 就失败
+
+这些信息能把排查时间从半小时降到几分钟。
+
+## 1. dev server 请求一直卡住
+
+现象:
+
+- 浏览器 Network 里大量请求 pending
+- 页面一直加载不出来
+- 终端没有明显报错
+
+排查顺序:
+
+1. 看是否是文件监听或文件描述符限制，尤其是 Linux、WSL、Docker。
+2. 看浏览器是否同时打开了太多页面或 DevTools。
+3. 用 `pnpm vite --debug` 看请求卡在哪个 namespace。
+4. 暂时关闭复杂插件，确认是否是某个 middleware 没有 `next()`。
+
+中间件最常见错误:
+
+```ts filename="bad-plugin.ts"
+configureServer(server) {
+  server.middlewares.use((req, res, next) => {
+    if (req.url?.startsWith("/api")) {
+      res.end("ok")
+      return
+    }
+    // 漏了 next(),非 /api 请求会永远卡住
+  })
+}
+```
+
+修复:
+
+```ts filename="good-plugin.ts"
+configureServer(server) {
+  server.middlewares.use((req, res, next) => {
+    if (req.url?.startsWith("/api")) {
+      res.end("ok")
+      return
+    }
+    next()
+  })
+}
+```
+
+## 2. HMR 检测到变化但页面不更新
+
+先打开日志:
+
+```bash
+DEBUG=vite:hmr pnpm dev
+```
+
+常见原因:
+
+| 原因 | 判断方式 | 修复 |
+| ---- | -------- | ---- |
+| 模块没有 HMR 边界 | 日志显示 full reload | 增加 `import.meta.hot.accept` 或依赖框架插件 |
+| 循环依赖 | debug 日志输出循环路径 | 拆开循环依赖 |
+| 插件返回了错误 modules | 自定义 `handleHotUpdate` 后发生 | 返回正确模块或触发 full reload |
+| 文件监听没触发 | 保存后终端无日志 | 检查 WSL/Docker/网络盘监听 |
+
+自定义 HMR 时，不要随便返回空数组。空数组表示“这次更新没有模块需要处理”，可能会让页面静默不更新。
+
+```ts filename="vite.config.ts"
+handleHotUpdate(ctx) {
+  if (ctx.file.endsWith(".config.json")) {
+    ctx.server.ws.send({ type: "full-reload" })
+    return []
+  }
+}
+```
+
+如果目标是刷新页面，上面可以；如果目标是更新某个虚拟模块，就应该 invalidate 并返回对应 module。
+
+## 3. dev 正常，build 后白屏
+
+先本地复现生产产物:
+
+```bash
+pnpm build
+pnpm preview
+```
+
+然后按这个顺序查:
+
+1. Console 是否有 `Failed to fetch dynamically imported module`
+2. Network 里 JS/CSS/chunk 是否 404
+3. `base` 是否与部署路径一致
+4. 是否把 `dist/assets/` 整个目录上传
+5. 是否给 `index.html` 配了过长缓存
+6. 是否有浏览器扩展拦截请求
+
+典型错误是部署在 `/app/`，但构建时仍然 `base: "/"`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  base: "/app/",
+})
+```
+
+另一个高频问题是 HTML 缓存太久。用户拿到旧 HTML，旧 HTML 引用的 chunk 已经被新部署清理，就会白屏。
+
+## 4. 动态导入失败
+
+错误:
+
+```text
+Failed to fetch dynamically imported module
+```
+
+不要只看报错文件名，要看 Network:
+
+- 请求 URL 是否少了子路径?
+- chunk 是否真的存在于服务器?
+- 响应是不是 HTML 404 页面?
+- Service Worker 是否缓存了旧文件?
+- CDN 是否只刷新了 HTML，没同步 assets?
+
+如果是手写动态 import:
+
+```ts
+import(`./pages/${name}.tsx`)
+```
+
+确认动态段足够窄，构建器能收集到候选文件。路径过于自由时，用 `import.meta.glob` 更可控:
+
+```ts
+const pages = import.meta.glob("./pages/*.tsx")
+const page = pages[`./pages/${name}.tsx`]
+```
+
+## 5. 依赖预构建过期或反复运行
+
+现象:
+
+- 启动后浏览器突然刷新一次
+- 修改 link 包后页面仍然用旧代码
+- 每次 `pnpm dev` 都重新 optimize deps
+
+打开日志:
+
+```bash
+DEBUG=vite:deps pnpm dev
+```
+
+常见修复:
+
+```bash
+pnpm vite --force
+```
+
+如果是长期反复预构建，不要一直 `--force`，要找原因:
+
+| 原因 | 修复 |
+| ---- | ---- |
+| 动态 import 的依赖扫描不到 | `optimizeDeps.include` |
+| workspace 包被当成第三方依赖 | `optimizeDeps.exclude` 或 alias 到源码 |
+| lockfile 和 node_modules 状态不一致 | 重新安装依赖 |
+| patch/override 频繁变化 | 固定依赖覆盖策略 |
+
+## 6. Node 模块被外部化或浏览器里不可用
+
+错误类似:
+
+```text
+Module "fs" has been externalized for browser compatibility
+```
+
+含义是:浏览器代码 import 了 Node.js 内置模块。Vite 不会自动给 `fs`、`path`、`crypto` 这类模块打 polyfill。
+
+修复思路:
+
+1. 确认这段代码是否真的应该跑在浏览器。
+2. 如果只在 SSR/Node 侧需要，用条件分支或拆入口。
+3. 如果浏览器也需要，换成 Web API 或浏览器兼容包。
+4. 不要盲目加 polyfill 插件，除非你明确知道 bundle 成本和兼容风险。
+
+## 7. 插件没生效或 transform 很慢
+
+先判断是“没执行”还是“执行慢”。
+
+没执行:
+
+```bash
+DEBUG=vite:resolve pnpm dev
+```
+
+检查:
+
+- 插件是否出现在 `plugins` 数组里
+- `apply` 是否限制到了另一个阶段
+- `enforce` 是否导致顺序不符合预期
+- 文件过滤条件是否排除了目标文件
+- 是否只在 build hook 里处理了 dev 场景
+
+执行慢:
+
+- 用 [Vite DevTools](/docs/12-performance/02-vite-devtools) 看插件耗时聚合
+- 用 `vite-plugin-inspect` 看单文件 transform 链
+- 在插件内部给 `resolveId` / `load` / `transform` 加计时
+
+插件性能问题通常不是“算法慢”四个字能解释，而是过滤条件太宽:本来只该处理 `.svg`，却处理了所有 `.ts`、`.tsx`、`.css`。
+
+## 8. 配置文件 ESM/CJS 问题
+
+Vite 配置推荐 ESM:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({})
+```
+
+如果某个包是 ESM-only，却被 CommonJS `require()` 加载，会出现模块格式错误。修复方向通常是:
+
+- 把配置文件改成 ESM 写法
+- 项目 `package.json` 使用 `"type": "module"`
+- 升级旧插件或替换不兼容插件
+- 避免在 Vite 配置里混用 `require()` 和 ESM-only 包
+
+## 9. 推荐排查顺序
+
+```text
+1. 复现:dev 失败? build 失败? preview 失败?
+2. 定位阶段:config / dev server / HMR / deps / build / plugin
+3. 打开对应 debug 日志
+4. 缩小到具体模块、插件、chunk 或请求
+5. 做最小修复
+6. 跑 build + preview 验证
+```
+
+不要一次改三四个配置。每次只改一个变量，保留可回滚路径。
+
+## 自测题
+
+1. HMR 不生效时，为什么第一步应该打开 `DEBUG=vite:hmr`?
+2. `Failed to fetch dynamically imported module` 常见是代码问题还是部署问题?如何判断?
+3. `--force` 能解决什么问题?为什么不能长期依赖它?
+4. 浏览器里出现 Node 模块 externalized 警告时，正确排查顺序是什么?
+
+```bash filename="练习"
+# 你接手一个项目:
+# - dev 正常
+# - 部署后偶发白屏
+# - Console 有 Failed to fetch dynamically imported module
+# - CDN 开了长缓存
+#
+# 写出你的排查顺序和最可能的修复方案。
+```

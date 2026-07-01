@@ -27,19 +27,19 @@ export const SITE = {
  * sidebar / 首页章节预览共用。
  */
 export const PARTS = [
-  { id: "00-getting-started", no: "00", chapters: 4, difficulty: 1 },
-  { id: "01-core-concepts", no: "01", chapters: 4, difficulty: 2 },
+  { id: "00-getting-started", no: "00", chapters: 5, difficulty: 1 },
+  { id: "01-core-concepts", no: "01", chapters: 6, difficulty: 2 },
   { id: "02-bundler-evolution", no: "02", chapters: 5, difficulty: 3, spotlight: true },
   { id: "03-plugin-system", no: "03", chapters: 6, difficulty: 2, spotlight: true },
   { id: "04-hooks-deep-dive", no: "04", chapters: 9, difficulty: 3, spotlight: true },
   { id: "05-environment-api", no: "05", chapters: 10, difficulty: 4, spotlight: true },
   { id: "06-hmr", no: "06", chapters: 6, difficulty: 3, spotlight: true },
-  { id: "07-build-pipeline", no: "07", chapters: 7, difficulty: 2 },
+  { id: "07-build-pipeline", no: "07", chapters: 9, difficulty: 2 },
   { id: "08-ssr-ssg", no: "08", chapters: 4, difficulty: 3 },
   { id: "09-framework-integration", no: "09", chapters: 6, difficulty: 2 },
   { id: "10-library-mode", no: "10", chapters: 3, difficulty: 2 },
   { id: "11-monorepo", no: "11", chapters: 4, difficulty: 2 },
-  { id: "12-performance", no: "12", chapters: 6, difficulty: 3 },
+  { id: "12-performance", no: "12", chapters: 7, difficulty: 3 },
   { id: "13-real-world-plugins", no: "13", chapters: 4, difficulty: 4 },
 ] as const
 

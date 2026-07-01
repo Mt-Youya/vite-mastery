@@ -111,6 +111,31 @@ pnpm add -D size-limit @size-limit/preset-app
 
 Or use the GitHub Actions `preinstall-size-comment` action to automatically post bundle size changes as PR comments.
 
+## Tie The Report To User Flows
+
+The biggest rectangle in a bundle report is not always the first thing to optimize. Ask whether it is on a critical user path:
+
+| Case | What to do |
+| --- | --- |
+| Large package in the initial entry chunk | Prioritize splitting or replacement |
+| Large package only on an admin page | Lazy-load it; replacement may not be necessary |
+| Large package is a chart/editor/map feature | Wrap the feature entry in dynamic import |
+| Large package is framework runtime | First check for duplicate copies |
+| Large package is polyfill/legacy output | Revisit target and compatibility strategy |
+
+Do not over-split just to make the treemap look tidy. Too many chunks increase request, cache, and preload complexity. The goal is "faster critical paths", not "every rectangle is small".
+
+## Set Bundle Budgets
+
+Budgets work best when separated:
+
+1. **Initial JS**: scripts required for the first route.
+2. **Initial CSS**: render-blocking styles.
+3. **Single async chunk**: editor, chart, map, and similar features.
+4. **Total output size**: catches accidental dependency growth.
+
+For each budget, specify gzip or brotli and whether the number refers to modern or legacy output. Otherwise CI numbers become a source of debate instead of feedback.
+
 ## Self-check
 
 1. In a bundle visualization tool, what does the area of a block represent?

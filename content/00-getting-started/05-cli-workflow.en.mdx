@@ -1,0 +1,216 @@
+---
+title: Vite CLI Workflow
+description: A practical workflow for create-vite, dev, build, preview, --host, --mode, --debug, and --force.
+order: 5
+part: 00-getting-started
+chapter: "0.5"
+difficulty: 1
+readingTime: 12
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - The difference between `create-vite` and the project-local `vite` CLI
+  - What `dev`, `build`, and `preview` actually validate
+  - When to use `--host`, `--mode`, `--debug`, and `--force`
+  - How to turn one-off commands into reusable team scripts
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - You have completed [0.2 · Your first Vite project](/docs/00-getting-started/02-first-project)
+</Callout>
+
+## Two CLIs, Two Jobs
+
+There are two command families in a Vite workflow:
+
+| Command       | Purpose                    | When to use it           |
+| ------------- | -------------------------- | ------------------------ |
+| `create-vite` | Scaffold a project         | At the start of a project |
+| `vite`        | Run the current project    | Every day after creation |
+
+`pnpm create vite@latest my-app --template react-ts` creates the template. After that, your daily workflow is powered by the locally installed `vite` package:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}
+```
+
+Do not keep running `create-vite` inside an existing app. To upgrade Vite, update the `vite` dependency in `package.json` and reinstall.
+
+## `vite dev`: The Development Server
+
+`vite`, `vite dev`, and `vite serve` are equivalent for development:
+
+```bash
+pnpm dev
+```
+
+This command validates that the config can load, dev-only plugins work, the browser can request source files through native ESM, and HMR updates the page after edits.
+
+The dev server is not a production server. It keeps development behavior enabled: on-demand transforms, error overlays, the HMR websocket, unminified output, and dependency pre-bundling caches.
+
+### Expose the Server to Your LAN
+
+By default, the dev server only listens locally. To test on a phone or another device:
+
+```bash
+pnpm vite --host 0.0.0.0
+```
+
+For teams that do this often:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "dev:host": "vite --host 0.0.0.0"
+  }
+}
+```
+
+<Callout type="warning">
+  `--host 0.0.0.0` exposes the dev server to your local network. Avoid it on untrusted networks, especially when proxying sensitive APIs.
+</Callout>
+
+### Fixed Ports for Automation
+
+If the default port is busy, Vite tries the next port. That is convenient locally, but bad for proxy setup, screenshots, and backend templates:
+
+```bash
+pnpm vite --port 5173 --strictPort
+```
+
+`--strictPort` means "fail if this port is unavailable" instead of silently switching to `5174`.
+
+## `vite build`: Production Build
+
+```bash
+pnpm build
+```
+
+The production build validates the HTML entry, the full import graph, static assets, dynamic imports, chunking, and build-only plugin hooks.
+
+Dev passing does not guarantee build passing:
+
+| Works in dev, fails in build | Why dev may miss it |
+| --------------------------- | ------------------- |
+| A build-only plugin throws | It may be skipped by `apply: "build"` in dev |
+| Dynamic import cannot be statically analyzed | The route may not be requested during dev |
+| Node-only code leaks into browser output | Build scans the full graph |
+| Path casing differs | macOS may be case-insensitive, CI/Linux is not |
+
+For docs and examples in this repo, anything touching plugins, build, or assets should be verified with `pnpm build:web` or the relevant example build.
+
+## `vite preview`: Preview Built Output
+
+`vite preview` serves an existing build output. It does not rebuild:
+
+```bash
+pnpm build
+pnpm preview
+```
+
+It validates that `dist/` can be served as static files, `base` is correct, JS/CSS/assets load, and dynamic import chunks are requested from production paths.
+
+Do not treat `vite preview` as a production server. It is for local verification, not caching, TLS, logging, auth, or multi-instance deployment.
+
+## `--mode`: Choose an Environment Mode
+
+Mode controls which `.env` files Vite loads and the value of `import.meta.env.MODE`:
+
+```bash
+vite dev --mode staging
+vite build --mode staging
+```
+
+A typical setup:
+
+```text
+.env
+.env.local
+.env.staging
+.env.production
+```
+
+`vite build --mode staging` loads `.env` and then `.env.staging`; mode-specific variables win on conflicts.
+
+`--mode` is not `NODE_ENV`. `vite build --mode development` is still a production build, but `import.meta.env.MODE` becomes `"development"` and `.env.development` is loaded. The next chapter, [1.5 · Env Variables and Modes](/docs/01-core-concepts/05-env-and-modes), covers the details.
+
+## `--debug` and `DEBUG=vite:*`
+
+When startup is slow, dependencies keep re-optimizing, or HMR fails, turn on logs before guessing:
+
+```bash
+pnpm vite --debug
+pnpm vite --debug deps
+pnpm vite --debug hmr
+```
+
+Or use namespaces:
+
+```bash
+DEBUG=vite:deps pnpm dev
+DEBUG=vite:resolve pnpm dev
+DEBUG=vite:hmr pnpm dev
+```
+
+| Namespace      | Useful for |
+| -------------- | ---------- |
+| `vite:deps`    | dependency pre-bundling and cache invalidation |
+| `vite:resolve` | aliases, conditional exports, path resolution |
+| `vite:hmr`     | HMR boundaries and circular dependencies |
+
+These logs are noisy. Use them while diagnosing, not in the default dev script.
+
+## `--force`: Rebuild Optimized Dependencies
+
+Vite caches optimized dependencies. If you linked local packages, changed overrides, or the browser still loads stale optimized output:
+
+```bash
+pnpm vite --force
+```
+
+Use it when a workspace package changes module format, dependency overrides change, or `node_modules/.vite` looks out of sync with the lockfile.
+
+Do not add `--force` to the default script. It sacrifices startup speed and should stay a repair command.
+
+## Recommended Team Scripts
+
+```json filename="package.json"
+{
+  "scripts": {
+    "dev": "vite",
+    "dev:host": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "build:staging": "vite build --mode staging",
+    "preview": "vite preview --strictPort",
+    "debug:deps": "DEBUG=vite:deps vite",
+    "debug:hmr": "DEBUG=vite:hmr vite"
+  }
+}
+```
+
+The rule is simple: keep the default path short, make risky commands explicit, split debug commands out, and keep build separate from preview.
+
+## Check Yourself
+
+1. What is the difference between `create-vite` and the `vite` CLI?
+2. Why is `--strictPort` useful in CI or screenshot tests?
+3. Is `vite build --mode staging` a development build?
+4. When should you use `--force`, and why should it not be permanent?
+
+```bash filename="exercise"
+# Design package scripts for:
+# - normal local development
+# - LAN development for mobile testing
+# - staging build
+# - strict preview of built output
+# - dependency pre-bundling debug logs
+```

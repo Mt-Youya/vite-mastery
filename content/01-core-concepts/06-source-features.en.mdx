@@ -1,0 +1,245 @@
+---
+title: "Source Features: CSS, JSON, Glob, WASM, and Workers"
+description: "Vite includes modern source handling for CSS, JSON, import.meta.glob, dynamic imports, WebAssembly, Web Workers, and CSP-sensitive assets."
+order: 6
+part: 01-core-concepts
+chapter: "1.6"
+difficulty: 2
+readingTime: 18
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - Which source features Vite supports out of the box
+  - How `import.meta.glob` turns files into module maps
+  - Where Workers, WASM, JSON, and CSS Modules fit
+  - When to use built-in features and when to write a plugin
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understand [1.1 · Native ESM](/docs/01-core-concepts/01-native-esm)
+  - Know [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+</Callout>
+
+## Built-In Features Are Still Plugin Pipeline Features
+
+Vite is not only a dev server. It ships source handling features:
+
+| Feature | Example | Result |
+| ------- | ------- | ------ |
+| CSS import | `import "./style.css"` | injected in dev, extracted in build |
+| CSS Modules | `import styles from "./a.module.css"` | class name map |
+| JSON import | `import pkg from "./package.json"` | object or named exports |
+| Static assets | `import logo from "./logo.png"` | URL string or data URL |
+| Glob import | `import.meta.glob("./pages/*.tsx")` | module map |
+| Worker | `new Worker(new URL("./w.ts", import.meta.url))` | separate thread entry |
+| WASM | `import init from "./math.wasm"` | initializer or URL |
+
+These are not magic. They run through the same resolve, load, and transform pipeline. That matters when authoring plugins: decide whether to reuse built-ins or take over a file type yourself.
+
+## CSS: Imports Are Dependencies
+
+```ts filename="src/main.ts"
+import "./global.css"
+import styles from "./button.module.css"
+
+document.body.className = styles.page
+```
+
+In dev, CSS is transformed and injected with HMR. In build, CSS participates in dependency tracing, code splitting, and extraction.
+
+### CSS Modules
+
+```css filename="button.module.css"
+.button {
+  color: rebeccapurple;
+}
+```
+
+```ts filename="Button.tsx"
+import styles from "./button.module.css"
+
+export function Button() {
+  return <button className={styles.button}>Save</button>
+}
+```
+
+Use CSS Modules for component scope. Keep resets, fonts, and theme variables in normal global CSS.
+
+### Pre-Processors
+
+Vite does not bundle Sass, Less, or Stylus compilers. It calls them if installed:
+
+```bash
+pnpm add -D sass
+```
+
+```ts
+import "./theme.scss"
+```
+
+Vite handles integration and the module graph; the pre-processor owns syntax.
+
+## JSON Imports
+
+```ts
+import pkg from "../package.json"
+import { version } from "../package.json"
+
+console.log(pkg.name, version)
+```
+
+Named imports are friendlier to tree-shaking. For very large JSON data that is only needed at runtime, prefer `fetch()` from `public/` so the full data set does not inflate the JS bundle.
+
+## `import.meta.glob`: Files to Module Maps
+
+```ts filename="routes.ts"
+const pages = import.meta.glob("./pages/**/*.tsx")
+
+for (const [path, loader] of Object.entries(pages)) {
+  console.log(path)
+  // loader is () => import("./pages/xxx.tsx")
+}
+```
+
+By default it is lazy. Values are dynamic import functions and modules load only when called.
+
+### `eager: true`
+
+```ts
+const modules = import.meta.glob("./plugins/*.ts", {
+  eager: true,
+})
+```
+
+Use eager imports for plugin registration, metadata, or theme lists that must be complete at startup. Avoid it for route components that should be lazy.
+
+### `import`: Pick a Named Export
+
+```ts
+const routeMeta = import.meta.glob("./pages/**/*.tsx", {
+  import: "meta",
+  eager: true,
+})
+```
+
+If a page exports `meta`, the map value is that export, not the entire module.
+
+### `query`: Raw Text or URLs
+
+```ts
+const markdown = import.meta.glob("./posts/*.md", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+})
+```
+
+Arguments must be literals:
+
+```ts
+const dir = "./posts"
+const posts = import.meta.glob(`${dir}/*.md`) // invalid
+```
+
+Vite must analyze the pattern at compile time.
+
+## Dynamic Import
+
+`import.meta.glob` is for compile-time-known file sets. Dynamic import is for runtime branches:
+
+```ts
+async function loadLocale(locale: string) {
+  return import(`./locales/${locale}.ts`)
+}
+```
+
+Keep the dynamic part narrow. Fully unconstrained paths are hard for the bundler to include correctly.
+
+## Web Workers
+
+```ts filename="main.ts"
+const worker = new Worker(new URL("./worker.ts", import.meta.url), {
+  type: "module",
+})
+
+worker.postMessage({ type: "start" })
+```
+
+Vite also supports query suffixes:
+
+```ts
+import WorkerConstructor from "./worker.ts?worker"
+import InlineWorker from "./worker.ts?worker&inline"
+
+const worker = new WorkerConstructor()
+const inlineWorker = new InlineWorker()
+```
+
+| Pattern | Use case |
+| ------- | -------- |
+| `new Worker(new URL(...))` | standard browser-friendly form |
+| `?worker` | compact app-level imports |
+| `?worker&inline` | small workers or fewer requests |
+
+Workers have their own module graph and worker build options.
+
+## WASM
+
+```ts
+import init from "./math.wasm"
+
+const instance = await init()
+```
+
+For manual instantiation:
+
+```ts
+import wasmUrl from "./math.wasm?url"
+
+const response = await fetch(wasmUrl)
+const result = await WebAssembly.instantiateStreaming(response)
+```
+
+Automatic initialization is simpler. URL imports are better when you need custom imports, caching, or Worker-based initialization.
+
+## CSP Notes
+
+Strict Content Security Policy affects Vite behavior:
+
+1. During dev, HMR, overlays, and style injection may need extra rules.
+2. `?inline`, inline workers, and data URLs may require `script-src`, `worker-src`, or `img-src` changes.
+
+Validate CSP on the real deployment target, not only with `vite preview`.
+
+## When to Write a Plugin
+
+Prefer built-ins when possible:
+
+| Need | First choice |
+| ---- | ------------ |
+| Collect page files | `import.meta.glob` |
+| Read Markdown text | `?raw` |
+| Get image URL | asset import or `?url` |
+| Start a Worker | standard Worker URL or `?worker` |
+| JSON config | JSON import or runtime fetch |
+
+Write a plugin when the file type is unsupported, dev/build transforms must match, HMR boundaries need control, virtual modules are required, or the build output must be analyzed.
+
+## Check Yourself
+
+1. Why must `import.meta.glob` arguments be literals?
+2. What does `eager: true` change?
+3. What are the tradeoffs of `?worker&inline`?
+4. When should large JSON data be fetched instead of imported?
+
+```ts filename="exercise"
+// Implement a docs loader:
+// - collect ./docs/**/*.md
+// - read raw markdown strings
+// - eagerly load all content
+// - return { path, content }[]
+```
+

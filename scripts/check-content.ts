@@ -58,6 +58,31 @@ function collectMdxFiles(dir: string): string[] {
   return result
 }
 
+function stripFrontmatter(content: string): string {
+  return content.replace(/^---[\s\S]*?---\s*/, "")
+}
+
+function stripV7NoteBlocks(content: string): string {
+  return content.replace(/<V7Note\b[\s\S]*?<\/V7Note>/g, "")
+}
+
+function stripCodeBlocks(content: string): string {
+  return content.replace(/```[\s\S]*?```/g, "")
+}
+
+function visibleLength(content: string): number {
+  return content.replace(/\s/g, "").length
+}
+
+function docsTargetExists(href: string): boolean {
+  if (href === "/docs") return true
+  const cleanHref = href.split("#")[0]?.split("?")[0] ?? href
+  const slug = cleanHref.replace(/^\/docs\/?/, "")
+  if (!slug) return true
+  if (fs.existsSync(path.join(CONTENT_DIR, slug))) return true
+  return fs.existsSync(path.join(CONTENT_DIR, `${slug}.zh.mdx`)) || fs.existsSync(path.join(CONTENT_DIR, `${slug}.en.mdx`))
+}
+
 function checkFile(filePath: string) {
   const content = fs.readFileSync(filePath, "utf-8")
 
@@ -88,7 +113,7 @@ function checkFile(filePath: string) {
   let inFence = false
   let hasUnlabeledFence = false
   for (const line of lines) {
-    if (/^```/.test(line)) {
+    if (line.startsWith("```")) {
       if (!inFence) {
         // 开头 fence:``` 之后若只有空白则是无语言
         if (/^```\s*$/.test(line)) hasUnlabeledFence = true
@@ -104,7 +129,9 @@ function checkFile(filePath: string) {
   }
 
   // 5. 正文不直接写"在 Vite 7 中..."——应该用 <V7Note>
-  const v7InBody = content.replace(/^---[\s\S]*?---/, "").match(/在\s*Vite\s*7\s*(中|里|时)/)
+  const body = stripFrontmatter(content)
+  const bodyWithoutV7Notes = stripV7NoteBlocks(body)
+  const v7InBody = bodyWithoutV7Notes.match(/在\s*Vite\s*7\s*(中|里|时)/)
   if (v7InBody) {
     addIssue(filePath, "正文中出现「在 Vite 7 中...」,应改用 <V7Note> 折叠组件", "warn")
   }
@@ -123,8 +150,46 @@ function checkFile(filePath: string) {
   }
 
   // 7. 检查超过 2 个版本前的差异(不该覆盖 Vite 6 及更早)
-  if (/在\s*Vite\s*[1-6]\s*(中|里|时)/.test(content)) {
+  if (fm.part !== "02-bundler-evolution" && /在\s*Vite\s*[1-6]\s*(中|里|时)/.test(bodyWithoutV7Notes)) {
     addIssue(filePath, "正文涉及 Vite 6 及更早版本差异,超过两个版本不再覆盖", "warn")
+  }
+
+  // 8. 内容体量底线:防止教程只有提纲或一笔带过
+  if (visibleLength(body) < 2400) {
+    addIssue(filePath, "正文内容过短:应补充背景、决策规则、验证方法或常见坑", "warn")
+  }
+
+  // 9. 结构底线:长教程至少应该有若干二级小节,便于阅读和跳读
+  const headingCount = (body.match(/^##\s+\S/gm) ?? []).length
+  if (headingCount < 3) {
+    addIssue(filePath, "正文结构过薄:至少需要 3 个二级标题拆分内容", "warn")
+  }
+
+  // 10. 源码导读不能只给简化实现,还应覆盖源码阅读、调用流程和边界/坑点
+  if (fm.part === "13-real-world-plugins" && /源码导读|Source Walkthrough/i.test(fm.title ?? "")) {
+    const lowerBody = body.toLowerCase()
+    const hasSourceContext = body.includes("源码") || lowerBody.includes("source")
+    const hasFlow = body.includes("流程") || body.includes("架构") || lowerBody.includes("flow") || lowerBody.includes("hook")
+    const hasCaveat =
+      body.includes("踩坑") ||
+      body.includes("边界") ||
+      body.includes("注意") ||
+      lowerBody.includes("pitfall") ||
+      lowerBody.includes("caveat") ||
+      lowerBody.includes("edge case")
+    if (!hasSourceContext || !hasFlow || !hasCaveat) {
+      addIssue(filePath, "源码导读过薄:应同时包含源码上下文、调用流程和边界/坑点", "warn")
+    }
+  }
+
+  // 11. 内部文档链接必须指向真实 doc 或 Part 总览页
+  const linkBody = stripCodeBlocks(body)
+  const markdownLinkRe = /\[[^\]]+\]\((\/docs\/[^)#?\s]+)(?:#[^)]+)?\)/g
+  for (const match of linkBody.matchAll(markdownLinkRe)) {
+    const href = match[1]
+    if (href && !docsTargetExists(href)) {
+      addIssue(filePath, `内部文档链接目标不存在: ${href}`)
+    }
   }
 }
 

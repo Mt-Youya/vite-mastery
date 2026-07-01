@@ -58,7 +58,7 @@
         { "q": "resolveId / load / transform 各自什么时机触发?", "a": "Hooks 时序图 · Part 3" },
         { "q": "import.meta.hot 背后的 WebSocket 协议长什么样?", "a": "HMR 协议拆解 · Part 4" },
         { "q": "pre / 默认 / post 顺序如何影响插件行为?", "a": "插件执行顺序 · Part 2" },
-        { "q": "为什么 build 用 Rollup 而不是 esbuild?", "a": "双引擎架构 · Part 1" }
+        { "q": "Vite 为什么从 esbuild + Rollup 演进到 Rolldown?", "a": "Bundler 演进史 · Part 2" }
       ]
     },
     "partsOverview": {
@@ -91,7 +91,7 @@
     "metaDescription": "关于 vite-mastery——为什么写这个指南、作者是谁、如何贡献。",
     "eyebrow": "关于本站",
     "title": "为什么要写这个指南?",
-    "intro1": "2026 年 3 月,Vite 8 正式发布。它带来了 Rolldown 统一打包器、Environment API、内置 Devtools 等重磅变化——但中文社区的 Vite 教程大多还停留在 Vite 5 时代:配置 vite.config.ts、调 plugin 选项、跑 build。",
+    "intro1": "2026 年 3 月,Vite 8 正式发布。它带来了 Rolldown 统一打包器、Environment API、@vitejs/devtools early preview 等重磅变化——但中文社区的 Vite 教程大多还停留在 Vite 5 时代:配置 vite.config.ts、调 plugin 选项、跑 build。",
     "intro2Strong": "本站只做一件事",
     "intro2": ":把 Vite 8 的核心黑盒拆开,讲清楚。",
     "promiseTitle": "核心承诺",
@@ -322,7 +322,7 @@
     },
     "03-plugin-system": {
       "title": "插件系统",
-      "summary": "Vite / Rolldown / Rollup 三套 API 关系、enforce 顺序、内置 Devtools。"
+      "summary": "Vite / Rolldown / Rollup 三套 API 关系、enforce 顺序、@vitejs/devtools。"
     },
     "04-hooks-deep-dive": {
       "title": "Hooks 深度解析",
@@ -344,7 +344,7 @@
     },
     "10-library-mode": { "title": "库模式", "summary": "build.lib 全解、类型声明、跨框架组件库实战。" },
     "11-monorepo": { "title": "Monorepo 工程化", "summary": "pnpm workspace、依赖预构建跨包、Turborepo 缓存策略。" },
-    "12-performance": { "title": "性能优化", "summary": "冷启动、Vite 8 Devtools、HMR 诊断、tree-shaking。" },
+    "12-performance": { "title": "性能优化", "summary": "冷启动、@vitejs/devtools、HMR 诊断、tree-shaking。" },
     "13-real-world-plugins": {
       "title": "真实世界插件赏析",
       "summary": "auto-import / plugin-pages / plugin-react v6 源码导读。"

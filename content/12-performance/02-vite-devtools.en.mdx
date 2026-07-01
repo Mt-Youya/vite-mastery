@@ -1,154 +1,320 @@
 ---
-title: Vite 8 Devtools in Practice
-description: Vite 8's built-in developer tools — how to enable them, what they show you, and how to use them to diagnose performance problems and plugin behavior.
+title: Vite DevTools in Practice
+description: The official Vite 8 debugging framework `@vitejs/devtools` — enabling modes, visualization capabilities, how it relates to vite-plugin-inspect, and how to extend it with your own Dock panel.
 order: 2
 part: 12-performance
 chapter: "12.2"
 difficulty: 2
-readingTime: 10
-updatedAt: "2026-06-26"
+readingTime: 14
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
-apiStability: "stable"
+apiStability: "experimental"
 ---
 
+<Callout type="warning" title="Early Preview">
+  `@vitejs/devtools` is currently in early preview (repo
+  [vitejs/devtools](https://github.com/vitejs/devtools), docs
+  [devtools.vite.dev](https://devtools.vite.dev/)). Field names for Dock registration, RPC,
+  and the Rolldown integration may still change between minor releases. For production
+  projects, pin to a specific patch — e.g. `@vitejs/devtools@0.x.y` — rather than `^0.x`.
+</Callout>
+
 <Callout type="note" title="What you'll learn">
-  - How to enable Vite 8 Devtools - What you can see: module graph, transform timing, plugin cost - Using
-  `vite-plugin-inspect` alongside Devtools - A practical workflow for performance diagnosis
+  - What `@vitejs/devtools` is, and where it ends and `vite-plugin-inspect` begins
+  - The three working modes: Standalone / Embedded / Rolldown integration
+  - The five panels the Rolldown integration ships: module analysis, plugin insights,
+    chunk/asset multi-view, duplicate-package detection, session compare
+  - How to add your own Dock panel to a Vite plugin via `devtools.setup(ctx)`
+  - A standard diagnosis funnel for "slow page" and "huge bundle"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Basic familiarity with Chrome DevTools
+  - You've run `dev` and `build` on a Vite 8 project
+  - You're comfortable with the `resolveId` / `load` / `transform` hooks
+    (see [Part 3 · Plugin System](/docs/03-plugin-system/02-anatomy))
+  - You know how Rolldown relates to Rollup
+    (see [Part 2 · Bundler Evolution](/docs/02-bundler-evolution/03-rolldown-architecture))
 </Callout>
 
-## Vite 8 built-in Devtools
+## 1. What is Vite DevTools, really?
 
-Vite 8 introduces built-in devtools support. Enable it in `vite.config.ts`:
+`@vitejs/devtools` isn't yet another "floating widget injected into your page." It's an **extensible debugging framework** the Vite team built for the v8 era — a shell plus a set of integrations.
+
+Internalizing that distinction prevents confusion with `vite-plugin-inspect`:
+
+| Dimension     | `vite-plugin-inspect`         | `@vitejs/devtools`                                          |
+| ------------- | ----------------------------- | ----------------------------------------------------------- |
+| Scope         | Single-purpose plugin         | Framework + integration collection                          |
+| Phases        | dev only                      | dev and build                                               |
+| Extensibility | Not extensible                | Any Vite plugin can host a Dock panel                       |
+| Core power    | Per-file transform chain + diff | Module graph / plugin insights / chunk views / dup pkgs / compare |
+| Dependencies  | Standalone                    | Vite 8+, deep Rolldown integration                          |
+
+One-liner: **inspect tells you "what did this file become?"; DevTools tells you "what does the whole dev/build ecosystem look like, and where is it expensive?"** They're complementary, not competing.
+
+## 2. How to enable it
+
+DevTools offers three modes. Pick by need.
+
+### 2.1 Install
+
+```bash
+pnpm add -D @vitejs/devtools
+```
+
+Requires **Vite 8.0+**. On older versions even the install can succeed but it won't work — `devtools` and `build.rolldownOptions.devtools` are both Vite 8 additions.
+
+### 2.2 Standalone mode: analyze after a build
+
+The lightest setup — a single line in `defineConfig`:
 
 ```ts filename="vite.config.ts"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  // Refer to the official Vite 8.1.x documentation
-  // The devtools option API is being finalized in 8.1.x
+  devtools: {
+    enabled: true,
+  },
 })
 ```
 
-<Callout type="warning">
-  The full Devtools API in Vite 8 is still being finalized as of 8.1.x. This section covers the features that are
-  already stable. Always refer to the official [vitejs.dev](https://vitejs.dev/config/) documentation.
-</Callout>
+After `pnpm build`, the terminal prints a DevTools URL (a local analysis server). Open it in a browser for the full build report. Best for CI: surface an artifact link after each build without bothering anyone during dev.
 
-## vite-plugin-inspect: plugin-level debugging
+### 2.3 Embedded mode: a Dock during dev
 
-`vite-plugin-inspect` is the most useful debugging tool in the Vite ecosystem:
-
-```bash
-pnpm add -D vite-plugin-inspect
-```
+When you want a live view in dev, go embedded:
 
 ```ts filename="vite.config.ts"
+import { DevTools } from "@vitejs/devtools"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [DevTools()],
+})
+```
+
+Run `pnpm dev` and a Dock surfaces in the bottom corner of your app (it looks like the macOS Dock). Every available DevTools integration appears as an icon. This is the default recommendation for day-to-day development.
+
+If you want the DevTools app to be browsable as a static site after production builds (rather than only via the temporary server), enable `withApp`:
+
+```ts filename="vite.config.ts"
+DevTools({
+  build: {
+    withApp: true,
+    // outDir: "custom-dir",
+  },
+})
+```
+
+### 2.4 Rolldown integration: where the build analysis lives
+
+The killer feature is the Rolldown integration. Flip a switch under `build.rolldownOptions`:
+
+```ts filename="vite.config.ts"
+import { DevTools } from "@vitejs/devtools"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [DevTools()],
+  build: {
+    rolldownOptions: {
+      devtools: {},
+    },
+  },
+})
+```
+
+Now every `pnpm build` leaves a full build snapshot inside DevTools. Session Compare diffs across those snapshots.
+
+## 3. The Rolldown integration's five panels
+
+This is the part of DevTools actually worth studying. Each capability maps to one panel.
+
+### 3.1 Module analysis
+
+Visualizes the full module graph: nodes are files, edges are imports. Click any node to see the transform chain — which plugins processed it in what order, and what each one emitted.
+
+The sequence diagram below shows the actual hook firing order when Vite/Rolldown loads a module; the DevTools transform panel surfaces this same sequence:
+
+<HookExplorer />
+
+In practice this panel answers two questions over and over:
+
+1. **"Why did this file end up in the bundle?"** Walk importers backward; you'll reach the entry within a few hops.
+2. **"Why isn't my transform hook running?"** If your plugin name doesn't appear in the chain at all, your `apply` config or `enforce` order is probably wrong.
+
+### 3.2 Plugin insights
+
+Aggregated by plugin: how many times each was called, cumulative cost, which modules it touched. This is the first stop for "dev server feels slow."
+
+DevTools groups the data into three columns — `pre` / default / `post` — by inspecting each plugin's `enforce` field. This diagram builds the intuition:
+
+<PluginPipeline />
+
+When you read the Plugin insights panel, watch for two anti-patterns:
+
+- **A `enforce: "pre"` plugin dominates total time** — it gates every file at the very front and is doing unnecessary work. Add `id` filtering, or move to on-demand `load`.
+- **A `enforce: "post"` plugin's transform count is much higher than expected** — usually post plugins are re-walking upstream sourcemaps. Narrow the trigger.
+
+### 3.3 Chunk & asset analysis (four views of the same output)
+
+The same artifact, viewed four ways:
+
+- **List** — a table sorted by size / gzip size
+- **Graph** — node graph of chunk-to-chunk dependencies
+- **Treemap** — square tree, at-a-glance "which chunk swallowed the bulk?"
+- **Flamegraph** — attribution view; great for "which npm package contributed how many bytes?"
+
+Recipe: **Treemap to find the largest chunk, Flamegraph to find contributors, List to check gzipped sizes**. That order keeps you from panicking at a 1MB uncompressed file that turns out to be 80KB gzipped.
+
+### 3.4 Package detection
+
+Automatically flags any npm package that ended up in the bundle multiple times — either version mismatches (`lodash@4.17.21` and `lodash@4.17.20` both present) or path mismatches (`node_modules/foo/node_modules/lodash` vs `node_modules/lodash`).
+
+In monorepos this panel pays for itself: a misconfigured pnpm hoisting policy can silently cause duplicate bundling.
+
+### 3.5 Session compare
+
+Diff "the last main-branch build" against "the current PR build": which chunks grew, which dependencies are new, what got pulled in unexpectedly.
+
+In CI, save the baseline session as an artifact, then run compare after the PR build. You catch size regressions during review instead of in production.
+
+## 4. When you still reach for `vite-plugin-inspect`
+
+Two scenarios DevTools doesn't cover but inspect handles well:
+
+1. **"What did each plugin do to this one file?"** — inspect's diff view is the fastest way. DevTools' Module analysis gives you the timeline, but for raw before/after text comparison on a single file, inspect wins.
+2. **"I want a URL I can paste in chat to jump straight to a transform chain"** — `/__inspect?module=...` is trivial to share.
+
+You can run both side by side — no conflict:
+
+```ts filename="vite.config.ts"
+import { DevTools } from "@vitejs/devtools"
 import { defineConfig } from "vite"
 import Inspect from "vite-plugin-inspect"
 
 export default defineConfig({
-  plugins: [
-    Inspect(),
-    // ... other plugins
-  ],
+  plugins: [DevTools(), Inspect()],
 })
 ```
 
-After starting the dev server, visit `http://localhost:5173/__inspect`:
+## 5. Adding your own Dock panel to a Vite plugin
 
-### What you can see
+The most interesting part of DevTools: **any Vite plugin can drop an icon into the Dock**. The mechanism is a new `devtools` field on the plugin object, whose `setup(ctx)` is called when DevTools is active.
 
-1. **Module list**: all loaded modules and their transform times
-2. **Transform chain**: which plugins processed each module and how long each took
-3. **Code diff**: before-and-after code comparison for each plugin
-4. **Plugin graph**: plugin call relationships
-
-### Typical use cases
-
-**Case 1: A specific file loads very slowly**
-
-Sort the module list by time to find the slowest module. Click in to see which plugin is responsible.
-
-**Case 2: A plugin isn't taking effect**
-
-Look for your plugin in the module's transform chain. If it's not in the list:
-
-- Check whether the `apply` configuration is correct
-- Check the file filter conditions
-
-**Case 3: Code is being modified unexpectedly**
-
-Use diff mode to see what each plugin changed, and find the plugin modifying content you didn't expect.
-
-## Chrome DevTools Performance
-
-For lower-level performance analysis, use Chrome DevTools directly:
-
-```bash
-# Enable the V8 profiler
-node --prof $(which vite) dev
-node --prof-process isolate-*.log > processed.txt
-```
-
-Or use Clinic.js:
-
-```bash
-pnpm add -g clinic
-clinic doctor -- node ./node_modules/.bin/vite dev
-```
-
-## Debugging transform timing
-
-Add timing instrumentation inside your own plugins:
-
-```ts
+```ts filename="my-plugin/index.ts"
+/// <reference types="@vitejs/devtools-kit" />
+import { fileURLToPath } from "node:url"
+import { defineRpcFunction } from "@vitejs/devtools-kit"
 import type { Plugin } from "vite"
 
-export function timedPlugin(wrappedPlugin: Plugin): Plugin {
-  const original = wrappedPlugin.transform
-
+export default function myPlugin(): Plugin {
   return {
-    ...wrappedPlugin,
-    transform(code, id, options) {
-      const start = performance.now()
-      const result = original?.call(this, code, id, options)
-      const elapsed = performance.now() - start
+    name: "my-analyzer",
+    devtools: {
+      setup(ctx) {
+        // 1. Host the panel's static assets (your own SPA bundled with Vite/Vue/React)
+        const clientPath = fileURLToPath(new URL("../dist/client", import.meta.url))
+        ctx.views.hostStatic("/__my-analyzer/", clientPath)
 
-      if (elapsed > 10) {
-        console.log(`[${wrappedPlugin.name}] transform ${id}: ${elapsed.toFixed(1)}ms`)
-      }
+        // 2. Register a Dock entry
+        ctx.docks.register({
+          id: "my-analyzer",
+          title: "My Analyzer",
+          icon: "ph:puzzle-piece-duotone",
+          type: "iframe",
+          url: "/__my-analyzer/",
+        })
 
-      return result
+        // 3. Expose an RPC the frontend panel can call type-safely
+        ctx.rpc.register(
+          defineRpcFunction({
+            name: "my-analyzer:get-modules",
+            type: "query",
+            setup: () => ({
+              handler: async () => {
+                // ctx.viteServer is available in dev — read the module graph
+                return Array.from(ctx.viteServer?.moduleGraph.idToModuleMap.keys() ?? [])
+              },
+            }),
+          })
+        )
+      },
     },
   }
 }
 ```
 
+Key fields on `ctx`:
+
+- `ctx.docks` — Dock registration
+- `ctx.views` — static asset hosting
+- `ctx.rpc` — bidirectional RPC registration
+- `ctx.viteConfig` — `ResolvedConfig`
+- `ctx.viteServer` — `ViteDevServer` in dev mode (`undefined` in build mode)
+- `ctx.mode` — `"dev" | "build"`
+- `ctx.cwd` / `ctx.workspaceRoot`
+
+Branch on `ctx.mode` when writing custom panels: in build mode you don't get `viteServer`, so hot-path data has to come from the build snapshot instead.
+
+## 6. Workflow: a funnel for "slow page" → root cause
+
+Treat DevTools like a funnel, coarse to fine:
+
+1. **Embedded Dock → Plugin insights**: start with "top 5 plugins by cumulative time." If 90% of time goes to one plugin, you've already localized the problem.
+2. **Same panel → Module analysis**: see which modules that plugin actually processed. Common anti-pattern: a plugin meant for `.svg` is firing on every `.ts` file.
+3. **Hand off to `vite-plugin-inspect`**: diff the slowest single file to decide whether it's sourcemap regen, AST re-parsing, or heavy string concat.
+4. **If the build is large rather than slow** → switch to Rolldown integration's **Chunk treemap**; find the largest chunk.
+5. **Drilling into a big chunk** → **Flamegraph** for attribution by npm package.
+6. **Suspect duplicate bundling** → **Package detection** pinpoints it in one glance.
+7. **Before opening a PR** → **Session compare** against main to catch size regressions.
+
+Walk this funnel and the vast majority of Vite performance problems land at a specific line number or chunk.
+
 ## Self-check
 
-1. Does `vite-plugin-inspect` need to be enabled in production? Why?
-2. How do you find out which plugin is making a specific file's transform the slowest?
-3. If your plugin doesn't appear in the transform chain, what might be the reason?
-4. What is the difference between Vite 8 Devtools and `vite-plugin-inspect`? What scenarios is each suited for?
+1. What is `@vitejs/devtools` best at vs. `vite-plugin-inspect`? Can they coexist?
+2. What's the difference between Standalone and Embedded mode? When is each more appropriate?
+3. Inside the Rolldown integration's chunk views, what question do Treemap and Flamegraph each answer?
+4. What are the minimum three steps a plugin must take to add its own Dock panel?
+5. In which mode is `ctx.viteServer` `undefined`? What does that mean for how your RPC handler must behave?
 
 ```ts filename="Exercise"
-// Use vite-plugin-inspect to diagnose the following hypothetical problem:
-// One file in your project has an extremely slow transform (over 500ms)
-// Steps:
-// 1. How do you identify which file it is?
-// 2. How do you find out which plugin is causing it?
-// 3. Once you've found it, how do you make it only process files that actually
-//    need processing — without modifying the plugin's source code?
-//    (Hint: you can wrap it in a wrapper plugin)
+// Add DevTools Dock integration to this minimal transform-timer plugin:
+// - Dock id: "transform-timer"
+// - Panel title: "Transform Timer"
+// - Expose an RPC `transform-timer:list` that returns the top 10 modules by cumulative time
+//
+// You don't need to write the frontend UI — just fill in the Node-side setup().
 
+/// <reference types="@vitejs/devtools-kit" />
+import { defineRpcFunction } from "@vitejs/devtools-kit"
 import type { Plugin } from "vite"
 
-// Write the wrapper plugin implementation:
-function withFileFilter(plugin: Plugin, pattern: RegExp): Plugin {
-  // TODO: wrap the plugin so only files whose id matches `pattern` enter transform
+interface ModuleTiming {
+  id: string
+  totalMs: number
+  count: number
+}
+
+export function transformTimerPlugin(): Plugin {
+  const timings = new Map<string, ModuleTiming>()
+
+  return {
+    name: "transform-timer",
+    transform(_code, id) {
+      const start = performance.now()
+      // In a real plugin you'd wrap the downstream transform — omitted for brevity
+      const elapsed = performance.now() - start
+      const prev = timings.get(id) ?? { id, totalMs: 0, count: 0 }
+      timings.set(id, { id, totalMs: prev.totalMs + elapsed, count: prev.count + 1 })
+    },
+    devtools: {
+      setup(ctx) {
+        // TODO: 1. Register the Dock entry
+        // TODO: 2. Register an RPC `transform-timer:list` returning the top-10 timings
+      },
+    },
+  }
 }
 ```

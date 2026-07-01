@@ -1,181 +1,336 @@
 ---
 title: "`build.lib` 配置全解"
-description: Vite 的库模式——用一个配置把你的代码发布为可被他人 npm install 的包。entry / formats / name / fileName 每个字段的含义和典型用法。
+description: Vite 库模式不只是换一个 entry。本节讲清 build.lib、formats、external、exports、CSS 产物、peerDependencies 与本地消费验证。
 order: 1
 part: 10-library-mode
 chapter: "10.1"
 difficulty: 2
-readingTime: 12
-updatedAt: "2026-06-26"
+readingTime: 18
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 库模式与应用模式的区别 - `build.lib` 的所有配置项 - ESM / CJS / UMD 三种输出格式的选择 - `package.json` 的 `exports`
-  字段如何配合
+  - 库模式和应用模式的根本差异
+  - `build.lib` 每个字段的真实用途
+  - 为什么库要 external 掉 peer dependencies
+  - `package.json exports` 如何决定消费者 import 行为
+  - 如何验证一个包真的能被别的项目使用
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 npm 包发布的基本流程 - 理解 ESM 和 CommonJS 的区别
+  - 理解 ESM 和 CommonJS 的区别
+  - 了解 [7.1 · Vite build 与 Rolldown](/docs/07-build-pipeline/01-rolldown-in-build)
 </Callout>
 
-## 库模式 vs 应用模式
+## 库模式解决的不是“部署”，而是“被别人 import”
 
-| 维度       | 应用模式         | 库模式                    |
-| ---------- | ---------------- | ------------------------- |
-| 入口       | HTML 文件        | TypeScript/JS 文件        |
-| 产物用途   | 直接部署到浏览器 | 被其他项目 import         |
-| 产物格式   | ESM(现代浏览器)  | ESM + CJS + UMD           |
-| 外部依赖   | 打包进产物       | 通常作为 peerDependencies |
-| index.html | 需要             | 不需要                    |
+应用模式产物直接部署给浏览器:
 
-## 最小库配置
+```text
+index.html -> assets/index-HASH.js -> assets/index-HASH.css
+```
+
+库模式产物发布到 npm，被其他项目作为依赖消费:
+
+```ts
+import { Button } from "@myorg/ui"
+```
+
+所以两者关注点不同:
+
+| 维度 | 应用模式 | 库模式 |
+| ---- | -------- | ------ |
+| 入口 | HTML | JS/TS public API |
+| 使用者 | 浏览器 | 另一个项目的 bundler/runtime |
+| 文件名 | hash 优先 | 稳定路径优先 |
+| 依赖 | 通常打进应用包 | 常把框架列为 peer |
+| package.json | 不影响浏览器入口 | 决定消费者能 import 什么 |
+| CSS | 自动注入页面 | 需要考虑如何让消费者引入 |
+
+写库时最重要的问题不是“能不能 build”，而是“消费者用 Node、Vite、Next、Vitest、tsc 时能不能解析到正确文件和类型”。
+
+## 最小配置
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
 import { resolve } from "node:path"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   build: {
     lib: {
-      // 入口文件:库的公开 API 从这里导出
       entry: resolve("src/index.ts"),
-
-      // UMD 格式时的全局变量名
-      name: "MyLibrary",
-
-      // 输出文件名规则
-      fileName: "my-library",
-      // 默认产物:
-      //   my-library.js (ES Module)
-      //   my-library.umd.js (UMD)
-    },
-
-    // 不打包这些依赖(由消费者安装)
-    rollupOptions: {
-      external: ["react", "react-dom"],
-      output: {
-        globals: {
-          react: "React",
-          "react-dom": "ReactDOM",
-        },
-      },
+      formats: ["es", "cjs"],
+      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
     },
   },
 })
 ```
 
-## `build.lib` 详细配置
+`src/index.ts` 应该只导出公共 API:
 
-### `entry` — 入口文件
+```ts filename="src/index.ts"
+export { Button } from "./components/Button"
+export { createTheme } from "./theme"
+export type { ButtonProps, ThemeOptions } from "./types"
+```
+
+不要让消费者 import 深层私有路径:
+
+```ts
+import { internalToken } from "@myorg/ui/dist/private/theme" // 不稳定
+```
+
+如果某个路径要公开，就把它写进 `exports`。
+
+## `build.lib` 字段
+
+### `entry`
+
+单入口:
 
 ```ts
 lib: {
-  // 单入口
   entry: "src/index.ts",
+}
+```
 
-  // 多入口(每个入口生成独立文件)
+多入口:
+
+```ts
+lib: {
   entry: {
     index: "src/index.ts",
-    utils: "src/utils/index.ts",
-    components: "src/components/index.ts",
+    react: "src/react.ts",
+    theme: "src/theme.ts",
   },
-},
+}
 ```
 
-### `formats` — 输出格式
+多入口适合明确公开多个子路径:
+
+```ts
+import { Button } from "@myorg/ui/react"
+import { tokens } from "@myorg/ui/theme"
+```
+
+### `formats`
 
 ```ts
 lib: {
-  formats: ["es", "cjs"],  // 默认:["es", "umd"]
-  // "es" → ES Module(.js)
-  // "cjs" → CommonJS(.cjs)
-  // "umd" → UMD(需要 name)
-  // "iife" → 立即执行函数(浏览器全局变量)
-},
+  formats: ["es", "cjs"],
+}
 ```
 
-**推荐组合**:
+选择建议:
 
-- 现代 npm 包:只用 `["es", "cjs"]`
-- 需要 CDN 引用:加 `"umd"` 或 `"iife"`
+| 格式 | 适合场景 |
+| ---- | -------- |
+| `es` | 现代 bundler、tree-shaking、默认首选 |
+| `cjs` | 兼容仍使用 `require()` 的工具链 |
+| `umd` | CDN `<script>` 全局变量 |
+| `iife` | 极少数直接浏览器全局场景 |
 
-### `fileName` — 产物文件名
+现代 npm 包通常先考虑 `["es"]` 或 `["es", "cjs"]`。只有明确要支持 CDN 全局变量时，才输出 UMD/IIFE。
+
+### `name`
+
+`name` 只在 `umd` / `iife` 这类全局变量格式中有意义:
 
 ```ts
 lib: {
-  // 字符串格式:文件名模板
-  fileName: "my-lib",
-  // es: my-lib.js
-  // cjs: my-lib.cjs
+  name: "MyLibrary",
+  formats: ["es", "umd"],
+}
+```
 
-  // 函数格式:完全自定义
+如果只输出 `es` / `cjs`，`name` 不是核心字段。
+
+### `fileName` 与 `cssFileName`
+
+```ts
+lib: {
   fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,
-},
+  cssFileName: "style",
+}
 ```
 
-## 配套的 package.json
+`fileName` 决定 JS 产物路径，`cssFileName` 决定库导入 CSS 时生成的 CSS 文件名。对发布包来说，文件名稳定比 hash 更重要，因为 `exports` 会指向这些路径。
 
-库模式的 `package.json` 需要正确设置 `exports`:
+## external 与 peerDependencies
+
+React 组件库不应该把 React 打进自己的库产物:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    lib: {
+      entry: "src/index.ts",
+      formats: ["es", "cjs"],
+    },
+    rolldownOptions: {
+      external: ["react", "react-dom", "react/jsx-runtime"],
+    },
+  },
+})
+```
+
+同时在 `package.json` 声明:
 
 ```json filename="package.json"
 {
-  "name": "@myorg/my-lib",
-  "version": "1.0.0",
-  "type": "module",
-
-  "exports": {
-    ".": {
-      "import": "./dist/index.js", // ESM
-      "require": "./dist/index.cjs", // CJS
-      "types": "./dist/index.d.ts" // TypeScript 类型
-    },
-    "./utils": {
-      "import": "./dist/utils.js",
-      "require": "./dist/utils.cjs",
-      "types": "./dist/utils.d.ts"
-    }
-  },
-
-  "main": "./dist/index.cjs", // 旧版兼容
-  "module": "./dist/index.js", // 旧版 ESM
-  "types": "./dist/index.d.ts", // TypeScript
-
-  "files": ["dist"],
-
   "peerDependencies": {
-    "react": ">=18"
+    "react": ">=18",
+    "react-dom": ">=18"
+  },
+  "devDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }
 ```
 
-## 完整示例:React 组件库配置
+为什么要 external:
+
+1. 避免消费者应用里出现两份 React。
+2. 让消费者控制 React 版本。
+3. 减小库包体积。
+4. 避免 hooks、context、renderer 因多实例失效。
+
+不是所有依赖都应该 external。小型纯函数依赖如果是实现细节，可以打进库里；框架、运行时、宿主应用必须单例的依赖，应该做 peer。
+
+## `exports`:真正的公开 API
+
+现代包解析优先看 `exports`:
+
+```json filename="package.json"
+{
+  "name": "@myorg/ui",
+  "type": "module",
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./theme": {
+      "types": "./dist/theme.d.ts",
+      "import": "./dist/theme.js",
+      "require": "./dist/theme.cjs"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}
+```
+
+注意几点:
+
+- `exports` 没列出的路径，消费者不能稳定 import。
+- `types` 应该和每个公开入口对应。
+- `main` / `module` 是旧工具兼容，不应替代 `exports`。
+- CSS 如果要消费者手动引入，也应作为公开子路径暴露。
+
+消费者用法:
+
+```ts
+import { Button } from "@myorg/ui"
+import { tokens } from "@myorg/ui/theme"
+import "@myorg/ui/style.css"
+```
+
+## CSS 怎么交付
+
+组件库有三种常见策略:
+
+| 策略 | 用法 | 适合 |
+| ---- | ---- | ---- |
+| 单独 CSS 文件 | `import "@myorg/ui/style.css"` | 传统组件库 |
+| 每组件 CSS side effect | 组件入口内部 import CSS | 小型内部库 |
+| CSS-in-JS / runtime styles | JS 内生成样式 | 主题高度动态 |
+
+Vite 库模式会把库里 import 的 CSS 输出为 CSS 文件。你需要决定消费者如何拿到它。
+
+如果希望消费者显式引入:
+
+```json filename="package.json"
+{
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./style.css": "./dist/style.css"
+  },
+  "sideEffects": ["**/*.css"]
+}
+```
+
+`sideEffects` 很重要。否则某些 bundler 可能认为 CSS import 可被 tree-shaking 掉。
+
+## 类型声明不由 Vite 自动完整解决
+
+Vite 负责 JS/CSS/assets 打包，不负责把复杂 TS 类型声明完整打好。通常需要配合:
+
+- `tsc --emitDeclarationOnly`
+- `vue-tsc`
+- `tsdown` / `rolldown-plugin-dts`
+- API Extractor
+
+本章只讲 `build.lib`，类型声明详见 [10.2 · 类型声明文件生成](/docs/10-library-mode/02-type-declarations)。
+
+## 本地消费验证
+
+不要只看 `dist/` 是否生成。至少做一次“消费者项目”验证:
+
+```bash
+pnpm build
+pnpm pack
+```
+
+然后在临时 Vite app 中安装 tarball:
+
+```bash
+pnpm create vite@latest consumer --template react-ts
+cd consumer
+pnpm add ../myorg-ui-1.0.0.tgz
+pnpm dev
+pnpm build
+```
+
+验证:
+
+1. `import { Button } from "@myorg/ui"` 有类型提示。
+2. `import "@myorg/ui/style.css"` 能加载样式。
+3. `pnpm build` 不出现重复 React 或解析失败。
+4. Node/CJS 消费路径如果声明了，也能跑通。
+
+## 完整 React 组件库示例
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
-import react from "@vitejs/plugin-react"
 import { resolve } from "node:path"
+import react from "@vitejs/plugin-react"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   plugins: [react()],
   build: {
     lib: {
-      entry: resolve("src/index.ts"),
-      name: "MyComponentLib",
+      entry: {
+        index: resolve("src/index.ts"),
+        theme: resolve("src/theme.ts"),
+      },
       formats: ["es", "cjs"],
-      fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
+      fileName: (format, entryName) => `${entryName}.${format === "es" ? "js" : "cjs"}`,
+      cssFileName: "style",
     },
-    rollupOptions: {
-      // 不打包 react,让消费者自己提供
-      external: ["react", "react/jsx-runtime", "react-dom"],
+    rolldownOptions: {
+      external: ["react", "react-dom", "react/jsx-runtime"],
       output: {
-        globals: {
-          react: "React",
-          "react/jsx-runtime": "jsxRuntime",
-          "react-dom": "ReactDOM",
-        },
-        // 防止 CSS 被内联进 JS
         assetFileNames: "assets/[name][extname]",
       },
     },
@@ -185,29 +340,17 @@ export default defineConfig({
 
 ## 自测题
 
-1. 库模式和应用模式的主要区别是什么?
-2. 为什么库的 peerDependencies 里的包要用 `rollupOptions.external` 排除?
-3. `package.json` 里的 `exports` 字段有什么用?与 `main` 字段的区别?
-4. 什么情况下需要输出 UMD 格式?
+1. 为什么组件库通常要把 React 放进 `peerDependencies` 并 external?
+2. `exports` 和 `main` 的职责有什么区别?
+3. CSS 文件为什么可能需要写进 `sideEffects`?
+4. 多入口 `build.lib.entry` 和 `package.json exports` 应该如何对应?
+5. 为什么库模式构建后还要创建 consumer 项目验证?
 
 ```ts filename="练习"
-// 配置一个工具函数库的 Vite build:
-// - 纯 TypeScript,无框架依赖
-// - 输出 ESM + CJS 两种格式
-// - 多个入口:主入口 / date 工具 / string 工具
-// - 不打包任何 node_modules 依赖
-
-import { defineConfig } from "vite"
-import { resolve } from "node:path"
-
-export default defineConfig({
-  build: {
-    lib: {
-      // TODO
-    },
-    rollupOptions: {
-      // TODO
-    },
-  },
-})
+// 配置一个工具函数库:
+// - 入口: index / date / string
+// - 只输出 ESM + CJS
+// - lodash-es 是实现细节,可以打包进去
+// - zod 需要由消费者提供,应 external + peerDependencies
+// - exports 暴露 "."、"./date"、"./string"
 ```

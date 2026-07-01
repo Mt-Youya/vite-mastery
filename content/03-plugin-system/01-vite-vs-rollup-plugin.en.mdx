@@ -1,82 +1,224 @@
 ---
 title: Vite Plugins vs Rollup Plugins
-description: How the two hook systems coexist and interoperate, and a decision flow for choosing which type of plugin to write.
+description: How Vite, Rollup, and Rolldown plugin hooks overlap, where they differ, and how to decide which plugin shape to author.
 order: 1
 part: 03-plugin-system
 chapter: "3.1"
 difficulty: 2
-readingTime: 12
-updatedAt: "2026-06-25"
+readingTime: 16
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
-<Callout type="note" title="What you'll learn">
-  - The relationship between Vite plugins and Rollup plugins - When Vite-only hooks are called - Whether a Rollup plugin
-  can be used in Vite without modification
+<Callout type="note" title="What you will learn">
+  - How Vite, Rollup, and Rolldown plugins relate
+  - Which hooks are portable and which are Vite-only
+  - Why dev server hooks differ from production build hooks
+  - A practical decision flow for plugin authors
 </Callout>
 
-## The one-sentence summary
+<Callout type="tip" title="Prerequisites">
+  - Understand [1.2 · Vite 8 unified architecture](/docs/01-core-concepts/02-unified-architecture)
+  - Read [2.4 · Plugin API compatibility](/docs/02-bundler-evolution/04-plugin-api-compat)
+</Callout>
 
-**A Vite plugin is a Rollup plugin plus a few Vite-only hooks.** This means most Rollup plugins work in Vite out of the box, but the reverse is not always true.
+## The Short Version
 
-## Shared hooks (used in both dev and build)
+**A Vite plugin is Rollup/Rolldown-compatible hooks plus Vite-only hooks plus dev server semantics.**
 
-These hooks are called during both the dev and build phases:
+That means:
 
-- `options`
-- `buildStart`
-- `resolveId`
-- `load`
-- `transform`
-- `buildEnd`
-- `generateBundle` (build only)
-- `writeBundle` (build only)
+1. `resolveId`, `load`, `transform`, and `generateBundle` come from the Rollup plugin model.
+2. Vite 8 builds with Rolldown, while keeping Rollup-style plugin compatibility.
+3. `config`, `configureServer`, `transformIndexHtml`, and `handleHotUpdate` are Vite-specific.
+4. Dev mode does not perform a full bundle, so build-only hooks do not behave like production.
 
-## Vite-only hooks
+Most pure transform Rollup plugins can be used in Vite. A Vite plugin that depends on the dev server, HTML handling, or HMR cannot be dropped into Rollup unchanged.
 
-| Hook                     | When it fires                   | Typical use case                      |
-| ------------------------ | ------------------------------- | ------------------------------------- |
-| `config`                 | Before user config is resolved  | Inject defaults, modify aliases       |
-| `configResolved`         | After config is finalized       | Read the final config for later setup |
-| `configureServer`        | When the dev server starts      | Inject middleware                     |
-| `configurePreviewServer` | When the preview server starts  | Same as above, but for `vite preview` |
-| `transformIndexHtml`     | When `index.html` is processed  | Inject scripts, meta tags, or data    |
-| `handleHotUpdate`        | When an HMR update is triggered | Customize hot update behavior         |
+## The Three-Layer Model
 
-## A minimal Vite plugin
+```text
+Vite plugin
+  ├─ Vite-only hooks: config / configureServer / transformIndexHtml / handleHotUpdate
+  ├─ Universal build hooks: resolveId / load / transform / renderChunk / generateBundle
+  └─ Rolldown/Rollup compatibility layer
+```
 
-```ts
-// my-plugin.ts
+| Shape | Target | Typical capabilities | Works directly in Vite |
+| ----- | ------ | -------------------- | ---------------------- |
+| Rollup plugin | Rollup/Rolldown build pipeline | resolution, loading, transforms, output hooks | usually |
+| Rolldown plugin | Rolldown build pipeline | build-specific Rolldown extension points | for build |
+| Vite plugin | Vite dev + build lifecycle | config, dev server, HTML, HMR, build | yes |
+
+Vite plugins are not a replacement for Rollup plugins. They place the same build hooks inside a broader dev server model.
+
+## Portable Hooks
+
+Hooks that only care about resolving, loading, transforming, and outputting modules are easier to reuse:
+
+| Hook | Purpose | Common use |
+| ---- | ------- | ---------- |
+| `options` | adjust build options | defaults |
+| `buildStart` | initialize work | caches, file scans |
+| `resolveId` | resolve import IDs | aliases, virtual modules |
+| `load` | provide module source | virtual modules, custom files |
+| `transform` | transform source | DSL compilation, code injection |
+| `renderChunk` | post-process chunks | wrappers |
+| `generateBundle` | inspect final bundle | reports, emitted files |
+| `writeBundle` | after writing output | sourcemap upload |
+
+If your plugin uses only these hooks and does not touch Vite's server, config, or module graph, author it as a Rollup/Rolldown-compatible plugin.
+
+```ts filename="virtual-version.ts"
 import type { Plugin } from "vite"
 
-export function myPlugin(): Plugin {
+export function virtualVersionPlugin(version: string): Plugin {
+  const virtualId = "virtual:app-version"
+  const resolvedId = "\0" + virtualId
+
   return {
-    name: "my-plugin",
+    name: "virtual-version",
     resolveId(id) {
-      if (id === "virtual:hello") return id
+      if (id === virtualId) return resolvedId
     },
     load(id) {
-      if (id === "virtual:hello") {
-        return `export default "hello from virtual module"`
+      if (id === resolvedId) {
+        return `export const version = ${JSON.stringify(version)}`
       }
     },
   }
 }
 ```
 
-This is a complete Vite plugin. **It only uses Rollup hooks**, so it would also work in a standalone Rollup project.
+This does not rely on Vite-only hooks, so it is cheap to reuse elsewhere.
 
-## Decision tree: which type should I write?
+## Vite-Only Hooks
 
-```text
-Does your plugin use the dev server, index.html, or HMR?
-  ├── Yes → Write a Vite plugin (use enforce / apply to control scope)
-  └── No  → Write a Rollup plugin; Vite will handle compatibility automatically
+| Hook | Why it is Vite-specific |
+| ---- | ----------------------- |
+| `config` | Vite owns config merging, mode, and env loading |
+| `configResolved` | reads Vite's final `ResolvedConfig` |
+| `configureServer` | Vite owns the dev server and middleware stack |
+| `configurePreviewServer` | `vite preview` is a Vite server |
+| `transformIndexHtml` | Vite treats HTML as an entry |
+| `handleHotUpdate` | HMR, module graph, and websocket are Vite dev concepts |
+
+Example:
+
+```ts filename="dev-health-plugin.ts"
+import type { Plugin } from "vite"
+
+export function devHealthPlugin(): Plugin {
+  return {
+    name: "dev-health",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use("/__health", (_req, res) => {
+        res.setHeader("Content-Type", "application/json")
+        res.end(JSON.stringify({ ok: true }))
+      })
+    },
+  }
+}
 ```
 
-## Self-check
+Rollup cannot run this plugin because it has no dev server middleware.
 
-1. Why is `transformIndexHtml` Vite-only rather than a standard Rollup hook?
-2. Will a plugin that uses `configureServer` be called during the build phase?
-3. Write a virtual module plugin that exports the current git commit hash.
+## Dev vs Build Hook Behavior
+
+Vite dev is request-driven. Build scans and bundles the full graph.
+
+| Question | Dev | Build |
+| -------- | --- | ----- |
+| When is a module processed? | when requested by the browser | while traversing the full graph |
+| Is a bundle generated? | no full output bundle | yes |
+| `generateBundle` | not useful | core output hook |
+| `configureServer` | called | not called |
+| `transform` | per requested module | per bundled module |
+| HMR | yes | no |
+
+Use `apply` when the plugin only makes sense in one phase:
+
+```ts
+export function reportBundleSize(): Plugin {
+  return {
+    name: "report-bundle-size",
+    apply: "build",
+    generateBundle(_, bundle) {
+      console.log(Object.keys(bundle).length)
+    },
+  }
+}
+```
+
+## Ordering
+
+Vite plugin order is grouped:
+
+```text
+user pre plugins
+Vite core plugins
+user normal plugins
+Vite build plugins
+user post plugins
+```
+
+`enforce: "pre"` and `"post"` control where a plugin sits in Vite's queue. This is separate from hook-level `order`.
+
+If an MDX plugin must run before React, use `enforce: "pre"`. If an analyzer needs final output, use `apply: "build"` and `generateBundle`.
+
+## Decision Flow
+
+```text
+Need dev server / middleware / websocket?
+  ├─ yes -> Vite plugin
+  └─ no
+      Need to transform index.html?
+        ├─ yes -> Vite plugin
+        └─ no
+            Need custom HMR boundaries?
+              ├─ yes -> Vite plugin
+              └─ no
+                  Only resolve/load/transform/output hooks?
+                    ├─ yes -> Rollup/Rolldown-compatible plugin
+                    └─ no -> clarify the runtime first
+```
+
+| Requirement | Recommended shape |
+| ----------- | ----------------- |
+| Convert `.md` to JS modules | Rollup/Rolldown-compatible plugin |
+| Add `/api/mock` to dev server | Vite plugin |
+| Inject script into HTML | Vite plugin |
+| Analyze build output size | build-only Vite plugin or Rolldown plugin |
+| Implement HMR for `.yaml` | Vite plugin |
+| Publish to multiple bundlers | depend on universal hooks only |
+
+## Common Misconceptions
+
+### A Rollup plugin fully runs during Vite dev
+
+Not always. Dev does not produce a full output bundle, so output hooks like `generateBundle` are not useful there.
+
+### A Vite plugin is automatically Rollup-compatible
+
+If it uses a Vite-only hook, it is not Rollup-compatible.
+
+### All logic belongs in `transform`
+
+It does not. Put path resolution in `resolveId`, virtual source in `load`, and output analysis in `generateBundle`. Overusing `transform` makes plugins slow and hard to debug.
+
+## Check Yourself
+
+1. Why is `transformIndexHtml` Vite-only?
+2. Why are `resolveId` / `load` / `transform` easier to reuse across tools?
+3. Why is `generateBundle` not a good dev-mode debugging entry point?
+4. What plugin shape should a dev mock API use?
+
+```ts filename="exercise"
+// Pick the plugin shape and explain why:
+// 1. Convert .txt files into JS string modules
+// 2. Add /__debug that returns the current module graph
+// 3. Emit bundle-size.json after build
+// 4. Inject an analytics script into index.html
+```

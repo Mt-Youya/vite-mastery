@@ -1,4 +1,4 @@
-import type { Plugin, RenderedChunk, OutputBundle } from "vite"
+import type { Plugin, OutputBundle } from "vite"
 
 interface AnalyzerOptions {
   /** 体积阈值(字节),超过时警告 */

@@ -109,16 +109,20 @@ react({
 })
 
 // 迁移到 v6:
-// v6 支持同样的 babel 选项,但需要手动安装 @babel/core:
-pnpm add -D @babel/core babel-plugin-styled-components
+// v6 不再把 Babel 当作 react() 的内置选项。
+// 需要 Babel 插件时,改用 @rolldown/plugin-babel 组合。
+pnpm add -D @rolldown/plugin-babel @babel/core babel-plugin-styled-components
 
-// v6 配置:
-react({
-  babel: {
-    plugins: ["babel-plugin-styled-components"],
-  },
+import babel from "@rolldown/plugin-babel"
+
+export default defineConfig({
+  plugins: [
+    react(),
+    babel({
+      plugins: ["babel-plugin-styled-components"],
+    }),
+  ],
 })
-// ← 写法一样,v6 在检测到 babel 选项时会自动使用 Babel 处理
 ```
 
 ## 插件兼容性自查

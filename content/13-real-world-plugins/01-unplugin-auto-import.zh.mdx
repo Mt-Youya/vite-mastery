@@ -154,6 +154,50 @@ function generateDtsContent(imports: ImportMap): string {
 // auto-import.d.ts 里可以包含 ESLint globals
 ```
 
+## 源码阅读顺序
+
+读 `unplugin-auto-import` 不建议从 transform 函数直接跳进去。更稳的顺序是:
+
+1. **入口导出**:先看它如何通过 `createUnplugin` 导出 Vite、Rollup、Webpack 等不同适配版本。
+2. **options 解析**:看 presets、dirs、imports、dts、eslintrc、include/exclude 如何被归一化。
+3. **扫描器**:看插件如何从源码里找未声明标识符,以及如何避免把属性名、局部变量、类型名误判成全局 API。
+4. **注入器**:看 import 语句如何插到正确位置,如何保留 shebang、注释、source map。
+5. **声明文件生成**:看 `.d.ts` 和 ESLint globals 如何根据最终 import map 生成。
+6. **缓存与 watcher**:看目录扫描、配置变化、类型文件更新如何避免每次 transform 都全量重算。
+
+源码里真正重要的不是“加一行 import”,而是围绕这行 import 建立的一整套索引、过滤、缓存和类型体验。
+
+## 调用流程
+
+一次文件 transform 大致可以拆成这条流程:
+
+```text
+用户保存文件
+  -> Vite 触发 transform(code, id)
+  -> include/exclude 判断是否处理
+  -> AST/词法扫描收集候选标识符
+  -> 排除已有 import、局部声明、类型位置
+  -> 根据 import map 找到来源包
+  -> 用 MagicString 注入 import
+  -> 返回 code + sourcemap
+  -> 更新用到的标识符缓存
+  -> buildEnd / watcher 阶段刷新 d.ts
+```
+
+这条流程解释了为什么 auto-import 不能只靠 `resolveId`。`resolveId` 只能决定一个模块路径如何解析,但 auto-import 的问题是“当前源码里缺了哪些 import”。这个判断必须看到完整源码,所以核心逻辑自然落在 `transform`。
+
+## 边界与坑点
+
+<Callout type="warning" title="auto-import 插件最容易踩的坑">
+  - 正则扫描会把对象属性、字符串、注释里的名字误认为变量
+  - 没有排除已有 import 会生成重复导入
+  - 没有区分 type-only 使用会把类型引用变成运行时 import
+  - `.d.ts` 更新不及时会导致编辑器提示和实际 transform 不一致
+  - barrel preset 太大时,每个文件都扫描全量 API 会拖慢 HMR
+</Callout>
+
+生产级实现通常会用 AST、作用域分析和 MagicString。AST 解决“这个标识符到底是不是自由变量”,作用域分析解决“它是不是已经在本文件声明”,MagicString 解决“插入 import 后 sourcemap 还能不能用”。
+
 ## 自测题
 
 1. 为什么 `unplugin-auto-import` 选择用 `transform` 而不是 `load` hook 注入 import?

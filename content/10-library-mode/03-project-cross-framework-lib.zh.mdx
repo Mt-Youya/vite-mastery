@@ -107,7 +107,7 @@ export default defineConfig({
       formats: ["es", "cjs"],
       fileName: (format) => `index.${format === "es" ? "js" : "cjs"}`,
     },
-    rollupOptions: {
+    rolldownOptions: {
       external: ["react", "react/jsx-runtime", "@ui-kit/core"],
       output: {
         globals: { react: "React", "@ui-kit/core": "UIKitCore" },
@@ -183,7 +183,7 @@ import { Button } from "@ui-kit/svelte"
 ## 自测题
 
 1. 为什么要把核心逻辑单独放在 `core` 包里,而不是直接在每个框架适配层里重复实现?
-2. `rollupOptions.external` 里为什么要把 `@ui-kit/core` 也加进去?
+2. `rolldownOptions.external` 里为什么要把 `@ui-kit/core` 也加进去?
 3. 如果用户同时安装了 `@ui-kit/react` 和 `@ui-kit/vue`,会有两份 `core` 包的代码吗?
 4. 这个库的 CSS 如何处理?如果用户不用 Tailwind,怎么让样式生效?
 

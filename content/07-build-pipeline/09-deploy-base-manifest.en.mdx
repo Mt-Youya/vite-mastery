@@ -1,0 +1,211 @@
+---
+title: Deployment Paths, Base, and Manifests
+description: Production deployment is more than vite build. Learn base paths, relative deployments, static hosting, chunk 404s, manifests, modulepreload, and cache policy.
+order: 9
+part: 07-build-pipeline
+chapter: "7.9"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - How `base` affects JS, CSS, images, and dynamic chunks
+  - How to deploy to root paths, sub paths, and relative paths
+  - Why double-clicking `dist/index.html` often fails
+  - How manifests and cache policy work together
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Understand [7.1 · Production Build](/docs/07-build-pipeline/01-rolldown-in-build)
+  - Understand [0.5 · CLI preview](/docs/00-getting-started/05-cli-workflow)
+</Callout>
+
+## Most Deployment Bugs Are Path Bugs
+
+Build output:
+
+```text
+dist/
+  index.html
+  assets/
+    index-B7PI925R.js
+    index-ChJ_j-JJ.css
+    logo-BuPIv-2h.svg
+```
+
+At the domain root, the default `base: "/"` usually works:
+
+```text
+https://example.com/assets/index-B7PI925R.js
+```
+
+If deployed under a sub path:
+
+```text
+https://example.com/docs/
+```
+
+The correct asset path is:
+
+```text
+https://example.com/docs/assets/index-B7PI925R.js
+```
+
+Configure:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  base: "/docs/",
+})
+```
+
+## Three Base Modes
+
+| Deployment | `base` | Notes |
+| ---------- | ------ | ----- |
+| domain root | `"/"` | default |
+| fixed sub path | `"/docs/"` | GitHub Pages, reverse proxy subdir |
+| unknown final path | `"./"` | relative deployment |
+
+With a fixed sub path, Vite rewrites JS-imported assets, CSS `url(...)`, HTML references, and dynamic import chunks.
+
+Relative base is useful when the final mount path is unknown, but it relies on modern browser features such as `import.meta`.
+
+## `import.meta.env.BASE_URL`
+
+For runtime URL construction:
+
+```ts
+const imageUrl = `${import.meta.env.BASE_URL}images/banner.png`
+```
+
+Prefer module graph imports when possible:
+
+```ts
+import bannerUrl from "./assets/banner.png"
+```
+
+Use `BASE_URL` mainly for `public/` assets or runtime path construction. It must appear as a literal expression.
+
+## Why Double-Clicking `dist/index.html` Fails
+
+Production output uses ESM:
+
+```html
+<script type="module" src="/assets/index-B7PI925R.js"></script>
+```
+
+Opening it with `file://` can trigger CORS, module loading, and absolute path issues. Use an HTTP server:
+
+```bash
+pnpm build
+pnpm preview
+```
+
+or:
+
+```bash
+npx serve dist
+```
+
+Validate build output over HTTP, not by opening files directly.
+
+## Manifests
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    manifest: true,
+  },
+})
+```
+
+This emits:
+
+```text
+dist/.vite/manifest.json
+```
+
+Example:
+
+```json filename="dist/.vite/manifest.json"
+{
+  "index.html": {
+    "file": "assets/index-B7PI925R.js",
+    "css": ["assets/index-ChJ_j-JJ.css"],
+    "assets": ["assets/logo-BuPIv-2h.svg"],
+    "isEntry": true
+  }
+}
+```
+
+Use it for backend template injection, CI size analysis, preload header generation, and build comparison. Do not treat it as a browser runtime API.
+
+## Modulepreload and Dynamic Chunks
+
+Vite emits modulepreload hints and optimizes async chunk loading. Your deployment must serve all referenced files:
+
+```text
+/assets/entry.js
+/assets/vendor.js
+/assets/route-dashboard.js
+```
+
+If only the entry file is accessible and chunks are blocked or missing, the browser may report:
+
+```text
+Failed to fetch dynamically imported module
+```
+
+That is often a deployment path, cache, or static file rule problem.
+
+## Cache Policy
+
+Hashed files:
+
+```text
+assets/index-B7PI925R.js
+assets/index-ChJ_j-JJ.css
+```
+
+Recommended policy:
+
+| File | Cache-Control |
+| ---- | ------------- |
+| `index.html` | `no-cache` or short cache |
+| `assets/*` | `public, max-age=31536000, immutable` |
+
+HTML should update quickly because it points to the latest hashed assets. Hashed assets can be cached for a long time.
+
+The dangerous setup is long-cached HTML. Users keep old HTML that references chunks already removed from the server.
+
+## Deployment Checklist
+
+1. `pnpm build` succeeds.
+2. `pnpm preview` loads routes, images, and dynamic imports.
+3. `base` matches the real deployment path.
+4. Deep route refreshes are handled by the server.
+5. The whole `assets/` directory is public.
+6. HTML has short cache; hashed assets have long cache.
+7. Manifest entry keys match `rolldownOptions.input`.
+
+## Check Yourself
+
+1. What should `base` be for `https://example.com/app/`?
+2. Why should `index.html` not be long-cached?
+3. What deployment issues cause `Failed to fetch dynamically imported module`?
+4. Who should read the manifest, and why not browser business code?
+
+```ts filename="exercise"
+// Design deployment for:
+// - app mounted at /dashboard/
+// - backend reads manifest
+// - assets are long-cached
+// - index.html is short-cached
+// Include Vite base, manifest config, and cache policy.
+```

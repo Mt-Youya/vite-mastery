@@ -1,0 +1,223 @@
+---
+title: Env Variables and Modes
+description: Understand import.meta.env, .env priority, VITE_ prefixes, envPrefix, loadEnv, HTML replacements, and the difference between mode and NODE_ENV.
+order: 5
+part: 01-core-concepts
+chapter: "1.5"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="What you will learn">
+  - Built-in constants on `import.meta.env`
+  - `.env`, `.env.local`, and `.env.[mode]` priority
+  - Why only `VITE_` variables are exposed to browser code
+  - What `--mode`, `NODE_ENV`, and `loadEnv` are for
+  - How to add TypeScript completion for custom variables
+</Callout>
+
+<Callout type="tip" title="Prerequisites">
+  - Read [0.5 · Vite CLI Workflow](/docs/00-getting-started/05-cli-workflow)
+</Callout>
+
+## `import.meta.env` Is Compile-Time Data
+
+Vite exposes environment data on `import.meta.env`:
+
+```ts
+if (import.meta.env.DEV) {
+  console.log("development only")
+}
+
+if (import.meta.env.PROD) {
+  startAnalytics()
+}
+```
+
+During dev these are globals. During build they are statically replaced, which lets dead branches be removed.
+
+```ts filename="src/debug.ts"
+if (import.meta.env.DEV) {
+  console.log("debug panel")
+}
+```
+
+In production, `import.meta.env.DEV` becomes `false`, and the minifier can remove the branch.
+
+## Built-In Constants
+
+| Constant | Type | Meaning |
+| -------- | ---- | ------- |
+| `import.meta.env.MODE` | `string` | active mode, such as `development` |
+| `import.meta.env.BASE_URL` | `string` | public base path from the `base` config |
+| `import.meta.env.DEV` | `boolean` | development environment |
+| `import.meta.env.PROD` | `boolean` | production environment |
+| `import.meta.env.SSR` | `boolean` | running in a server environment |
+
+`BASE_URL` is easy to miss. If the app is deployed under a sub-path, avoid hard-coding URLs:
+
+```ts
+const url = `${import.meta.env.BASE_URL}assets/logo.png`
+```
+
+It must appear as a literal expression. `import.meta.env["BASE_URL"]` is not handled the same way.
+
+## `.env` Loading Priority
+
+Vite loads env files by mode:
+
+```text
+.env
+.env.local
+.env.[mode]
+.env.[mode].local
+```
+
+For:
+
+```bash
+vite build --mode staging
+```
+
+Think of the order as:
+
+```text
+.env
+.env.local
+.env.staging
+.env.staging.local
+existing shell environment variables
+```
+
+Later values win. Variables passed in the shell have the highest priority:
+
+```bash
+VITE_API_URL=https://api.example.com vite build --mode staging
+```
+
+Restart the dev server after changing `.env` files. Env values may already have affected config resolution, dependency optimization, and compile-time replacements.
+
+## Only `VITE_` Reaches Browser Code
+
+```text filename=".env"
+VITE_API_URL=https://api.example.com
+DB_PASSWORD=local-secret
+```
+
+Browser code can read only the prefixed value:
+
+```ts
+console.log(import.meta.env.VITE_API_URL)
+console.log(import.meta.env.DB_PASSWORD) // undefined
+```
+
+This is a security boundary. Vite does not expose all process environment variables by default, because database passwords, tokens, and private keys must not end up in client bundles.
+
+<Callout type="warning">
+  `VITE_` is not encryption. Any value with that prefix can be inspected by users in the browser or built assets.
+</Callout>
+
+### Custom Prefixes with `envPrefix`
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  envPrefix: ["VITE_", "APP_"],
+})
+```
+
+Never set `envPrefix` to an empty string. That would expose every environment variable to the client.
+
+## Mode Is Not `NODE_ENV`
+
+| Command | `NODE_ENV` | `import.meta.env.MODE` |
+| ------- | ---------- | ---------------------- |
+| `vite dev` | `"development"` | `"development"` |
+| `vite build` | `"production"` | `"production"` |
+| `vite build --mode staging` | `"production"` | `"staging"` |
+| `NODE_ENV=development vite build` | `"development"` | `"production"` |
+
+Mode answers: "Which `.env.[mode]` file should be loaded?"  
+`NODE_ENV` answers: "Should tooling use development or production semantics?"
+
+So `vite build --mode staging` is still a production build. It just reads staging configuration.
+
+## Reading Env in `vite.config.ts`
+
+Application code uses `import.meta.env`; config files run in Node and should use `loadEnv`:
+
+```ts filename="vite.config.ts"
+import { defineConfig, loadEnv } from "vite"
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "")
+
+  return {
+    server: {
+      proxy: {
+        "/api": env.API_PROXY_TARGET,
+      },
+    },
+  }
+})
+```
+
+The third argument is the prefix filter. `"VITE_"` loads client-exposed variables. `""` loads all variables. Reading private values in config is fine; leaking them through `define` or client code is not.
+
+## HTML Constant Replacement
+
+```html filename="index.html"
+<title>%VITE_APP_TITLE%</title>
+<meta name="app-mode" content="%MODE%" />
+```
+
+Missing HTML constants remain unchanged, while `import.meta.env.NON_EXISTENT` in JS becomes `undefined`. For complex HTML injection, use the `transformIndexHtml` plugin hook instead.
+
+## TypeScript IntelliSense
+
+```ts filename="src/vite-env.d.ts"
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string
+  readonly VITE_APP_TITLE: string
+  readonly VITE_ENABLE_MOCK?: "true" | "false"
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+```
+
+This gives completion and catches misspelled variable names earlier.
+
+## Recommended Layering
+
+| File | Commit it? | Typical content |
+| ---- | ---------- | --------------- |
+| `.env` | yes | public defaults |
+| `.env.local` | no | local overrides |
+| `.env.staging` | yes | public staging config |
+| `.env.production` | yes | public production config |
+| `.env.production.local` | no | deployment-only overrides |
+
+Ask one question before adding `VITE_`: is it acceptable if every user can see this value? If not, do not expose it.
+
+## Check Yourself
+
+1. Why is `DB_PASSWORD` not available on `import.meta.env` by default?
+2. How is `vite build --mode staging` different from `NODE_ENV=development vite build`?
+3. Should `vite.config.ts` use `import.meta.env` or `loadEnv`?
+4. How do missing constants differ between HTML and JS?
+
+```ts filename="exercise"
+// Design staging env config:
+// - browser code can read VITE_API_URL
+// - vite.config.ts can read API_PROXY_TARGET
+// - TypeScript completes VITE_API_URL
+// - no private token leaks to the client
+```

@@ -66,20 +66,46 @@ Full Bundle Mode:
 
 **适合场景**:网络延迟高的环境、需要精确模拟生产行为的场景。
 
-## 如何尝鲜(实验性)
+## 如何跟进这个方向
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  experimental: {
-    // 在 Vite 8.1.x 里查看具体 API
-    // bundleMode: "full",  // 假设 API
-  },
-})
-```
+不要在教程里发明配置字段。Full Bundle Mode 相关能力仍应以 Vite 官方文档、GitHub issue 和 release note 为准。当前更实用的跟进方式是:
+
+1. 阅读 Vite 官方 GitHub 上与 bundled dev / Rolldown dev server 相关的 issue。
+2. 用 `@vitejs/devtools` 或构建日志观察大型项目的 dev 请求数和 transform 热点。
+3. 先优化当前 ESM dev 下的依赖预构建、HMR 边界和首屏请求。
+4. 等官方 API 稳定后,再把它纳入团队默认配置。
 
 <Callout type="warning">
-  实验性 API 随时可能变化。如需了解最新状态,请查看 [Vite 官方 GitHub](https://github.com/vitejs/vite)。
+  实验性 API 随时可能变化。本节只讲设计动机和取舍,不提供未稳定配置。最新状态请查看
+  [Vite 官方 GitHub](https://github.com/vitejs/vite) 与 Vite release notes。
 </Callout>
+
+## 判断是否值得等待
+
+Full Bundle Mode 不是“更高级就一定更好”。如果你的瓶颈是插件 transform 慢,full bundle 仍然要跑这些 transform;如果瓶颈是网络请求太多,它才更可能有明显收益。
+
+| 主要瓶颈 | Full Bundle Mode 可能性 |
+| --- | --- |
+| 远程开发,浏览器到 dev server 延迟高 | 可能有帮助 |
+| 大量小模块导致首次页面请求慢 | 可能有帮助 |
+| 单个 Babel/MDX 插件很慢 | 帮助有限,先优化插件 |
+| HMR 传播链太大 | 帮助不确定,先拆模块边界 |
+| 只是本地 SSD + 最新 Chrome | 未必值得牺牲冷启动 |
+
+## 现阶段怎么优化类似问题
+
+在官方 API 稳定前,遇到“模块太多、首次加载慢”的项目,可以先做这些确定有效的优化:
+
+1. 用 [12.1 · 冷启动优化](/docs/12-performance/01-cold-start-optimization) 处理依赖预构建和二次刷新。
+2. 用 [7.4 · 代码分割](/docs/07-build-pipeline/04-code-splitting) 把大型功能延迟到用户进入对应路由时加载。
+3. 用 [12.3 · HMR 性能诊断](/docs/12-performance/03-hmr-performance) 找到传播链过大的模块。
+4. 用 `@vitejs/devtools` 观察模块图和 transform 热点,确认瓶颈是不是请求数量。
+
+这些优化不会绑定实验性配置,即使未来 Full Bundle Mode API 稳定,它们仍然有价值。
+
+换句话说,Full Bundle Mode 是一个值得跟踪的方向,但不是当前性能问题的借口。先把现有 ESM dev 模型下的可观测性、依赖缓存和模块边界做好,未来迁移成本也会更低。
+
+如果团队要做技术预研,建议把结论写成“适用条件”和“风险”,而不是直接写进脚手架默认配置。
 
 ## 自测题
 

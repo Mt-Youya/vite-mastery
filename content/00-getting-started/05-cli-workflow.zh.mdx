@@ -1,0 +1,246 @@
+---
+title: Vite CLI 工作流
+description: 从 create-vite 到 dev/build/preview，再到 --host、--mode、--debug、--force 等常用参数，建立日常开发可复用的命令行工作流。
+order: 5
+part: 00-getting-started
+chapter: "0.5"
+difficulty: 1
+readingTime: 12
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `create-vite` 和项目内 `vite` CLI 的边界
+  - `dev` / `build` / `preview` 三个命令分别验证什么
+  - `--host`、`--mode`、`--debug`、`--force` 的真实用途
+  - 如何把一组命令整理成团队可复用的 scripts
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 已经跑通过 [0.2 · 第一个 Vite 项目](/docs/00-getting-started/02-first-project)
+</Callout>
+
+## 两类 CLI 不要混淆
+
+日常使用 Vite 时会遇到两类命令:
+
+| 命令          | 用途                     | 什么时候用             |
+| ------------- | ------------------------ | ---------------------- |
+| `create-vite` | 创建项目模板             | 新项目第一步           |
+| `vite`        | 启动、构建、预览当前项目 | 项目已经存在后的每一天 |
+
+`pnpm create vite@latest my-app --template react-ts` 只是把模板拉下来。进入项目后，真正控制开发流程的是本地安装的 `vite` 包:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  }
+}
+```
+
+不要在已有项目里反复运行 `create-vite`。要升级 Vite，就改 `package.json` 里的 `vite` 版本并重新安装依赖。
+
+## `vite dev`:开发服务器
+
+`vite`、`vite dev`、`vite serve` 在开发阶段等价。它们启动一个按需编译的 dev server:
+
+```bash
+pnpm dev
+```
+
+这个命令验证的是:
+
+- 配置文件能否被加载
+- 插件能否在 dev 阶段正常运行
+- 浏览器能否通过原生 ESM 请求源码
+- HMR 是否能在保存文件后更新页面
+
+开发服务器不是生产服务器。它为了速度保留了很多开发态行为:源码按需转换、错误 overlay、HMR websocket、未压缩产物、依赖预构建缓存等。
+
+### 让局域网设备访问
+
+默认 dev server 只监听本机。要用手机或另一台机器访问:
+
+```bash
+pnpm vite --host 0.0.0.0
+```
+
+如果团队常做真机调试，可以写成固定脚本:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "dev:host": "vite --host 0.0.0.0"
+  }
+}
+```
+
+<Callout type="warning">
+  `--host 0.0.0.0` 会把 dev server 暴露给局域网。不要在不可信网络里打开带敏感接口代理的开发服务。
+</Callout>
+
+### 指定端口并严格失败
+
+默认端口被占用时，Vite 会自动尝试下一个端口。个人开发很方便，但自动化脚本里容易让代理、截图测试或后端模板指向错误端口。
+
+```bash
+pnpm vite --port 5173 --strictPort
+```
+
+`--strictPort` 的意义是:端口不可用就失败，而不是悄悄切到 `5174`。
+
+## `vite build`:生产构建
+
+`vite build` 做的是完整生产构建:
+
+```bash
+pnpm build
+```
+
+它验证的是:
+
+- 入口 HTML 和所有 import 是否能被追踪
+- TypeScript/JSX/CSS/静态资源是否能进入构建管线
+- 动态 import、chunk 分割、资源 hash 是否正确
+- 插件的 build-only hook 是否能正常执行
+
+开发服务器能跑，不代表 build 一定能过。常见差异包括:
+
+| dev 正常但 build 失败的原因 | 为什么 dev 没暴露出来                     |
+| --------------------------- | ---------------------------------------- |
+| 只在生产构建执行的插件报错  | dev 阶段插件可能被 `apply: "build"` 跳过 |
+| 动态 import 路径无法静态分析 | dev 可能直到点击某个页面才请求到该模块   |
+| Node-only 代码进了浏览器包   | dev 只转换当前请求，build 会扫完整图谱   |
+| 大小写路径不一致            | macOS 本地可能不敏感，CI/Linux 会失败    |
+
+所以本项目的内容验收不应只跑 `pnpm dev`。写完插件、构建或资源相关章节后，至少要跑 `pnpm build:web` 或对应 example 的 build。
+
+## `vite preview`:预览生产产物
+
+`vite preview` 不会重新构建，它只启动一个静态文件服务器，服务 `vite build` 的输出目录:
+
+```bash
+pnpm build
+pnpm preview
+```
+
+它验证的是:
+
+- `dist/` 产物是否能被静态托管
+- `base` 路径是否正确
+- HTML 里引用的 JS/CSS/assets 是否能加载
+- 动态 import 的 chunk 是否能按生产路径请求
+
+不要把 `vite preview` 当成生产服务器。它适合本地验收和预览，不负责压缩、缓存策略、TLS、日志、鉴权或多实例部署。
+
+## `--mode`:选择环境模式
+
+模式决定 Vite 加载哪些 `.env` 文件，也会影响 `import.meta.env.MODE`:
+
+```bash
+vite dev --mode staging
+vite build --mode staging
+```
+
+一个常见组合:
+
+```text
+.env
+.env.local
+.env.staging
+.env.production
+```
+
+`vite build --mode staging` 会加载通用 `.env`，再加载 `.env.staging`。如果变量同名，mode-specific 文件优先。
+
+`--mode` 和 `NODE_ENV` 不是一回事。`vite build --mode development` 仍然是一次生产构建，只是 `import.meta.env.MODE` 变成 `"development"`，并加载 `.env.development`。如果你要理解环境变量细节，下一章 [1.5 · 环境变量与模式](/docs/01-core-concepts/05-env-and-modes) 会完整展开。
+
+## `--debug` 与 `DEBUG=vite:*`
+
+当 dev server 慢、依赖反复预构建、HMR 不生效时，不要先猜，先打开日志:
+
+```bash
+pnpm vite --debug
+pnpm vite --debug deps
+pnpm vite --debug hmr
+```
+
+或者用更细粒度的环境变量:
+
+```bash
+DEBUG=vite:deps pnpm dev
+DEBUG=vite:resolve pnpm dev
+DEBUG=vite:hmr pnpm dev
+```
+
+实战里最常用的三个 namespace:
+
+| 日志             | 适合排查                   |
+| ---------------- | -------------------------- |
+| `vite:deps`      | 依赖预构建、二次刷新、缓存 |
+| `vite:resolve`   | alias、条件导出、路径解析  |
+| `vite:hmr`       | 热更新边界、循环依赖       |
+
+这些日志会比较吵。定位问题时开，平时不要放进默认 `dev` 脚本。
+
+## `--force`:丢弃依赖预构建缓存
+
+Vite 会缓存预构建依赖，避免每次启动都重新处理 `node_modules`。如果你本地 link 了包、改了 pnpm overrides、或依赖产物看起来明显过期，可以强制重建:
+
+```bash
+pnpm vite --force
+```
+
+典型场景:
+
+- monorepo 里本地包的入口从 CJS 改成 ESM
+- 升级了某个依赖但浏览器仍加载旧优化结果
+- `node_modules/.vite` 缓存与 lockfile 状态不一致
+
+不要把 `--force` 加进默认脚本。它会牺牲启动速度，只适合修复缓存状态。
+
+## 推荐的团队 scripts
+
+一个开发者友好的 Vite 项目，`package.json` 可以这样组织:
+
+```json filename="package.json"
+{
+  "scripts": {
+    "dev": "vite",
+    "dev:host": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "build:staging": "vite build --mode staging",
+    "preview": "vite preview --strictPort",
+    "debug:deps": "DEBUG=vite:deps vite",
+    "debug:hmr": "DEBUG=vite:hmr vite"
+  }
+}
+```
+
+这组脚本背后的原则:
+
+1. 默认命令短，照顾每天使用。
+2. 高风险命令显式命名，比如 `dev:host`。
+3. debug 命令单独拆出来，不污染正常输出。
+4. build 与 preview 分开，避免误以为 preview 会重新构建。
+
+## 自测题
+
+1. `create-vite` 和 `vite` CLI 的职责有什么区别?
+2. 为什么 CI 或截图测试里建议加 `--strictPort`?
+3. `vite build --mode staging` 是否等于 development 构建?为什么?
+4. 什么时候应该用 `--force`?为什么不应长期放进默认脚本?
+
+```bash filename="练习"
+# 为一个项目设计 scripts:
+# - 默认本机开发
+# - 手机可访问的局域网开发
+# - staging 构建
+# - 本地预览生产产物,端口被占用时直接失败
+# - 依赖预构建 debug
+```

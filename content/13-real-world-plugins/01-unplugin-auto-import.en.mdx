@@ -155,6 +155,50 @@ To prevent ESLint from reporting "no-undef" errors, the plugin can generate an E
 // auto-import.d.ts can include ESLint globals
 ```
 
+## Source Reading Order
+
+Do not start by jumping directly into the transform function. Read the source in this order:
+
+1. **Entry exports**: see how `createUnplugin` exports Vite, Rollup, Webpack, and other adapter versions.
+2. **Option resolution**: inspect how presets, dirs, imports, dts, eslintrc, include, and exclude are normalized.
+3. **Scanner**: learn how the plugin finds undeclared identifiers and avoids mistaking property names, local variables, or type names for global APIs.
+4. **Injector**: inspect how import statements are inserted in the right location while preserving shebangs, comments, and sourcemaps.
+5. **Declaration generation**: see how `.d.ts` and ESLint globals are produced from the final import map.
+6. **Cache and watcher logic**: check how directory scanning, config changes, and type file updates avoid full recomputation on every transform.
+
+The important part of the source is not "add one import line". It is the index, filter, cache, and type-experience system built around that line.
+
+## Call Flow
+
+One file transform roughly follows this flow:
+
+```text
+user saves file
+  -> Vite calls transform(code, id)
+  -> include/exclude decides whether to process it
+  -> AST/lexical scanner collects candidate identifiers
+  -> existing imports, local declarations, and type-only positions are excluded
+  -> import map resolves identifiers to source packages
+  -> MagicString injects imports
+  -> code + sourcemap are returned
+  -> used identifier cache is updated
+  -> buildEnd / watcher refreshes d.ts
+```
+
+This flow explains why auto-import cannot be implemented mainly with `resolveId`. `resolveId` decides how a module path resolves. Auto-import needs to answer "which imports are missing from this source file?", and that requires seeing the full source code. The core belongs in `transform`.
+
+## Edge Cases And Pitfalls
+
+<Callout type="warning" title="Common auto-import plugin pitfalls">
+  - Regex scanning treats object properties, strings, or comments as variable usage
+  - Failing to exclude existing imports generates duplicate imports
+  - Failing to detect type-only usage turns type references into runtime imports
+  - Stale `.d.ts` output makes editor hints disagree with actual transforms
+  - Huge barrel presets make every file scan too many candidate APIs and slow down HMR
+</Callout>
+
+Production implementations usually need ASTs, scope analysis, and MagicString. ASTs answer "is this identifier really a free variable?", scope analysis answers "was it already declared in this file?", and MagicString keeps sourcemaps usable after import insertion.
+
 ## Self-check
 
 1. Why does `unplugin-auto-import` choose to use `transform` rather than the `load` hook to inject imports?

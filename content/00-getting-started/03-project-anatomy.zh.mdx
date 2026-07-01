@@ -38,7 +38,7 @@ Vite 反过来:**`index.html` 才是入口**。Vite 的 dev server 收到对 `/`
 
 这意味着:
 
-- 多个 HTML 文件就是多个入口(`vite.config.ts` 里用 `rollupOptions.input` 配置)
+- 多个 HTML 文件就是多个入口(`vite.config.ts` 里用 `rolldownOptions.input` 配置)
 - HTML 里写的路径就是 URL 路径,不需要额外的 publicPath 配置
 - `public/` 里的文件**不经过 Vite 处理**,直接原样复制到产物目录
 

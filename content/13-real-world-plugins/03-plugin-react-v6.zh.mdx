@@ -1,179 +1,281 @@
 ---
 title: "`@vitejs/plugin-react` v6 源码导读"
-description: Vite 官方 React 插件从 Babel 迁移到 OXC 的全过程——transform hook 做了什么、Fast Refresh runtime 如何注入、为什么能做到向后兼容。
+description: 以 Vite 8 的官方 React 插件为样本,理解 Oxc JSX 配置、Fast Refresh runtime、preamble、SSR 入口和 Babel 迁移边界。
 order: 3
 part: 13-real-world-plugins
 chapter: "13.3"
 difficulty: 4
-readingTime: 14
-updatedAt: "2026-06-26"
+readingTime: 20
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `@vitejs/plugin-react` v6 的核心 transform 逻辑 - OXC 如何替代 Babel 处理 JSX 和 Fast Refresh - `/@react-refresh`
-  虚拟模块的作用 - HMR runtime 的注入机制
+  - `@vitejs/plugin-react` v6 在 Vite 8 中到底配置了什么
+  - Fast Refresh runtime 和 HTML preamble 为什么分开处理
+  - SSR / 后端集成项目为什么需要 `@vitejs/plugin-react/preamble`
+  - 从 v5 的 Babel 选项迁移到 v6 时要改哪些思路
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 理解 transform hook 的工作原理(4.3 节) - 了解 React Fast Refresh 的基本原理(6.5 节)
+  - 先读 [4.3 · `transform` hook](/docs/04-hooks-deep-dive/03-build-hooks-2)
+  - 先读 [6.5 · React Fast Refresh](/docs/06-hmr/05-framework-hmr)
+  - 了解 [7.8 · 后端集成](/docs/07-build-pipeline/08-backend-integration)
 </Callout>
 
-## 插件结构概览
+## 先纠正一个常见误解
+
+`@vitejs/plugin-react` v6 不是“把旧 Babel transform 原封不动搬到 Oxc 后面”。它的主线是:
+
+1. 通过 Vite 配置把 JSX runtime、import source、Fast Refresh 交给 Oxc 处理。
+2. 通过 Vite / React 公共 runtime 注入 Fast Refresh 所需的 preamble 和 runtime 模块。
+3. 保留 `include`、`exclude`、`jsxImportSource`、`jsxRuntime`、`reactRefreshHost` 这类 React 项目常用选项。
+4. 不再提供 v5 那种直接的 `babel` 选项;需要 Babel 能力时,应该额外接入 `@rolldown/plugin-babel`。
+
+所以读 v6 源码时,不要只找一个巨大的 `transform()`。更重要的是看它如何“配置 Vite 的 Oxc 能力 + 挂接 Fast Refresh runtime”。
+
+## 插件数组的真实形态
+
+教学文章常把 React 插件简化成两个插件:
 
 ```ts
-// @vitejs/plugin-react v6 的核心结构(简化)
-export default function pluginReact(options?: Options): Plugin[] {
-  return [
-    // 插件 1:注入 Fast Refresh runtime 到入口 HTML
-    {
-      name: "vite:react-refresh-preamble",
-      enforce: "pre",
-      transformIndexHtml: injectRefreshRuntime,
-    },
+react() -> [jsxTransformPlugin, refreshPlugin]
+```
 
-    // 插件 2:Transform JSX + 注入 Fast Refresh HMR 代码
-    {
-      name: "vite:react-transform",
-      enforce: "pre",
-      transform: transformReact,
-    },
+v6 的实际结构更接近下面这样:
+
+```ts
+export default function viteReact(options: Options = {}): Plugin[] {
+  return [
+    viteReactOxcConfig,
+    viteRefreshWrapper,
+    viteConfigPost,
+    viteReactRefreshBundledDevMode,
+    viteReactRefresh,
+    virtualPreamblePlugin(...),
   ]
 }
 ```
 
-## 核心 transform 流程
+每一层的职责不同:
+
+| 插件层 | 主要职责 |
+| --- | --- |
+| Oxc 配置层 | 根据 `jsxRuntime`、`jsxImportSource`、`include`、`exclude` 配置 JSX 与 Refresh |
+| refresh wrapper | dev/client 环境下给 React 模块包一层 Fast Refresh HMR 逻辑 |
+| config post | 当 `server.hmr === false` 时关闭 refresh |
+| bundled dev mode preamble | full bundle mode 下提前注入 preamble |
+| refresh runtime module | 暴露 `/@react-refresh` runtime |
+| preamble virtual plugin | 支持 `@vitejs/plugin-react/preamble` 这种显式入口导入 |
+
+这类拆分是 Vite 插件的典型写法:不是所有事情都塞进 `transform`;配置、HTML 注入、虚拟模块、环境过滤分别放在最合适的 hook 里。
+
+## Options 先决定处理边界
+
+v6 的核心选项可以按“文件范围”和“JSX 行为”分组:
 
 ```ts
-async function transformReact(code: string, id: string) {
-  // 1. 过滤:只处理 React 文件
-  if (!id.match(/\.(jsx?|tsx?)$/)) return null
-  if (id.includes("node_modules")) return null
-
-  // 2. 判断是否包含 JSX(快速路径:没有 JSX 就跳过)
-  const hasJSX = code.includes("<") || code.includes("React.createElement")
-  if (!hasJSX && !code.includes("import React")) return null
-
-  // 3. 调用 OXC 做 JSX transform + TypeScript 类型擦除
-  const transformed = await oxcTransform(code, {
-    // JSX 转换配置(对应 React 17+ 的新 JSX transform)
-    jsx: "react-jsx",
-    jsxImportSource: "react",
-    // TypeScript 支持
-    typescript: true,
-  })
-
-  // 4. 注入 React Fast Refresh 代码
-  if (shouldInjectRefresh(transformed.code)) {
-    return injectFastRefresh(transformed)
-  }
-
-  return transformed
+interface Options {
+  include?: string | RegExp | Array<string | RegExp>
+  exclude?: string | RegExp | Array<string | RegExp>
+  jsxImportSource?: string
+  jsxRuntime?: "classic" | "automatic"
+  reactRefreshHost?: string
 }
 ```
 
-## Fast Refresh 注入
+这些选项影响两个地方:
+
+1. **Oxc JSX transform**:automatic/classic runtime、import source、是否启用 refresh。
+2. **refresh wrapper**:哪些文件需要被 Fast Refresh 包裹,哪些文件必须排除。
+
+默认排除 `node_modules` 很重要。依赖包里的源码结构不受你的项目约束,盲目注入 refresh wrapper 可能导致 HMR 行为不可控,也会拖慢 dev transform。
+
+## Oxc 配置层做了什么
+
+v6 通过 `config()` hook 返回 Vite 配置,让 Vite 内部的 Oxc 管线处理 JSX:
 
 ```ts
-function injectFastRefresh(result: TransformResult): TransformResult {
-  const { code, map } = result
+const viteReactOxcConfig: Plugin = {
+  name: "vite:react-babel",
+  enforce: "pre",
+  config(_userConfig, { command }) {
+    return {
+      oxc: {
+        jsx: {
+          runtime: "automatic",
+          importSource: options.jsxImportSource,
+          refresh: command === "serve",
+        },
+        jsxRefreshInclude: makeIdFiltersToMatchWithQuery(include),
+        jsxRefreshExclude: makeIdFiltersToMatchWithQuery(exclude),
+      },
+      optimizeDeps: {
+        rolldownOptions: {
+          transform: {
+            jsx: { runtime: "automatic" },
+          },
+        },
+      },
+    }
+  },
+}
+```
 
-  // 检测文件里有哪些 React 组件
-  const components = detectComponents(code)
+注意这个插件名里还保留了 `babel`,但这不代表 v6 仍然用 Babel 做主 transform。源码里保留旧名字更多是兼容和历史原因;真正关键的是返回的 `oxc` 配置。
 
-  if (components.length === 0) return result
+如果 `jsxRuntime: "classic"`,配置会改成 classic runtime。classic runtime 适合少数旧代码或特殊场景,新项目通常保持 automatic。
 
-  // 注入 Fast Refresh 代码
-  const refreshCode = `
-import RefreshRuntime from "/@react-refresh"
+## Fast Refresh 为什么需要 runtime
 
-// 注册每个组件
-${components.map((c) => `RefreshRuntime.register(${c.name}, ${JSON.stringify(c.name)})`).join("\n")}
+React Fast Refresh 不是单纯“重新执行模块”。它需要一套 runtime 来记录组件签名、判断导出是否仍然兼容、在必要时刷新组件边界。
 
-// 接受 HMR 更新
+开发环境下,插件通常要完成 3 件事:
+
+1. 在页面启动时安装 refresh runtime。
+2. 在 React 模块 transform 后包一层 HMR 接受逻辑。
+3. 当导出不再符合 Fast Refresh 规则时,让 HMR 失效并向上冒泡。
+
+概念上可以理解成:
+
+```ts
 if (import.meta.hot) {
-  import.meta.hot.accept()
-  // 通知 React 做 Fast Refresh
-  if (!window.$RefreshReg$) {
-    import.meta.hot.invalidate()
-  } else {
-    RefreshRuntime.performReactRefresh()
-  }
-}
-`
-
-  return {
-    code: code + "\n\n" + refreshCode,
-    map: mergeSourceMaps(map, refreshCode),
-  }
+  import.meta.hot.accept((nextModule) => {
+    if (isRefreshBoundary(nextModule)) {
+      enqueueUpdate()
+    } else {
+      import.meta.hot.invalidate()
+    }
+  })
 }
 ```
 
-## `/@react-refresh` 虚拟模块
+真实实现会比这复杂,因为它要处理组件签名、导出一致性、错误恢复、source map 和不同环境。读源码时不要被 wrapper 字符串吓到,先看清楚它解决的是“模块更新后能不能保留 React 状态”。
 
-这是 Fast Refresh runtime 的宿主:
+## `/@react-refresh` 与 preamble
+
+`/@react-refresh` 是 dev server 暴露的 runtime 模块。preamble 则是在应用入口运行前安装全局 hook:
 
 ```ts
-// 在 transformIndexHtml 里注入 preamble
-function injectRefreshRuntime(html: string): string {
-  return html.replace(
-    "<head>",
-    `<head>
-<script type="module">
 import RefreshRuntime from "/@react-refresh"
+
 RefreshRuntime.injectIntoGlobalHook(window)
 window.$RefreshReg$ = () => {}
 window.$RefreshSig$ = () => (type) => type
 window.__vite_plugin_react_preamble_installed__ = true
-</script>`,
-  )
-}
-
-// /@react-refresh 虚拟模块的内容
-// 实际上是 react-refresh/runtime 的包装
-resolveId(id) {
-  if (id === "/@react-refresh") return "\0@react-refresh"
-  return null
-},
-load(id) {
-  if (id !== "\0@react-refresh") return null
-  return `
-export * from "react-refresh/runtime"
-import * as runtime from "react-refresh/runtime"
-export default runtime
-`
-},
 ```
 
-## 向后兼容的关键
+普通 Vite SPA 里,插件可以通过 `transformIndexHtml` 自动插入这段 preamble。问题出现在 SSR 或传统后端集成:
 
-v6 保持向后兼容的设计:
+- HTML 由 Express、Rails、Laravel、Django 等后端渲染。
+- 项目没有让 Vite 调用 `transformIndexHtml`。
+- React 入口模块先执行,但 preamble 还没安装。
 
-1. **配置 API 不变**:`react({ ... })` 的选项签名与 v5 基本一致
-2. **行为不变**:注入的 Fast Refresh 代码格式相同
-3. **可降级到 Babel**:如果用了 `babel: { plugins: [...] }`,自动使用 Babel 处理
+这时就会出现类似“plugin-react can't detect preamble”的错误。解决方式有两类:
+
+```ts filename="entry.client.tsx"
+import "@vitejs/plugin-react/preamble"
+```
+
+或者在 SSR dev server 里调用:
+
+```ts
+html = await viteServer.transformIndexHtml(req.url, html)
+```
+
+这也是为什么 [7.8 · 后端集成](/docs/07-build-pipeline/08-backend-integration) 里必须单独讲 React preamble。它不是装饰性脚本,而是 Fast Refresh 的启动条件。
+
+## `reactRefreshHost` 的使用场景
+
+`reactRefreshHost` 主要服务 module federation / remote app 场景。假设 host 在 `http://localhost:3000`,remote 在 `http://localhost:3001`,两边如果各自安装一套 refresh runtime,React Refresh 状态可能不一致。
+
+配置 host 后,remote 会使用 host 的 runtime URL:
+
+```ts
+import react from "@vitejs/plugin-react"
+
+export default {
+  plugins: [
+    react({
+      reactRefreshHost: "http://localhost:3000",
+    }),
+  ],
+}
+```
+
+如果 host 配了 `base`,这个 URL 也要包含对应 base。否则浏览器会从错误路径请求 `/@react-refresh`。
+
+## 从 v5 Babel 选项迁移
+
+v6 的迁移重点是:不要再把 Babel 当作 React 插件内部的一个选项。需要 Babel 插件时,把 Babel 当作 Rolldown/Vite 构建管线里的另一个插件。
+
+React Compiler 是最典型的例子:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react, { reactCompilerPreset } from "@vitejs/plugin-react"
+import babel from "@rolldown/plugin-babel"
+
+export default defineConfig({
+  plugins: [
+    react(),
+    babel({
+      presets: [reactCompilerPreset()],
+    }),
+  ],
+})
+```
+
+迁移时按这个清单排查:
+
+| v5 习惯 | v6 处理方式 |
+| --- | --- |
+| `react({ babel: { plugins: [...] } })` | 移到 `@rolldown/plugin-babel` |
+| 自定义 JSX import source | 继续用 `react({ jsxImportSource: "..." })` |
+| 旧 JSX classic runtime | 用 `react({ jsxRuntime: "classic" })` |
+| MDX 也需要 Refresh | 调整 `include`,并确保 MDX 插件在 React 插件前处理 |
+| SSR 没有 `transformIndexHtml` | 在 client entry import `@vitejs/plugin-react/preamble` |
+
+这条边界非常重要:React 插件负责 React + Oxc + Refresh 的默认体验;Babel 扩展能力由独立插件接入。
+
+## 调试顺序
+
+遇到 React + Vite dev 问题时,按这个顺序看:
+
+1. **入口 HTML 有没有 preamble**:浏览器 devtools 里搜 `__vite_plugin_react_preamble_installed__`。
+2. **`/@react-refresh` 是否 200**:Network 面板确认 runtime 模块可访问。
+3. **文件是否被 include**:MDX、`.js` with JSX、monorepo 包可能不在默认范围内。
+4. **是否被 exclude**:`node_modules`、worker、非 React TSX 文件可能被排除。
+5. **导出是否稳定**:Fast Refresh 要求模块导出保持组件边界;混导出会导致 invalidate。
+6. **SSR 是否调用 `transformIndexHtml`**:没有调用就用 `@vitejs/plugin-react/preamble`。
+7. **是否关闭了 HMR**:`server.hmr = false` 会让 refresh 直接失效。
+
+如果只是构建失败,先看是不是 Babel 迁移问题;如果是 dev 热更新失败,优先看 preamble、runtime URL 和模块导出边界。
+
+## 边界与坑点
+
+<Callout type="warning" title="React 插件迁移的高频坑">
+  - SSR 或后端集成没有执行 `transformIndexHtml`,导致 preamble 未安装
+  - 迁移 v5 后继续写 `react({ babel })`,但 v6 需要外接 `@rolldown/plugin-babel`
+  - MDX 文件没有加入 `include`,因此没有 Fast Refresh wrapper
+  - 一个文件混合导出组件和可变普通值,Fast Refresh 只能 invalidate
+  - module federation 场景没有配置 `reactRefreshHost`,多个 runtime 互相干扰
+</Callout>
+
+读源码时要把这些坑点映射回插件层级:preamble 问题看 HTML/虚拟模块层,Babel 问题看插件组合层,MDX 问题看 include/exclude filter,导出边界问题看 refresh wrapper。这样排查不会在一个 `transform` 函数里打转。
 
 ## 自测题
 
-1. `@vitejs/plugin-react` v6 为什么要注入 `/@react-refresh` 虚拟模块而不是直接 import react-refresh?
-2. 组件检测(`detectComponents`)需要知道哪些信息?为什么需要 AST 而不是正则?
-3. `transformIndexHtml` 里注入的 preamble 脚本做了什么?为什么需要在 `<head>` 最早执行?
-4. 如果一个文件里有 TypeScript 泛型用到了尖括号 `<T>`,OXC 会误识别为 JSX 吗?
+1. 为什么 v6 的核心不是手写 `transform()` 调 Oxc,而是通过 `config()` 配置 Vite 的 Oxc 管线?
+2. `transformIndexHtml` 自动注入 preamble 的前提是什么?SSR 项目为什么容易绕开它?
+3. 为什么 `reactRefreshHost` 只在 module federation 这类场景里需要?
+4. 如果你在 v5 用了 Babel 插件,迁移到 v6 时为什么不应该继续找 `react({ babel })`?
 
 ```ts filename="练习"
-// 实现一个简化的 React Fast Refresh 注入器:
-// - 检测文件里的 React 函数组件(首字母大写,返回 JSX)
-// - 为每个组件注入 register 调用
-// - 在文件末尾注入 accept 代码
-
-function injectFastRefreshSimple(code: string, id: string): string {
-  // TODO:
-  // 1. 用正则找出所有形如 export function/const Upper... 的组件
-  // 2. 生成 register 语句
-  // 3. 在末尾添加 accept + performReactRefresh
-
-  // 注意:这是简化实现,生产环境需要 AST
-  return code
-}
+// 给一个 React + MDX 项目设计 Vite 配置:
+// 1. MDX 文件也需要 Fast Refresh
+// 2. React Compiler 只处理 src/components/**
+// 3. SSR dev server 不调用 transformIndexHtml
+// 写出 plugins 顺序,并说明 preamble 应放在哪里。
 ```

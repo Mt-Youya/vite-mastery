@@ -144,6 +144,39 @@ React Fast Refresh needs to diff the old and new component trees during an HMR u
 - Use `React.memo` to reduce unnecessary re-renders
 - Split large components into smaller files
 
+## From Symptom To Metric
+
+When HMR feels slow, classify the symptom before changing code structure:
+
+| Symptom | Check first |
+| --- | --- |
+| Long delay before any log appears | File watcher or editor save behavior |
+| Logs appear quickly but the page is slow | Browser-side framework update or component rendering |
+| `propagate` takes a long time | The module graph propagation chain is too large |
+| Transform logs take a long time | A plugin or compiler step is slow |
+| Every change causes full reload | HMR boundary failed or a plugin invalidated deliberately |
+
+Keep a temporary diagnostic plugin that can be enabled when needed:
+
+```ts filename="vite.config.ts"
+function hmrTimerPlugin() {
+  return {
+    name: "hmr-timer",
+    handleHotUpdate(ctx) {
+      const start = performance.now()
+      const modules = ctx.modules
+      queueMicrotask(() => {
+        const elapsed = performance.now() - start
+        console.log(`[hmr] ${ctx.file} -> ${modules.length} modules in ${elapsed.toFixed(1)}ms`)
+      })
+      return modules
+    },
+  }
+}
+```
+
+This does not replace Vite's internal logs, but it helps a team quickly spot "editing this file type fans out to many modules". After that, decide whether to split barrel files, adjust plugin filters, or improve framework component boundaries.
+
 ## Self-check
 
 1. Which phases make up HMR time? Which is most likely to become a bottleneck?

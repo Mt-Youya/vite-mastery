@@ -67,21 +67,42 @@ Full Bundle Mode:
 
 **Best suited for**: high-latency network environments, scenarios that require precise simulation of production behavior.
 
-## Trying it out (experimental)
+## How To Track This Direction
 
-```ts filename="vite.config.ts"
-export default defineConfig({
-  experimental: {
-    // Check the Vite 8.1.x docs for the specific API
-    // bundleMode: "full",  // hypothetical API
-  },
-})
-```
+Do not invent configuration fields in documentation. Full Bundle Mode related work should be tracked through official Vite docs, GitHub issues, and release notes. A practical workflow today:
+
+1. Read Vite GitHub issues related to bundled dev and the Rolldown dev server.
+2. Use `@vitejs/devtools` or build logs to inspect request counts and transform hotspots in large projects.
+3. First optimize dependency pre-bundling, HMR boundaries, and initial route requests under the current ESM dev model.
+4. Adopt the feature only after the official API stabilizes.
 
 <Callout type="warning">
-  Experimental APIs can change at any time. For the latest status, see the [Vite official
-  GitHub](https://github.com/vitejs/vite).
+  Experimental APIs can change at any time. This lesson explains motivation and tradeoffs; it does not provide unstable
+  config. For current status, check the [Vite official GitHub](https://github.com/vitejs/vite) and Vite release notes.
 </Callout>
+
+## Decide Whether It Is Worth Waiting For
+
+Full Bundle Mode is not automatically better. If your bottleneck is a slow transform plugin, full bundling still has to run that transform. If your bottleneck is too many browser requests, it is more likely to help.
+
+| Main bottleneck | Full Bundle Mode potential |
+| --- | --- |
+| Remote development with high browser-to-server latency | Likely helpful |
+| Many small modules slowing first page load | Likely helpful |
+| One Babel/MDX plugin is slow | Limited; optimize the plugin first |
+| HMR propagation chain is huge | Unclear; split module boundaries first |
+| Local SSD plus latest Chrome | May not justify slower cold start |
+
+## What To Optimize Today
+
+Before the official API stabilizes, projects with "too many modules and slow first load" can use proven optimizations first:
+
+1. Use [12.1 · Cold Start Optimization](/docs/12-performance/01-cold-start-optimization) to fix dependency pre-bundling and second reloads.
+2. Use [7.4 · Code Splitting](/docs/07-build-pipeline/04-code-splitting) to delay large features until users enter the route.
+3. Use [12.3 · HMR Performance Diagnostics](/docs/12-performance/03-hmr-performance) to find oversized propagation chains.
+4. Use `@vitejs/devtools` to inspect the module graph and transform hotspots before assuming request count is the bottleneck.
+
+These optimizations do not depend on experimental config, and they remain valuable even if Full Bundle Mode stabilizes later.
 
 ## Self-check
 

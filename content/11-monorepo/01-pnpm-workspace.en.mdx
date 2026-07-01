@@ -107,6 +107,41 @@ node_modules/react              ← one shared react for all packages
 
 **Recommendation**: keep `shamefully-hoist=false` (the pnpm default) and use `auto-install-peers=true` to handle peer deps.
 
+## Workspace Details That Matter For Vite
+
+A Vite monorepo differs from a plain Node monorepo because source packages may enter the dev server directly. `packages/ui/src/Button.tsx` can be imported by `apps/web`, then transformed and hot-updated by Vite.
+
+That creates a few rules:
+
+1. Local packages should declare `exports` clearly in `package.json`; do not rely only on path aliases.
+2. Framework runtimes such as React or Vue belong in `peerDependencies` for component packages.
+3. If an app consumes local package source, make sure Vite can process that package's TS/JSX/CSS.
+4. If a local package is built before consumption, make sure `dist`, `types`, and `exports` agree.
+
+The most common failure is "React became two Reacts". If `apps/web` and `packages/ui` install separate React instances, HMR, context, and hooks can break. The fix is not to blindly enable hoisting; it is to put React in the component package's `peerDependencies` and let the app provide the single runtime.
+
+## How To Read `pnpm --filter`
+
+`pnpm --filter` is the daily productivity tool in a monorepo:
+
+```bash
+pnpm --filter @my/web dev
+pnpm --filter @my/ui build
+pnpm --filter "...@my/web" build
+pnpm --filter "@my/ui..." test
+```
+
+Common meanings:
+
+| Pattern | Meaning |
+| --- | --- |
+| `@my/web` | Select only that package |
+| `...@my/web` | Select `@my/web` and its dependencies |
+| `@my/ui...` | Select `@my/ui` and packages that depend on it |
+| `./packages/ui` | Select by path |
+
+Once you use filters well, you do not need `pnpm -r run build` for every change. In a large monorepo, that directly improves feedback speed.
+
 ## Self-check
 
 1. What is the difference between `workspace:*` and `workspace:^1.0.0`?

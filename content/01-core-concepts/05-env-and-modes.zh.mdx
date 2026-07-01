@@ -1,0 +1,254 @@
+---
+title: 环境变量与模式
+description: 系统理解 import.meta.env、.env 文件优先级、VITE_ 前缀、envPrefix、loadEnv、HTML 常量替换，以及 mode 与 NODE_ENV 的差异。
+order: 5
+part: 01-core-concepts
+chapter: "1.5"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `import.meta.env` 里有哪些内置常量
+  - `.env` / `.env.local` / `.env.[mode]` 的加载优先级
+  - 为什么只有 `VITE_` 前缀变量会暴露给浏览器
+  - `--mode`、`NODE_ENV`、`loadEnv` 分别解决什么问题
+  - 如何给 TypeScript 补全自定义环境变量
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 读过 [0.5 · Vite CLI 工作流](/docs/00-getting-started/05-cli-workflow)
+</Callout>
+
+## `import.meta.env` 是编译期常量
+
+Vite 把环境信息挂在 `import.meta.env` 上:
+
+```ts
+if (import.meta.env.DEV) {
+  console.log("只在开发环境执行")
+}
+
+if (import.meta.env.PROD) {
+  startAnalytics()
+}
+```
+
+这些值在 dev 阶段是全局变量，在 build 阶段会被静态替换。静态替换有一个重要结果:死代码可以被 tree-shaking 移除。
+
+```ts filename="src/debug.ts"
+if (import.meta.env.DEV) {
+  console.log("debug panel")
+}
+```
+
+生产构建里 `import.meta.env.DEV` 会变成 `false`。压缩器看到 `if (false)` 后，可以把整段 debug 代码删掉。
+
+## 内置常量
+
+| 常量                   | 类型      | 含义                           |
+| ---------------------- | --------- | ------------------------------ |
+| `import.meta.env.MODE` | `string`  | 当前 mode，比如 `development`  |
+| `import.meta.env.BASE_URL` | `string` | 当前 `base` 配置决定的公共路径 |
+| `import.meta.env.DEV`  | `boolean` | 是否是开发环境                 |
+| `import.meta.env.PROD` | `boolean` | 是否是生产环境                 |
+| `import.meta.env.SSR`  | `boolean` | 当前模块是否在服务端环境执行   |
+
+`BASE_URL` 最容易被忽略。项目部署到子路径时，不要手写:
+
+```ts
+const url = "/docs/assets/logo.png"
+```
+
+而应该让 Vite 根据 `base` 替换:
+
+```ts
+const url = `${import.meta.env.BASE_URL}assets/logo.png`
+```
+
+注意它必须以字面量形式出现。`import.meta.env["BASE_URL"]` 不会被同样处理。
+
+## `.env` 文件加载顺序
+
+Vite 会按 mode 加载这些文件:
+
+```text
+.env                # 所有 mode 都加载
+.env.local          # 所有 mode 都加载,通常进 .gitignore
+.env.[mode]         # 只在指定 mode 加载
+.env.[mode].local   # 指定 mode 的本地私有变量
+```
+
+假设执行:
+
+```bash
+vite build --mode staging
+```
+
+加载顺序可以理解为:
+
+```text
+.env
+.env.local
+.env.staging
+.env.staging.local
+shell 里已经存在的环境变量
+```
+
+越后面的优先级越高。命令前直接传入的变量优先级最高:
+
+```bash
+VITE_API_URL=https://api.example.com vite build --mode staging
+```
+
+如果修改了 `.env` 文件，需要重启 dev server。Vite 不会在运行中自动重新加载环境变量，因为这些变量可能已经参与了配置解析、依赖预构建和编译期替换。
+
+## 只有 `VITE_` 会暴露给浏览器
+
+`.env` 文件里可以写很多变量:
+
+```text filename=".env"
+VITE_API_URL=https://api.example.com
+DB_PASSWORD=local-secret
+```
+
+浏览器代码里只能读到带 `VITE_` 前缀的变量:
+
+```ts
+console.log(import.meta.env.VITE_API_URL) // "https://api.example.com"
+console.log(import.meta.env.DB_PASSWORD) // undefined
+```
+
+这是一个安全边界。Vite 默认不把所有环境变量暴露给浏览器，避免数据库密码、token、私钥被打进前端包。
+
+<Callout type="warning">
+  `VITE_` 不是加密。带这个前缀的变量会进入前端源码或构建产物，用户可以在浏览器里看到。不要把任何真正的密钥写成 `VITE_SECRET_KEY`。
+</Callout>
+
+### 自定义前缀: `envPrefix`
+
+如果公司已有变量约定，比如 `APP_`，可以改前缀:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  envPrefix: ["VITE_", "APP_"],
+})
+```
+
+不要把 `envPrefix` 设置成空字符串。那等于把所有环境变量都暴露给客户端，是非常危险的配置。
+
+## mode 与 `NODE_ENV` 不是一回事
+
+这是很多线上问题的来源。
+
+| 命令                              | `NODE_ENV`     | `import.meta.env.MODE` |
+| --------------------------------- | -------------- | ---------------------- |
+| `vite dev`                        | `"development"` | `"development"`        |
+| `vite build`                      | `"production"`  | `"production"`         |
+| `vite build --mode staging`       | `"production"`  | `"staging"`            |
+| `NODE_ENV=development vite build` | `"development"` | `"production"`         |
+
+mode 回答的是:“加载哪组 `.env.[mode]` 文件?”  
+`NODE_ENV` 回答的是:“当前构建应按 development 还是 production 语义运行?”
+
+所以 `vite build --mode staging` 是最常见的 staging 构建方式:它仍然做生产优化，但读取 staging API 地址。
+
+```text filename=".env.staging"
+VITE_API_URL=https://staging-api.example.com
+```
+
+```bash
+vite build --mode staging
+```
+
+## 在 `vite.config.ts` 里读取 env: `loadEnv`
+
+`import.meta.env` 是给应用代码用的。配置文件运行在 Node.js 中，通常用 `loadEnv`:
+
+```ts filename="vite.config.ts"
+import { defineConfig, loadEnv } from "vite"
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "")
+
+  return {
+    server: {
+      proxy: {
+        "/api": env.API_PROXY_TARGET,
+      },
+    },
+    define: {
+      __APP_VERSION__: JSON.stringify(process.env.npm_package_version),
+    },
+  }
+})
+```
+
+第三个参数是前缀过滤。传 `"VITE_"` 只加载要暴露给客户端的变量；传 `""` 会加载所有变量。配置文件在 Node 侧执行，读取后端代理目标这类私有变量是合理的，但不要再通过 `define` 或客户端代码泄漏出去。
+
+## HTML 常量替换
+
+Vite 也会替换 HTML 里的 `%CONST_NAME%`:
+
+```html filename="index.html"
+<title>%VITE_APP_TITLE%</title>
+<meta name="app-mode" content="%MODE%" />
+```
+
+如果变量不存在，HTML 里的 `%NON_EXISTENT%` 会保留原样；而 JS 里的 `import.meta.env.NON_EXISTENT` 会被替换成 `undefined`。这两个行为不同，写模板时要注意。
+
+复杂逻辑不要塞进 HTML 常量替换。需要条件注入 script、meta、preload 时，用 `transformIndexHtml` 插件 hook 更清晰。
+
+## TypeScript 补全
+
+给自定义变量补类型:
+
+```ts filename="src/vite-env.d.ts"
+/// <reference types="vite/client" />
+
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string
+  readonly VITE_APP_TITLE: string
+  readonly VITE_ENABLE_MOCK?: "true" | "false"
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+```
+
+这样写之后，`import.meta.env.VITE_API_URL` 会有补全，拼错变量名也更容易被发现。
+
+## 推荐分层
+
+实战中可以这样分:
+
+| 文件 | 应提交吗 | 内容示例 |
+| ---- | -------- | -------- |
+| `.env` | 是 | 默认 API 路径、公开 feature flag |
+| `.env.local` | 否 | 本机代理地址、本机实验开关 |
+| `.env.staging` | 是 | staging 的公开配置 |
+| `.env.production` | 是 | production 的公开配置 |
+| `.env.production.local` | 否 | 只在部署机注入的私有覆盖值 |
+
+判断变量是否能写进 `VITE_` 的简单问题是:这个值被用户看到是否没关系?如果答案不是明确的“没关系”，就不要暴露给客户端。
+
+## 自测题
+
+1. 为什么 `DB_PASSWORD` 默认不会出现在 `import.meta.env` 里?
+2. `vite build --mode staging` 和 `NODE_ENV=development vite build` 的区别是什么?
+3. 在 `vite.config.ts` 里读取代理目标，应该用 `import.meta.env` 还是 `loadEnv`?
+4. HTML 里的 `%NON_EXISTENT%` 和 JS 里的 `import.meta.env.NON_EXISTENT` 行为有什么不同?
+
+```ts filename="练习"
+// 设计一个 staging 环境配置:
+// - 浏览器代码能读取 VITE_API_URL
+// - vite.config.ts 能读取 API_PROXY_TARGET
+// - TypeScript 能补全 VITE_API_URL
+// - 不把任何私有 token 暴露给客户端
+```

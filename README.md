@@ -16,27 +16,27 @@ Vite Mastery 是一套面向进阶前端工程师的 **Vite 8 深度学习指南
 
 当前内容已经完成双语化：
 
-- 79 篇英文 MDX 教程
-- 79 篇中文 MDX 教程
+- 85 篇英文 MDX 教程
+- 85 篇中文 MDX 教程
 - 14 个主章节
 - 10 个可独立运行的 examples
 - 8 个交互式文档组件
 
 | Part     | 主题                                        | 文章数 |
 | -------- | ------------------------------------------- | ------ |
-| 00       | Getting Started · 入门铺垫                  | 4      |
-| 01       | Core Concepts · 核心概念                    | 4      |
+| 00       | Getting Started · 入门铺垫                  | 5      |
+| 01       | Core Concepts · 核心概念                    | 6      |
 | 02       | Bundler Evolution · esbuild→Rolldown 演进史 | 5      |
 | 03       | Plugin System · 插件系统                    | 6      |
 | 04       | Hooks Deep Dive · Hooks 时序与源码导读      | 9      |
 | 05       | Environment API · 多环境隔离（RC 阶段）     | 10     |
 | 06       | HMR · 热更新全链路                          | 6      |
-| 07       | Build Pipeline · 生产构建管道               | 7      |
+| 07       | Build Pipeline · 生产构建管道               | 9      |
 | 08       | SSR & SSG                                   | 4      |
 | 09       | Framework Integration · 多框架集成          | 6      |
 | 10       | Library Mode · 库模式                       | 3      |
 | 11       | Monorepo 工程化                             | 4      |
-| 12       | Performance · 性能优化                      | 6      |
+| 12       | Performance · 性能优化                      | 7      |
 | 13       | Real World Plugins · 真实插件源码导读       | 4      |
 | Appendix | Vite 7 → 8 迁移指南                         | 1      |
 

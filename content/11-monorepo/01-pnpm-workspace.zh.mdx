@@ -107,6 +107,41 @@ node_modules/react              ← 所有包共用一个 react
 
 **推荐**:保持 `shamefully-hoist=false`(pnpm 默认),使用 `auto-install-peers=true` 处理 peer deps。
 
+## Vite 项目里的 workspace 关键点
+
+Vite monorepo 和普通 Node monorepo 的差异在于:源码包会直接进入 dev server。也就是说,`packages/ui/src/Button.tsx` 可能被 `apps/web` 直接 import,再由 Vite 转换和 HMR。
+
+这带来几个规则:
+
+1. 本地包要在 `package.json` 里声明清楚 `exports`,不要只靠路径 alias。
+2. React、Vue 这类框架运行时应该放到 `peerDependencies`,避免多个副本。
+3. 如果应用直接消费本地包源码,要确认 Vite 能处理该包的 TS/JSX/CSS。
+4. 如果本地包先 build 再消费,要确认 dist、types 和 exports 三者一致。
+
+最常见的问题是“一份 React 变成两份”。如果 `apps/web` 和 `packages/ui` 各自装了不同 React 实例,HMR、context、hooks 都可能出错。解决方向不是打开 hoist 硬压平,而是把 React 放进组件库的 `peerDependencies`,由应用提供唯一运行时。
+
+## filter 命令怎么读
+
+`pnpm --filter` 是 monorepo 日常效率的关键:
+
+```bash
+pnpm --filter @my/web dev
+pnpm --filter @my/ui build
+pnpm --filter "...@my/web" build
+pnpm --filter "@my/ui..." test
+```
+
+常用语义:
+
+| 写法 | 含义 |
+| --- | --- |
+| `@my/web` | 只选中这个包 |
+| `...@my/web` | 选中 `@my/web` 以及它依赖的包 |
+| `@my/ui...` | 选中 `@my/ui` 以及依赖它的包 |
+| `./packages/ui` | 通过路径选中包 |
+
+会用 filter 以后,你不必每次都 `pnpm -r run build` 扫全仓库。对于大型 monorepo,这会直接影响日常反馈速度。
+
 ## 自测题
 
 1. `workspace:*` 和 `workspace:^1.0.0` 有什么区别?

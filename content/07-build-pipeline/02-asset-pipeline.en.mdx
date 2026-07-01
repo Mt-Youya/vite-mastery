@@ -5,8 +5,8 @@ order: 2
 part: 07-build-pipeline
 chapter: "7.2"
 difficulty: 2
-readingTime: 10
-updatedAt: "2026-06-26"
+readingTime: 15
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
@@ -102,8 +102,13 @@ import { version, name } from "./package.json"
 import data from "./data.json"
 // data's type is inferred from the JSON structure
 
-// For more precise types, use an assertion
-import config from "./config.json" assert { type: "json" }
+// For stricter business types, constrain usage at the call site
+interface AppConfig {
+  apiBase: string
+  featureFlags: Record<string, boolean>
+}
+
+const config = data as AppConfig
 ```
 
 ## WASM imports
@@ -151,12 +156,106 @@ public/
 
 Suitable for: special files the browser requests directly (favicon, manifest, sitemap, etc.).
 
+Do not put every imported image, font, or SVG in `public/`. That bypasses hashing, dependency tracking, path rewriting, and build-time processing.
+
+| Location | Good for | Access |
+| -------- | -------- | ------ |
+| `src/assets/` | resources imported by components, CSS, or JS | `import logo from "./logo.png"` |
+| `public/` | fixed browser-requested files | `"/favicon.ico"` |
+
+When deploying under a sub path, public assets still need the base path:
+
+```ts
+const favicon = `${import.meta.env.BASE_URL}favicon.ico`
+```
+
+Hard-coding `"/favicon.ico"` requests the domain root, which is wrong for deployments like `/docs/`.
+
+## CSS `url()` enters the asset pipeline
+
+Relative URLs in CSS are processed too:
+
+```css filename="card.css"
+.card {
+  background-image: url("./card-bg.png");
+}
+```
+
+Build output points to a hashed file:
+
+```css
+.card {
+  background-image: url("/assets/card-bg-HASH.png");
+}
+```
+
+Avoid hard-coded public paths in CSS unless you intentionally need a fixed URL.
+
+## `assetsInclude`
+
+Vite recognizes common images, fonts, media files, and WASM by default. For custom asset extensions such as `.gltf`, `.glb`, or `.hdr`, use `assetsInclude`:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  assetsInclude: ["**/*.gltf", "**/*.glb", "**/*.hdr"],
+})
+```
+
+Then imports return asset URLs:
+
+```ts
+import modelUrl from "./scene.gltf"
+```
+
+If you only need a URL, use `assetsInclude`. If you need to parse and transform content, write a plugin.
+
+## Inline limits are not always better when larger
+
+`assetsInlineLimit` balances request count against JS/CSS size:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    assetsInlineLimit: 4096,
+  },
+})
+```
+
+Large inline limits can increase JS/CSS size, reduce independent browser caching, hurt sourcemap readability, and require CSP rules for `data:`.
+
+Inline tiny, module-local, low-reuse assets. Keep large images, fonts, videos, and shared logos as separate files.
+
+## Git LFS placeholders
+
+With Git LFS, a missing real asset may appear as a small pointer file:
+
+```text
+version https://git-lfs.github.com/spec/v1
+oid sha256:...
+size 123456
+```
+
+If you see this content, fetch the LFS assets before debugging Vite configuration.
+
+## Common mistakes
+
+| Symptom | Cause | Fix |
+| ------- | ----- | --- |
+| image 404 after deploy | `base` does not match deployment path | configure `base` |
+| SVG component expected, string returned | default asset import returns URL | use an SVG loader/plugin |
+| large PNG bundled into JS | `?inline` or high inline limit | use default import / `?url` |
+| public asset fails under sub path | root path hard-coded | use `BASE_URL` |
+| custom model import fails | extension not recognized | configure `assetsInclude` |
+
 ## Self-check
 
 1. A 3KB SVG file — will Vite inline it or copy it by default? How do you force it to remain as a file?
 2. What is the difference between `?raw` and `?url`? What type of value does each return?
 3. How do the build outputs differ between files in `public/` and files in `src/assets/`?
 4. If you need a base64 data URL for a PNG image in CSS, which modifier should you use?
+5. When should you use `assetsInclude` instead of a custom plugin?
 
 ```ts filename="Exercise"
 // Choose the appropriate import method for each scenario:

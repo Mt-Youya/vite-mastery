@@ -40,7 +40,7 @@ Vite flips it: **`index.html` is the entry**. When the dev server gets a request
 
 Consequences:
 
-- Multiple HTML files = multiple entries (configure via `rollupOptions.input` in `vite.config.ts`)
+- Multiple HTML files = multiple entries (configure via `rolldownOptions.input` in `vite.config.ts`)
 - Paths written in HTML are URL paths — no separate publicPath config needed
 - Files in `public/` **do not pass through Vite** — they're copied to the output directory as-is
 

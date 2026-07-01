@@ -1,51 +1,123 @@
 ---
-title: Why we need Vite
-description: Starting from the pain points of the Webpack dev server, understand the core motivation for Vite skipping the bundle step in dev.
+title: Why We Need Vite
+description: Start from traditional dev server bottlenecks, then learn why Vite avoids bundling in dev and why Vite 8 uses Rolldown to align the dev/build mental model.
 order: 1
 part: 00-getting-started
 chapter: "0.1"
 difficulty: 1
-readingTime: 8
-updatedAt: "2026-06-25"
+readingTime: 12
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - Where Webpack's dev server actually gets slow - What native browser ESM unlocked - Why Vite uses esbuild for dev and
-  Rollup for build
+  - Where traditional bundler dev servers get slow
+  - Why native browser ESM lets Vite skip source bundling in dev
+  - What problems the Vite 8 + Rolldown path solves
+  - When to think about dev feedback and when to think about production build output
 </Callout>
 
-## The historical problem: why dev servers got slow
+## Why Traditional Dev Servers Got Slow
 
-Webpack has to bundle every source file before the browser can run it. Grow from 100 modules to 10,000, and cold-start time goes from 2 seconds to 90. HMR drags along with it — change one line and the whole dependency chain runs again.
+In the Webpack era, a dev server usually started from an entry file, recursively resolved every import, bundled the dependency graph, and only then gave the browser something executable. That is fine for small apps. Once a project grows from 100 modules to 10,000 modules, cold start can stretch into tens of seconds.
 
-A more precise framing: **the bottleneck in the JavaScript toolchain is JavaScript itself**. Webpack's core loop is JS, asset processing is JS, serialization is JS. On a medium-sized app, the compiler executes millions of lines of JS at startup.
+The slowdown is not just "more files". The deeper issue is that dev startup performs too much work before the browser can run anything:
 
-## What native browser ESM changed
+1. Parse every module.
+2. Resolve and rewrite every import.
+3. Run loaders and plugins.
+4. Generate bundle code, sourcemaps, and runtime wrappers.
+5. Send the result to the browser.
 
-Since 2018, every major browser supports `<script type="module">` — the browser itself fires `import "./foo.js"` requests. Which means: **in dev mode, you don't have to bundle at all**.
+When you edit one component, HMR also has to update state inside the bundler's full graph. Even if the final update touches one component, the toolchain is still maintaining a bundle-oriented world.
+
+## Native Browser ESM Changed The Entry Model
+
+Modern browsers support:
 
 ```html
-<!-- Hand the browser this and it pulls main.ts and every dependency on its own -->
-<script type="module" src="/src/main.ts"></script>
+<script type="module" src="/src/main.tsx"></script>
 ```
 
-The Vite dev server does something simple: **when the browser requests a module, Vite transforms it on the fly (esbuild, Rust + Go) and ships it back**. There is no bundle step. Add 1,000 more files and cold-start barely moves, because nothing is pre-compiled.
+The browser can request modules by itself. It sees `import "./App.tsx"` and requests `/src/App.tsx`. It sees `import react from "react"` and requests the dependency entry Vite prepared.
 
-## Dual-engine architecture: dev vs build
+Vite's key choice is: **do not bundle the whole app before dev starts**. The dev server transforms a module only when the browser requests it:
 
-| Stage     | Tool    | Why                                                                                          |
-| --------- | ------- | -------------------------------------------------------------------------------------------- |
-| **dev**   | esbuild | Per-file transform throughput is enormous — perfect for on-demand compilation                |
-| **build** | Rollup  | Code splitting, tree-shaking and plugin ecosystem are more refined, output quality is higher |
+```text
+browser requests /src/App.tsx
+  -> Vite finds the source file
+  -> Vite runs an on-demand transform
+  -> Vite returns browser-executable ESM
+```
 
-esbuild can also do builds, but its tree-shaking and code splitting are coarser than Rollup's — so Vite picked an "esbuild in dev, Rollup in build" dual-engine design.
+Adding 1,000 page files that no one visits does not significantly slow cold start, because Vite does not process them upfront.
+
+## Dependency Pre-Bundling Handles Request Storms
+
+"Do not bundle source" does not mean "do no preprocessing". Dependencies in `node_modules` often have different problems:
+
+- CommonJS packages must be converted to ESM.
+- A package may contain many deep internal imports.
+- Conditional exports can be expensive to resolve repeatedly.
+
+Vite preprocesses dependencies into the `.vite/deps` cache. Source code stays on-demand; dependencies are normalized into browser-friendly ESM entries. This split keeps both cold start and first page load under control.
+
+## The Vite 8 Mental Model
+
+The classic early-Vite explanation was "fast per-file transforms in dev, Rollup for production build". That explains why Vite felt fast, but it also describes a structural problem: dev and build were backed by different engines, so plugin hooks, resolution details, sourcemaps, and output behavior could diverge.
+
+Vite 8's direction is to align the model around Rolldown:
+
+| Stage | Vite 8 focus | Mental model |
+| --- | --- | --- |
+| dev | On-demand source transforms, fast HMR, dependency preprocessing | Vite processes what the browser asks for |
+| build | Full static analysis, tree-shaking, chunk generation, asset hashing | Vite produces deployable, cacheable assets |
+| plugins | Vite hooks plus Rollup/Rolldown-style hooks | dev/build behavior should converge around one plugin story |
+
+That is why this guide spends so much time on Rolldown. It is not only "a faster build implementation"; it is part of making Vite's development and production models easier to reason about together.
+
+## Fast Dev Does Not Make Build Unimportant
+
+Skipping source bundling in dev improves feedback speed. Production build still needs bundling because production needs:
+
+- Fewer chunks and fewer network round trips.
+- Dead-code removal.
+- Hashed filenames for long-term caching.
+- CSS extraction, image handling, and manifest generation.
+- Route-level splitting based on dynamic import boundaries.
+
+The right mental model is not "Vite does not bundle". It is:
+
+> Vite avoids upfront source bundling in dev, then uses the full build pipeline for production assets.
+
+## When You Feel The Difference
+
+Vite's advantage becomes obvious in these situations:
+
+1. **Large applications**: cold start is no longer tightly tied to total source size.
+2. **Frequent UI edits**: HMR updates only the relevant modules.
+3. **Plugin development**: `resolveId`, `load`, and `transform` can be tested quickly in a dev server.
+4. **Monorepos**: source packages can participate in dev without being published or prebuilt first.
+
+If you only inspect a three-file demo, the difference may feel small. Vite's value shows up when the project, team, and feedback loop all get larger.
+
+## What To Remember After This Lesson
+
+Do not reduce Vite to "it starts fast". The more accurate takeaway is:
+
+- Vite changes the dev feedback loop from "process all source first" to "process source when the browser requests it".
+- Dependency pre-bundling makes npm packages easier for the browser to consume; it is not upfront compilation of your app source.
+- Production build is still a full engineering problem: chunks, caching, minification, manifests, and deploy paths still matter.
+- Vite 8's Rolldown path reduces the old "works in dev, fails in build" split caused by different engines.
+
+Every later chapter can be checked against these statements. Is a config, plugin, or optimization shortening dev feedback, improving production output, or reducing mismatch between the two?
 
 ## Self-check
 
-1. Why is it fine to skip bundling in dev but mandatory in build?
-2. If `<script type="module">` pulls in 1,000 modules, how many requests does the browser fire? How does Vite optimize this?
-3. What's the key reason esbuild is 10–100× faster than webpack?
+1. Why can Vite avoid bundling the whole source tree before dev starts?
+2. What problems do on-demand source transforms and dependency pre-bundling solve separately?
+3. Why does production build still need a full bundling pipeline?
+4. Which dev/build inconsistencies does the Vite 8 + Rolldown path try to reduce?
 
-<Callout type="tip">Answers unfold in [Part 1 · Core Concepts](/docs/01-core-concepts).</Callout>
+<Callout type="tip">Next, read [0.2 · Your First Vite Project](/docs/00-getting-started/02-first-project) and run this model locally.</Callout>

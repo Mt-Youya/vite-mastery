@@ -63,9 +63,70 @@ Once `@vitejs/plugin-react` is installed, you get for free:
 
 - React Fast Refresh (component state preserved during HMR)
 - JSX compilation
-- Automatic `React` import (Vite 8+)
+- automatic JSX runtime support, so most new files do not need `import React from "react"`
 
 We'll take this plugin apart later.
+
+## What The Four Commands Actually Do
+
+The setup sequence looks like simple scaffolding, but it maps to four different project phases:
+
+| Command | What actually happens |
+| --- | --- |
+| `pnpm create vite@latest` | Downloads create-vite and writes the minimal template files |
+| `pnpm install` | Installs Vite, the React plugin, React runtime packages, and TypeScript-related dependencies |
+| `pnpm dev` | Starts the Vite dev server and serves source through native ESM |
+| Opening `localhost:5173` | The browser requests `index.html`, then follows module imports into your source files |
+
+When `pnpm dev` starts quickly, do not assume Vite already compiled the whole project. It prepared the server and dependency cache; source modules are transformed when the browser asks for them.
+
+## Verify Three Things Immediately
+
+After the first successful run, do not stop at the welcome page. Run three quick checks:
+
+1. **Edit React component text**: change `src/App.tsx` and confirm the page updates without a full reload.
+2. **Edit CSS**: change `src/App.css` and confirm styles hot-update as well.
+3. **Open the Network panel**: refresh and observe separate requests for `main.tsx`, `App.tsx`, and other source modules.
+
+These checks correspond to Vite's three basic ideas: on-demand source transform, HMR, and native browser ESM. The rest of the guide keeps returning to them.
+
+## Common Startup Problems
+
+<Callout type="warning" title="Do not skip runtime versions">
+  Current Vite releases have explicit Node requirements. If the project fails to start, run `node -v` and `pnpm -v` before blaming plugin configuration.
+</Callout>
+
+Triage common failures in this order:
+
+| Symptom | Check first |
+| --- | --- |
+| `pnpm create vite@latest` is slow | npm registry, proxy, company network |
+| `pnpm dev` reports a Node version error | Whether Node satisfies the project requirement |
+| Port is not 5173 | 5173 is occupied; Vite tries the next available port |
+| Page opens but HMR does not work | Browser console, WebSocket connection, proxy setup |
+| TypeScript cannot find Vite globals | Whether `src/vite-env.d.ts` exists |
+
+## Do Not Rush Into Configuration
+
+The easiest beginner mistake is to add configuration immediately after creating a project. A better order:
+
+1. Understand why `index.html` is the entry.
+2. Learn what the plugin array in `vite.config.ts` does.
+3. Learn the separate jobs of `dev`, `build`, and `preview`.
+4. Only then add aliases, proxies, build output rules, or other real requirements.
+
+Configuration is not better because it arrives earlier. Vite's defaults are intentionally enough for the first stage of most frontend apps.
+
+## What Counts As Actually Working
+
+"A page appears in the browser" is only the first step. A Vite project is really working when:
+
+1. `pnpm dev` starts and HMR works for both TSX and CSS.
+2. `pnpm build` produces `dist/` without TypeScript or build errors.
+3. `pnpm preview` can serve the production output with correct asset paths.
+4. The browser console has no React Refresh preamble, module resolution, or asset 404 errors.
+
+This check order appears again throughout the hands-on projects. Dev working only proves the dev server path. Build and preview passing means the production build and deployment paths are basically sound.
 
 ## Self-check
 

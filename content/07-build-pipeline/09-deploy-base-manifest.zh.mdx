@@ -1,0 +1,256 @@
+---
+title: 部署路径、base 与构建清单
+description: 生产部署不只是跑 vite build。本节系统讲清 base、相对路径、静态托管目录、chunk 404、manifest、modulepreload 与缓存策略。
+order: 9
+part: 07-build-pipeline
+chapter: "7.9"
+difficulty: 2
+readingTime: 16
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - `base` 如何影响 JS、CSS、图片和动态 chunk 路径
+  - 部署到域名根路径、子路径和相对路径时怎么配置
+  - 为什么双击打开 `dist/index.html` 常常会失败
+  - manifest 与缓存策略如何配合
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 [7.1 · 生产构建](/docs/07-build-pipeline/01-rolldown-in-build)
+  - 了解 [0.5 · CLI preview](/docs/00-getting-started/05-cli-workflow)
+</Callout>
+
+## 部署失败最常见原因是路径错
+
+Vite 构建后会输出一组带 hash 的文件:
+
+```text
+dist/
+  index.html
+  assets/
+    index-B7PI925R.js
+    index-ChJ_j-JJ.css
+    logo-BuPIv-2h.svg
+```
+
+如果部署在域名根路径:
+
+```text
+https://example.com/
+```
+
+默认 `base: "/"` 通常没问题。HTML 里引用 `/assets/index-B7PI925R.js`，浏览器会请求 `https://example.com/assets/index-B7PI925R.js`。
+
+如果部署在子路径:
+
+```text
+https://example.com/docs/
+```
+
+还保持 `base: "/"` 就会请求错:
+
+```text
+https://example.com/assets/index-B7PI925R.js  # 错
+https://example.com/docs/assets/index-B7PI925R.js  # 对
+```
+
+所以要配置:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  base: "/docs/",
+})
+```
+
+## 三种 base 模式
+
+| 部署场景 | 推荐 `base` | 说明 |
+| -------- | ----------- | ---- |
+| 域名根路径 | `"/"` | 默认值 |
+| 固定子路径 | `"/docs/"` | GitHub Pages、反向代理子目录 |
+| 不知道最终路径 | `"./"` | 相对路径部署，适合离线预览或任意目录挂载 |
+
+### 固定子路径
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  base: "/admin/",
+})
+```
+
+构建产物会把 JS、CSS、图片 URL 都重写到 `/admin/assets/...`。这包括:
+
+- JS import 的静态资源
+- CSS `url(...)`
+- HTML 中的资源引用
+- 动态 import 生成的 chunk 路径
+
+### 相对 base
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  base: "./",
+})
+```
+
+相对 base 会让产物使用相对路径，适合最终挂载路径未知的场景。但它依赖浏览器对 `import.meta` 等现代能力的支持。需要兼容更老浏览器时，要结合 legacy 策略评估。
+
+## `import.meta.env.BASE_URL`
+
+如果运行时要拼 URL，不要手写部署路径:
+
+```ts
+const imageUrl = `${import.meta.env.BASE_URL}images/banner.png`
+```
+
+`BASE_URL` 来自 `base` 配置，会在构建时静态替换。它必须以字面量形式出现:
+
+```ts
+import.meta.env.BASE_URL // 可以
+import.meta.env["BASE_URL"] // 不建议,不会得到同样的静态替换语义
+```
+
+但更推荐的做法仍然是让资源进入模块图:
+
+```ts
+import bannerUrl from "./assets/banner.png"
+```
+
+只有 public 目录资源或运行时拼接路径，才需要显式用 `BASE_URL`。
+
+## 为什么不能直接双击 `dist/index.html`
+
+生产产物使用 ESM:
+
+```html
+<script type="module" src="/assets/index-B7PI925R.js"></script>
+```
+
+如果双击打开，浏览器会走 `file://`，这会触发 CORS、模块加载、绝对路径等问题。正确方式是用 HTTP server 预览:
+
+```bash
+pnpm build
+pnpm preview
+```
+
+或用任意静态服务器:
+
+```bash
+npx serve dist
+```
+
+判断构建产物是否正常，要通过 HTTP 访问，而不是文件系统直接打开。
+
+## manifest:后端和分析工具的接口
+
+开启:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    manifest: true,
+  },
+})
+```
+
+产物会有:
+
+```text
+dist/.vite/manifest.json
+```
+
+manifest 记录源码入口到构建产物的映射:
+
+```json filename="dist/.vite/manifest.json"
+{
+  "index.html": {
+    "file": "assets/index-B7PI925R.js",
+    "css": ["assets/index-ChJ_j-JJ.css"],
+    "assets": ["assets/logo-BuPIv-2h.svg"],
+    "isEntry": true
+  }
+}
+```
+
+它适合:
+
+- 后端模板注入 JS/CSS
+- CI 做产物体积分析
+- 部署系统生成 preload header
+- 对比不同构建的资源变化
+
+不要把 manifest 当成运行时 API 暴露给浏览器。它描述构建内部结构，通常给服务端或部署流程读取。
+
+## modulepreload 与动态 chunk
+
+Vite 会为静态依赖生成 modulepreload，使浏览器提前拉取入口依赖。对于动态 import，Vite 还会优化异步 chunk 加载，尽量减少瀑布请求。
+
+这意味着部署时必须确保这些路径都能被静态服务器访问:
+
+```text
+/assets/entry.js
+/assets/vendor.js
+/assets/route-dashboard.js
+```
+
+如果只允许访问入口 JS，而忘了把整个 `assets/` 目录公开，页面会出现:
+
+```text
+Failed to fetch dynamically imported module
+```
+
+这通常不是代码问题，而是部署路径、缓存或静态文件规则问题。
+
+## 缓存策略
+
+Vite 默认给资源文件加内容 hash:
+
+```text
+assets/index-B7PI925R.js
+assets/index-ChJ_j-JJ.css
+```
+
+推荐缓存策略:
+
+| 文件 | Cache-Control |
+| ---- | ------------- |
+| `index.html` | `no-cache` 或短缓存 |
+| `assets/*` | `public, max-age=31536000, immutable` |
+
+原因:
+
+- HTML 负责引用最新 hash 文件，应该快速更新。
+- hash 资源内容变了文件名也变，可以长期缓存。
+
+最危险的策略是给 `index.html` 长缓存。用户会长期拿到旧 HTML，旧 HTML 又引用已删除的 chunk，最终出现白屏或动态模块加载失败。
+
+## 部署前检查清单
+
+1. `pnpm build` 成功。
+2. `pnpm preview` 下路由、图片、动态 import 正常。
+3. 如果部署到子路径，确认 `base` 与真实路径一致。
+4. 刷新深层路由时，服务器能回退到 HTML 或对应后端路由。
+5. `assets/` 目录整体可访问。
+6. HTML 不长缓存，hash 资源长缓存。
+7. 如果后端读 manifest，确认 entry key 与 `rolldownOptions.input` 一致。
+
+## 自测题
+
+1. 部署到 `https://example.com/app/` 时，`base` 应该怎么配置?
+2. 为什么 `index.html` 不应该长期缓存?
+3. `Failed to fetch dynamically imported module` 常见部署原因有哪些?
+4. manifest 适合给谁读取?为什么不建议暴露给浏览器业务代码?
+
+```ts filename="练习"
+// 设计一个部署配置:
+// - 应用部署在 /dashboard/
+// - 后端模板读取 manifest
+// - assets 长缓存
+// - index.html 短缓存
+// 写出 Vite base、manifest 配置和缓存策略说明
+```

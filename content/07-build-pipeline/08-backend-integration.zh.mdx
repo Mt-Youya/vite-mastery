@@ -1,0 +1,277 @@
+---
+title: 后端集成:不用 Vite 托管 HTML 时怎么接
+description: 传统 Rails、Laravel、Express、Go 模板等后端负责 HTML 时，如何让 Vite 负责资源开发、HMR、manifest 与生产产物注入。
+order: 8
+part: 07-build-pipeline
+chapter: "7.8"
+difficulty: 3
+readingTime: 18
+updatedAt: "2026-06-29"
+viteVersion: "8.1"
+apiStability: "stable"
+---
+
+<Callout type="note" title="你将学到什么">
+  - 什么时候需要后端集成，而不是让 Vite 直接服务 `index.html`
+  - dev 阶段如何注入 `@vite/client` 和应用入口
+  - production 阶段如何读取 `.vite/manifest.json`
+  - React Fast Refresh、静态资源 URL、modulepreload 的注意事项
+</Callout>
+
+<Callout type="tip" title="前置知识">
+  - 了解 [7.1 · Rolldown 在构建中的角色](/docs/07-build-pipeline/01-rolldown-in-build)
+  - 了解 [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+</Callout>
+
+## 什么时候需要后端集成
+
+标准 Vite 应用里，`index.html` 是入口，Vite 同时处理 HTML 和资源:
+
+```text
+browser → Vite dev server → index.html → /src/main.ts
+```
+
+但很多项目不是这样。传统后端可能负责渲染 HTML:
+
+```text
+browser → Rails/Laravel/Express/Go server → server template
+                                      ↘ Vite 负责 JS/CSS/assets
+```
+
+典型场景:
+
+- Rails、Laravel、Django 这类后端模板系统
+- 后端需要先做登录态、权限、AB 实验，再输出 HTML
+- 多页面系统里每个页面来自不同后端 route
+- 渐进迁移旧项目，只想把前端资源构建换成 Vite
+
+这时不要强行把 HTML 搬进 Vite。正确模型是:**后端拥有 HTML，Vite 拥有前端入口和静态资源图谱**。
+
+## 核心配置:入口 + manifest
+
+后端集成的 Vite 配置通常长这样:
+
+```ts filename="vite.config.ts"
+import { defineConfig } from "vite"
+import react from "@vitejs/plugin-react"
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    cors: {
+      origin: "http://localhost:3000",
+    },
+  },
+  build: {
+    manifest: true,
+    rolldownOptions: {
+      input: "/absolute/path/to/src/main.tsx",
+    },
+  },
+})
+```
+
+几个关键点:
+
+| 配置 | 作用 |
+| ---- | ---- |
+| `server.cors.origin` | 允许后端页面从 Vite dev server 加载模块 |
+| `build.manifest` | 生成 `.vite/manifest.json`，供后端模板读取 |
+| `build.rolldownOptions.input` | 告诉构建从 JS/TS 入口开始，而不是默认 HTML |
+
+如果你的后端模板会输出多个页面入口，可以配置多入口:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    manifest: true,
+    rolldownOptions: {
+      input: {
+        main: "src/main.ts",
+        admin: "src/admin.ts",
+        checkout: "src/checkout.ts",
+      },
+    },
+  },
+})
+```
+
+## Dev 阶段:后端模板注入 Vite 脚本
+
+开发阶段不要读 manifest，因为还没有生产产物。后端模板直接注入 Vite dev server 的入口:
+
+```html filename="server-template.html"
+<!-- development only -->
+<script type="module" src="http://localhost:5173/@vite/client"></script>
+<script type="module" src="http://localhost:5173/src/main.tsx"></script>
+```
+
+`/@vite/client` 做几件事:
+
+- 建立 HMR websocket
+- 接收错误 overlay
+- 处理 CSS 热更新
+- 处理 full reload 消息
+
+没有它，页面也许能加载入口模块，但 HMR 和错误提示会缺失。
+
+## React Fast Refresh 的额外 preamble
+
+如果使用 `@vitejs/plugin-react`，后端直接服务 HTML 时，插件没机会自动修改 HTML。需要在入口脚本前注入 React Refresh preamble:
+
+```html filename="server-template.html"
+<script type="module">
+  import RefreshRuntime from "http://localhost:5173/@react-refresh"
+  RefreshRuntime.injectIntoGlobalHook(window)
+  window.$RefreshReg$ = () => {}
+  window.$RefreshSig$ = () => (type) => type
+  window.__vite_plugin_react_preamble_installed__ = true
+</script>
+<script type="module" src="http://localhost:5173/@vite/client"></script>
+<script type="module" src="http://localhost:5173/src/main.tsx"></script>
+```
+
+很多“React HMR 不工作”的后端集成问题，本质都是漏了这段 preamble。
+
+## 静态资源 URL 怎么处理
+
+应用代码里这样导入:
+
+```ts
+import logoUrl from "./logo.svg"
+```
+
+dev 阶段浏览器会请求 Vite dev server 上的资源 URL。后端页面里如果还从 `localhost:3000` 发起相对请求，就会找不到资源。通常有两种做法:
+
+1. 后端把静态资源请求代理到 Vite dev server。
+2. 配置 `server.origin`，让 Vite 生成带 origin 的资源 URL。
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  server: {
+    origin: "http://localhost:5173",
+  },
+})
+```
+
+第一种更接近生产部署；第二种配置更少。团队应固定一种，避免同一个项目里同时存在代理和绝对 URL。
+
+## Production 阶段:读取 manifest
+
+构建后会生成类似:
+
+```text
+dist/
+  assets/
+    main-B7PI925R.js
+    main-ChJ_j-JJ.css
+  .vite/
+    manifest.json
+```
+
+manifest 把源码入口映射到实际产物:
+
+```json filename="dist/.vite/manifest.json"
+{
+  "src/main.tsx": {
+    "file": "assets/main-B7PI925R.js",
+    "isEntry": true,
+    "css": ["assets/main-ChJ_j-JJ.css"],
+    "imports": ["_vendor-Df3x.js"]
+  }
+}
+```
+
+后端模板要做的事:
+
+1. 读取 `dist/.vite/manifest.json`
+2. 找到入口 `"src/main.tsx"`
+3. 输出它的 CSS `<link>`
+4. 输出它的依赖 chunk preload
+5. 输出入口 `<script type="module">`
+
+伪代码:
+
+```ts filename="render-assets.ts"
+interface ManifestChunk {
+  file: string
+  css?: string[]
+  imports?: string[]
+  isEntry?: boolean
+}
+
+type Manifest = Record<string, ManifestChunk>
+
+export function renderViteAssets(manifest: Manifest, entry: string, base = "/") {
+  const chunk = manifest[entry]
+  if (!chunk) throw new Error(`Missing Vite manifest entry: ${entry}`)
+
+  const tags: string[] = []
+
+  for (const cssFile of chunk.css ?? []) {
+    tags.push(`<link rel="stylesheet" href="${base}${cssFile}">`)
+  }
+
+  for (const imported of chunk.imports ?? []) {
+    const importedChunk = manifest[imported]
+    if (importedChunk) {
+      tags.push(`<link rel="modulepreload" href="${base}${importedChunk.file}">`)
+    }
+  }
+
+  tags.push(`<script type="module" src="${base}${chunk.file}"></script>`)
+  return tags.join("\n")
+}
+```
+
+真实项目还要递归处理深层 imports，并处理 dynamic imports 对应的 CSS。不要用正则扫描 `dist/index.html`，manifest 才是稳定接口。
+
+## modulepreload polyfill
+
+如果后端集成绕过了 Vite 生成的 HTML，并且没有禁用 modulepreload polyfill，需要在入口文件开头导入:
+
+```ts filename="src/main.ts"
+import "vite/modulepreload-polyfill"
+```
+
+这样能补齐一些浏览器对 `modulepreload` 的兼容行为。它要放在应用入口最前面，确保其他动态 import 之前运行。
+
+## 多入口模板映射
+
+多入口后端系统建议维护显式映射:
+
+```ts filename="entries.ts"
+export const viteEntries = {
+  home: "src/main.ts",
+  admin: "src/admin.ts",
+  checkout: "src/checkout.ts",
+} as const
+```
+
+后端模板不要自己拼 `"src/" + page + ".ts"`。显式映射更容易审计，也能避免路径大小写、页面重命名、旧模板残留导致的线上 404。
+
+## 常见错误
+
+| 现象 | 原因 | 修复 |
+| ---- | ---- | ---- |
+| dev 页面加载但 HMR 不动 | 漏了 `@vite/client` | 在后端模板注入 client |
+| React 刷新后状态丢失 | 漏了 React Refresh preamble | 在入口前注入 preamble |
+| 图片 URL 指向后端端口 | 没配代理或 `server.origin` | 二选一固定策略 |
+| 生产 CSS 丢失 | 后端只输出 JS | 从 manifest 读取 `css` 字段 |
+| 动态 chunk 404 | `base` 或静态文件挂载路径不一致 | 统一 Vite `base` 与后端静态路径 |
+
+## 自测题
+
+1. 后端集成为什么不能只在模板里写生产 JS 文件名?
+2. dev 阶段为什么必须注入 `@vite/client`?
+3. `build.manifest` 解决了什么问题?
+4. 使用 React 时，为什么后端模板还要手动注入 Refresh preamble?
+
+```ts filename="练习"
+// 写一个 renderViteAssets:
+// - 输入 manifest、entry、base
+// - 输出入口 CSS link
+// - 输出 imports 的 modulepreload
+// - 输出入口 script
+// - entry 不存在时抛出清晰错误
+```

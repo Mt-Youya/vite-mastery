@@ -74,7 +74,7 @@ Once the module graph is built, Rolldown runs the transform pipeline on each mod
 This stage only runs during `vite build`:
 
 1. **Tree-shaking** — based on the module graph and `export` / `import` analysis, marks and removes unused code
-2. **Chunk splitting** — based on dynamic `import()` boundaries and `rollupOptions.output.manualChunks` configuration, decides how to pack modules into different chunk files
+2. **Chunk splitting** — based on dynamic `import()` boundaries and `rolldownOptions.output.manualChunks` configuration, decides how to pack modules into different chunk files
 3. **Minification** — OXC Minifier compresses code (removes whitespace, shortens variable names, etc.)
 4. **Asset processing** — CSS extraction, image hash fingerprinting, static asset copying
 
@@ -139,7 +139,7 @@ Rolldown uses a compatibility layer to translate JavaScript plugin hook calls in
 // vite.config.ts
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: "src/main.ts",
       output: {
         manualChunks: {

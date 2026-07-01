@@ -52,7 +52,7 @@ When a user visits the home page, only `index.js` and `Home.js` are downloaded. 
 ```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks: {
           // chunk name → modules to include (package names or file paths)
@@ -111,7 +111,7 @@ manualChunks(id: string) {
 ```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // File name for dynamic chunks (lazily loaded)
         chunkFileNames: (chunkInfo) => {

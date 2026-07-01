@@ -1,188 +1,270 @@
 ---
 title: Rolldown 在 Vite 8 构建中的角色
-description: 生产构建从 Rollup 切换到 Rolldown 之后,构建配置有什么变化?已有的 rollupOptions 还能用吗?Rolldown 专属配置怎么写?
+description: 生产构建切到 Rolldown 后，Vite build 的配置入口、压缩器、manifest、多入口、chunk 缓存与旧 rollupOptions 迁移该怎么理解。
 order: 1
 part: 07-build-pipeline
 chapter: "7.1"
 difficulty: 2
-readingTime: 12
-updatedAt: "2026-06-26"
+readingTime: 16
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - Vite 8 构建使用 Rolldown 的具体变化 - `rollupOptions` 在 Vite 8 中还有效吗 - Rolldown 专属配置项 - 从 Vite 7 迁移
-  build 配置的注意事项
+  - `vite build` 在 Vite 8 中如何调用 Rolldown
+  - 为什么新配置应优先写 `build.rolldownOptions`
+  - `build.rollupOptions` 作为 alias 的迁移意义
+  - Oxc / Lightning CSS / manifest / chunk import map 等构建选项如何分工
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 阅读「Rolldown 是什么」(2.2 节) - 了解基本的 `vite build` 流程
+  - 读过 [2.2 · Rolldown 是什么](/docs/02-bundler-evolution/02-what-is-rolldown)
+  - 理解 [3.1 · Vite 插件 vs Rollup 插件](/docs/03-plugin-system/01-vite-vs-rollup-plugin)
 </Callout>
 
-## build.rollupOptions 还有效吗
+## `vite build` 仍是 Vite 命令，不是直接裸跑 Rolldown
 
-是的,**完全有效**。这是 Vite 8 设计的核心承诺之一——`rollupOptions` 向后兼容:
+Vite 8 的生产构建使用 Rolldown 打包，但 `vite build` 并不等于“把你的配置原样交给 Rolldown”。Vite 仍然负责:
+
+1. 读取并合并 `vite.config.ts`
+2. 加载 mode 与 `.env` 文件
+3. 创建插件容器并安排 Vite 内置插件
+4. 把 HTML、CSS、静态资源、worker、WASM 等 Vite 语义转成 Rolldown 能理解的输入
+5. 调用 Rolldown 生成 chunks/assets
+6. 输出 manifest、license、SSR manifest 等 Vite 产物
+
+所以调构建配置时要分清两层:
+
+| 层 | 配置入口 | 例子 |
+| -- | -------- | ---- |
+| Vite 构建语义 | `build.*` | `outDir`、`target`、`manifest`、`minify` |
+| 底层 bundler 选项 | `build.rolldownOptions` | `input`、`external`、`output`、Rolldown 插件 |
+
+优先使用 Vite 提供的上层配置；只有需要直接控制 bundler 行为时，才进入 `build.rolldownOptions`。
+
+## `rolldownOptions` 是 Vite 8 主线
+
+多入口、external、输出文件名等底层选项应写在 `build.rolldownOptions`:
 
 ```ts filename="vite.config.ts"
+import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
 export default defineConfig({
   build: {
-    // ✅ 这些配置在 Vite 8 Rolldown 下全部有效
-    rollupOptions: {
+    sourcemap: true,
+    manifest: true,
+    rolldownOptions: {
       input: {
-        main: "index.html",
-        admin: "admin.html",
-      },
-      output: {
-        manualChunks: {
-          vendor: ["react", "react-dom"],
-          utils: ["lodash-es", "date-fns"],
-        },
-        chunkFileNames: "assets/[name]-[hash].js",
-        entryFileNames: "assets/[name].js",
-        assetFileNames: "assets/[name]-[hash][extname]",
+        index: resolve("index.html"),
+        admin: resolve("admin/index.html"),
       },
       external: ["some-cdn-lib"],
+      output: {
+        entryFileNames: "assets/[name]-[hash].js",
+        chunkFileNames: "assets/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
+      },
     },
   },
 })
 ```
 
-## 主要 build 配置速查
-
-| 配置项                        | 默认值                        | 说明                      |
-| ----------------------------- | ----------------------------- | ------------------------- |
-| `build.outDir`                | `"dist"`                      | 产物输出目录              |
-| `build.assetsDir`             | `"assets"`                    | 静态资源子目录            |
-| `build.sourcemap`             | `false`                       | 产物 source map           |
-| `build.minify`                | `"esbuild"`                   | 压缩器                    |
-| `build.target`                | `"baseline-widely-available"` | 浏览器兼容目标            |
-| `build.cssMinify`             | `"lightningcss"`              | CSS 压缩器(Vite 8 新默认) |
-| `build.lib`                   | `undefined`                   | 库模式配置                |
-| `build.chunkSizeWarningLimit` | `500`                         | chunk 大小警告阈值(KB)    |
-
-## Vite 8 的压缩配置变化
-
-<V7Note title="Vite 7:CSS 用 esbuild 压缩">
-  在 Vite 7 中,CSS 压缩默认使用 esbuild。Vite 8 切换到 **lightningcss** 作为默认 CSS 压缩器。
-
-`lightningcss` 用 Rust 实现,支持更多现代 CSS 特性:嵌套规则、color-mix、层叠层(layer)等。
-
-迁移注意:如果你的 CSS 依赖某些 esbuild 特有的行为,可能需要验证 lightningcss 的输出。要恢复旧行为:
-
-```ts
-build: {
-  cssMinify: "esbuild" // 明确指定回 esbuild
-}
-```
-
-</V7Note>
-
-## JS 压缩配置
+`build.rollupOptions` 在 Vite 8 中仍可读，但它只是 `build.rolldownOptions` 的 alias，并且官方配置参考已标记为 deprecated。新代码不要继续写旧名字。
 
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
-
 export default defineConfig({
   build: {
-    // JS 压缩器(Vite 8 仍默认 esbuild,Rolldown 内置 OXC minifier 也可用)
-    minify: "esbuild", // "esbuild" | "terser" | false
-
-    // OXC minifier(Rolldown 内置,Vite 8 实验性)
-    // minify: "rolldown",  // 使用 Rolldown 内置 OXC minifier
+    // 旧配置仍能帮助迁移，但不建议新项目继续使用
+    rollupOptions: {
+      input: "index.html",
+    },
   },
 })
 ```
+
+<Callout type="warning" title="迁移建议">
+  迁移旧项目时，可以先保持 `rollupOptions` 让构建跑通；等验证完成后，把字段名改成 `rolldownOptions`，并逐项确认 output / plugin 选项是否仍是你需要的行为。
+</Callout>
+
+## 关键 build 配置速查
+
+| 配置项 | 默认/说明 | 什么时候改 |
+| ------ | --------- | ---------- |
+| `build.outDir` | 默认 `"dist"` | 部署系统要求其他目录 |
+| `build.assetsDir` | 默认 `"assets"` | 静态资源路径有约定 |
+| `build.target` | 默认 `baseline-widely-available` | 需要更低浏览器目标 |
+| `build.sourcemap` | 默认 `false` | 线上错误追踪、调试 |
+| `build.manifest` | 默认 `false` | 后端模板要读产物映射 |
+| `build.ssrManifest` | 默认 `false` | SSR 需要 preload / style 信息 |
+| `build.minify` | client 默认 Oxc，SSR 默认 `false` | 调试、兼容 terser 选项 |
+| `build.cssMinify` | 默认 Lightning CSS | CSS 压缩需要特殊目标 |
+| `build.chunkImportMap` | 实验性，默认 `false` | 优化 chunk 缓存命中 |
+
+这些配置里，`target`、`minify`、`cssMinify` 很容易被误用。先确认真实目标，再改默认值。
+
+## target:浏览器能力边界
+
+生产构建默认目标是 `baseline-widely-available`。这不是“支持所有旧浏览器”，而是以 Web Platform Baseline Widely Available 为参考，面向一组现代但相对稳妥的浏览器版本。
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    target: "es2020",
+  },
+})
+```
+
+降低 target 只处理语法转换，不等于自动补齐所有 polyfill。比如某个运行时 API 缺失，仍需要你自己引入 polyfill 或使用 legacy 方案。
+
+## minify:Oxc 是主线，esbuild 是兼容项
+
+Vite 8 client build 默认使用 Oxc minifier，SSR build 默认不压缩:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    minify: "oxc", // true 等价于默认策略；也可设 false / "terser" / "esbuild"
+  },
+})
+```
+
+`build.minify: "esbuild"` 已不应作为新配置首选。只有在迁移期间确认某个产物依赖 esbuild 压缩行为时，才临时使用。
+
+调试生产产物时可以关压缩:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    minify: false,
+    sourcemap: true,
+  },
+})
+```
+
+## CSS 压缩:Lightning CSS
+
+CSS 压缩默认使用 Lightning CSS:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    cssMinify: "lightningcss",
+  },
+})
+```
+
+如果只想临时排查 CSS 压缩问题，可以单独关闭:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  build: {
+    cssMinify: false,
+  },
+})
+```
+
+不要为了排查 JS 压缩问题就同时关掉 CSS 压缩。Vite 允许把 JS 和 CSS minify 分开控制，应该分层定位。
 
 ## 多入口构建
 
+Vite 默认使用 `<root>/index.html` 作为入口。多页面应用可以显式声明多个 HTML:
+
 ```ts filename="vite.config.ts"
-import { defineConfig } from "vite"
 import { resolve } from "node:path"
+import { defineConfig } from "vite"
 
 export default defineConfig({
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       input: {
-        // 多个 HTML 入口
         index: resolve("index.html"),
-        about: resolve("about.html"),
-        admin: resolve("admin/index.html"),
+        dashboard: resolve("dashboard.html"),
+        settings: resolve("settings.html"),
       },
     },
   },
 })
 ```
 
-产物:
+输出大致是:
 
 ```text
 dist/
   index.html
-  about.html
-  admin/index.html
+  dashboard.html
+  settings.html
   assets/
     index-HASH.js
-    about-HASH.js
-    admin-HASH.js
-    vendor-HASH.js  ← 共享 chunk
+    dashboard-HASH.js
+    settings-HASH.js
+    shared-HASH.js
 ```
 
-## 代码分割策略
+多入口项目最容易出错的是 `base`、共享 chunk、后端模板路径。部署前必须用 `pnpm preview` 或真实静态服务器验证每个入口。
+
+## 后端入口构建
+
+如果 HTML 不归 Vite 管，而是由后端模板输出，应把 JS/TS 文件作为入口，并开启 manifest:
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    rollupOptions: {
-      output: {
-        // 手动控制 chunk 分割
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            // 把所有 node_modules 按包名分割
-            const packageName = id.match(/node_modules\/(.+?)\//)?.[1]
-            if (packageName) {
-              // react 相关放一起
-              if (["react", "react-dom", "react-router-dom"].includes(packageName)) {
-                return "react-vendor"
-              }
-              // 其他大包各自分割
-              if (["lodash-es", "date-fns", "axios"].includes(packageName)) {
-                return packageName
-              }
-              // 其余打进 vendor
-              return "vendor"
-            }
-          }
-        },
+    manifest: true,
+    rolldownOptions: {
+      input: {
+        app: "src/main.ts",
+        admin: "src/admin.ts",
       },
     },
   },
 })
 ```
 
-## 自测题
+这种模式下，如果需要 modulepreload polyfill，要在入口文件手动导入:
 
-1. Vite 7 的 `rollupOptions` 配置在 Vite 8 里还能用吗?为什么?
-2. Vite 8 中 CSS 压缩的默认工具从什么变成了什么?
-3. `build.minify: "esbuild"` 和 `build.minify: false` 有什么区别?各适合什么场景?
-4. 如何配置 Vite 同时构建多个 HTML 入口?
+```ts filename="src/main.ts"
+import "vite/modulepreload-polyfill"
+```
 
-```ts filename="练习"
-// 配置一个多页面应用的 Vite build:
-// - 有 3 个页面:index.html、dashboard.html、settings.html
-// - react 和 react-dom 单独打成 react-vendor.js
-// - lodash-es 单独一个 chunk
-// - 启用 sourcemap
-// - CSS 用 lightningcss 压缩
+完整后端集成见 [7.8 · 后端集成](/docs/07-build-pipeline/08-backend-integration)。
 
-import { defineConfig } from "vite"
-import { resolve } from "node:path"
+## chunk import map:缓存优化而不是拆包策略
 
+`build.chunkImportMap` 是实验性优化，用 import map 减少 chunk hash 变动带来的级联缓存失效:
+
+```ts filename="vite.config.ts"
 export default defineConfig({
   build: {
-    // TODO
+    chunkImportMap: true,
   },
 })
+```
+
+它解决的是“chunk URL 引用导致上游 chunk 跟着变”的缓存问题，不是代码分割策略本身。拆包策略仍应从动态 import、路由边界、依赖体积和 Rolldown 输出配置入手。
+
+## 迁移检查清单
+
+1. 把新配置写到 `build.rolldownOptions`，旧 `rollupOptions` 只作为过渡。
+2. 检查 `build.minify: "esbuild"`，没有明确原因就移除或改回默认。
+3. 如果后端读产物，开启 `build.manifest` 并验证 manifest key。
+4. 多入口项目逐个打开产物页面验证。
+5. 部署到子路径时同步校准 `base`。
+6. 使用 experimental 选项时，在文章或项目文档里明确标注。
+
+## 自测题
+
+1. 为什么 `vite build` 不是“直接裸跑 Rolldown”?
+2. `build.rollupOptions` 在 Vite 8 中应该如何迁移?
+3. `build.minify: false` 和 `build.cssMinify: false` 分别适合排查什么?
+4. 后端集成为什么通常需要 `build.manifest`?
+
+```ts filename="练习"
+// 配置一个多入口生产构建:
+// - index.html、dashboard.html、settings.html 三个 HTML 入口
+// - 开启 sourcemap
+// - 开启 manifest
+// - 输出文件统一放到 assets/[name]-[hash].js
+// - 不使用已 deprecated 的 rollupOptions 字段
 ```

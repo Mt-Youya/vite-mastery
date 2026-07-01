@@ -1,153 +1,314 @@
 ---
-title: Vite 8 Devtools 实战
-description: Vite 8 内置的开发工具——如何启用、能看到什么、怎么用它诊断性能问题和插件行为。
+title: Vite DevTools 实战
+description: Vite 8 时代的官方调试框架 @vitejs/devtools——启用模式、可视化能力、与 vite-plugin-inspect 的关系，以及如何扩展自己的 Dock。
 order: 2
 part: 12-performance
 chapter: "12.2"
 difficulty: 2
-readingTime: 10
-updatedAt: "2026-06-26"
+readingTime: 14
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
-apiStability: "stable"
+apiStability: "experimental"
 ---
 
+<Callout type="warning" title="Early Preview">
+  `@vitejs/devtools` 目前处于 early preview 阶段（仓库 [vitejs/devtools](https://github.com/vitejs/devtools)，文档
+  [devtools.vite.dev](https://devtools.vite.dev/)）。Dock 注册、RPC 与 Rolldown 集成的具体字段名仍可能在 minor 版本之间变化。生产项目建议把版本锁定到具体 patch，例如 `@vitejs/devtools@0.x.y`，而不是 `^0.x`。
+</Callout>
+
 <Callout type="note" title="你将学到什么">
-  - Vite 8 Devtools 的启用方式 - 能看到的信息:模块图、transform 时间、插件耗时 - 结合 vite-plugin-inspect 的使用 -
-  性能诊断的实用工作流
+  - `@vitejs/devtools` 的定位、与 `vite-plugin-inspect` 的边界
+  - 三种工作模式:Standalone / Embedded / Rolldown 集成
+  - Rolldown 集成提供的五大可视化:模块分析、插件洞察、Chunk/Asset 多视图、重复包检测、Session 对比
+  - 用 `devtools.setup(ctx)` 给自己的 Vite 插件挂一个 Dock 面板
+  - 一套「页面慢/构建大」的标准诊断工作流
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 Chrome DevTools 基本用法
+  - 跑通过 Vite 8 的 `dev` 和 `build`
+  - 熟悉 Vite 插件的 `resolveId` / `load` / `transform` 三大 hook(见 [Part 3 · 插件系统](/docs/03-plugin-system/02-anatomy))
+  - 了解 Rolldown 与 Rollup 的关系(见 [Part 2 · Bundler Evolution](/docs/02-bundler-evolution/03-rolldown-architecture))
 </Callout>
 
-## Vite 8 内置 Devtools
+## 1. Vite DevTools 到底是什么
 
-Vite 8 引入了内置的 devtools 支持。在 `vite.config.ts` 里启用:
+`@vitejs/devtools` 不是又一个"塞进页面的浮窗",而是 Vite 官方在 v8 时代搭出来的一套**可扩展调试框架**——一个壳,加若干集成(Integration)。
+
+理解这一点能避免和 `vite-plugin-inspect` 混淆:
+
+| 维度     | `vite-plugin-inspect`      | `@vitejs/devtools`                                     |
+| -------- | -------------------------- | ------------------------------------------------------ |
+| 定位     | 单一用途插件               | 框架 + 集成集合                                        |
+| 阶段     | 仅 dev                     | dev 与 build 都覆盖                                    |
+| 可扩展   | 不可扩展                   | 任何 Vite 插件可以挂一个 Dock                          |
+| 核心能力 | 单文件 transform 链 + diff | 模块图 / 插件洞察 / chunk 多视图 / 重复包 / 跨构建对比 |
+| 生态依赖 | 独立                       | Vite 8+,深度集成 Rolldown                              |
+
+简单一句话:**inspect 看"这个文件被改成什么样了",DevTools 看"整个构建/dev 生态长什么样,哪里贵"**。两者互补,不冲突。
+
+## 2. 启用方式
+
+DevTools 提供三种工作模式,按需选择。
+
+### 2.1 安装
+
+```bash
+pnpm add -D @vitejs/devtools
+```
+
+要求 **Vite 8.0+**。在更老的版本上即便能装也无法工作——`devtools` 配置项和 `build.rolldownOptions.devtools` 都是 Vite 8 才引入的。
+
+### 2.2 Standalone 模式:构建后看分析
+
+最轻量的用法,只在 `defineConfig` 里加一行:
 
 ```ts filename="vite.config.ts"
 import { defineConfig } from "vite"
 
 export default defineConfig({
-  // 以 Vite 8.1.x 官方文档为准
-  // devtools 选项的具体 API 在 8.1.x 版本中完善中
+  devtools: {
+    enabled: true,
+  },
 })
 ```
 
-<Callout type="warning">
-  Vite 8 Devtools 的完整 API 在 8.1.x 时仍在完善。本节介绍已稳定的功能。请以 [vitejs.dev](https://vitejs.dev/config/)
-  官方文档为准。
-</Callout>
+跑完 `pnpm build` 后,终端会打印一条 DevTools URL(本地起的一个分析服务)。浏览器打开它,就能看完整的构建报告。这种模式适合 CI 里跑完构建后留个 artifact 链接,不在开发流程里持续打扰。
 
-## vite-plugin-inspect:插件级调试
+### 2.3 Embedded 模式:dev 时浮在页面角落
 
-`vite-plugin-inspect` 是 Vite 生态里最实用的调试工具:
-
-```bash
-pnpm add -D vite-plugin-inspect
-```
+需要在 dev 阶段实时观察就用嵌入式:
 
 ```ts filename="vite.config.ts"
+import { DevTools } from "@vitejs/devtools"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [DevTools()],
+})
+```
+
+启动 `pnpm dev` 后,业务页面右下角会浮出一个 Dock(视觉上像 macOS 的 Dock 栏),所有可用的 DevTools 集成会作为图标排在里面。这是日常开发的默认推荐配置。
+
+如果希望生产构建后也能用浏览器直接访问 DevTools 应用(而不是只起临时服务),可以打开 `withApp`:
+
+```ts filename="vite.config.ts"
+DevTools({
+  build: {
+    withApp: true,
+    // outDir: "custom-dir",
+  },
+})
+```
+
+### 2.4 Rolldown 集成:构建分析的主力
+
+DevTools 的最大杀手锏来自 Rolldown 集成。开启它需要在 `build.rolldownOptions` 里点亮一个开关:
+
+```ts filename="vite.config.ts"
+import { DevTools } from "@vitejs/devtools"
+import { defineConfig } from "vite"
+
+export default defineConfig({
+  plugins: [DevTools()],
+  build: {
+    rolldownOptions: {
+      devtools: {},
+    },
+  },
+})
+```
+
+之后每次 `pnpm build` 都会在 DevTools 里留下一份完整的构建快照。Session Compare 就是基于这些快照做 diff 的。
+
+## 3. Rolldown 集成的五大能力
+
+这一节是 DevTools 真正值得学的部分。每项能力都对应一个面板。
+
+### 3.1 Module analysis(模块分析)
+
+把整张 module graph 可视化:节点是文件,边是 import。点击任一节点能看到它经过的 transform 链——也就是哪些插件按什么顺序处理了它、每段产出的代码长什么样。
+
+下面的时序图展示了 Vite/Rolldown 在加载一个模块时 hook 的真实触发顺序,DevTools 的 transform 面板里看到的也是这套序列:
+
+<HookExplorer />
+
+实战里这个面板最常解答两类问题:
+
+1. **"这个文件为什么会被打到产物里?"** 沿着 importer 反向追,几跳就到入口。
+2. **"我加的 transform hook 怎么没生效?"** 如果链路里压根没有你的插件名,那大概率是 `apply` 配置或 `enforce` 顺序错了。
+
+### 3.2 Plugin insights(插件洞察)
+
+按插件聚合:每个插件被调用了多少次、累计耗时、处理过哪些模块。这是定位「dev server 启动慢」的第一站。
+
+DevTools 之所以能把这些数据按 `pre` / 默认 / `post` 三栏分组展示,正是利用了 Vite 插件的 `enforce` 字段。下面这张图可以帮你建立这个分组的直觉:
+
+<PluginPipeline />
+
+读 Plugin insights 面板时注意两个反模式:
+
+- **某个 `enforce: "pre"` 插件耗时占大头**——说明它在每个文件最前面拦了一刀,做不必要的工作。考虑加 `id` 过滤,或者改成按需 `load`。
+- **某个 `enforce: "post"` 插件 transform 次数远超预期**——通常是后置插件把上游 sourcemap 重新走了一遍,可以收窄触发条件。
+
+### 3.3 Chunk & asset analysis(产物分析的四视图)
+
+同一份产物从四个角度看:
+
+- **List**:表格,按体积/gzip 大小排序
+- **Graph**:节点图,看 chunk 间的依赖关系
+- **Treemap**:方块树,一眼看清"哪个 chunk 吃了大头"
+- **Flamegraph**:火焰图,常用来看代码归属——某个 npm 包贡献了多少字节
+
+实战经验:**先 Treemap 抓最大的 chunk,再 Flamegraph 找贡献者,最后 List 看 gzip 后的真实大小**。这个顺序避免你被一个未压缩的 1MB 文件吓到,结果它 gzip 后只有 80KB。
+
+### 3.4 Package detection(重复包检测)
+
+自动扫描产物里是否有同一个 npm 包被打了多份——版本不一致(`lodash@4.17.21` 和 `lodash@4.17.20` 同时存在)、或路径不一致(`node_modules/foo/node_modules/lodash` 和 `node_modules/lodash`)都会被列出来。
+
+monorepo 里这个面板的价值尤其高:pnpm 的 hoisting 策略一旦没配好,重复打包很容易悄悄发生。
+
+### 3.5 Session compare(跨构建对比)
+
+把"上一次 main 分支的构建"和"当前 PR 的构建"两次 session 做 diff:哪个 chunk 变大了、新增了哪些依赖、谁被意外引入。
+
+CI 里把基线 session 做成 artifact,PR 构建后跑一次 compare,能在 review 阶段就拦下意外的体积回归。
+
+## 4. 何时还是得回到 `vite-plugin-inspect`
+
+DevTools 没解决但 inspect 仍然好用的两个场景:
+
+1. **想看某个文件被每个插件改成了什么**——inspect 的 diff 视图是最快的。DevTools 的 Module analysis 给你时序,但单文件的 before/after 文本对比仍以 inspect 为佳。
+2. **想用 URL 直接锚定到某个模块的 transform 链分享给同事**——`/__inspect?module=...` 的链接极轻。
+
+两者可以同时装,互不冲突:
+
+```ts filename="vite.config.ts"
+import { DevTools } from "@vitejs/devtools"
 import { defineConfig } from "vite"
 import Inspect from "vite-plugin-inspect"
 
 export default defineConfig({
-  plugins: [
-    Inspect(),
-    // ... 其他插件
-  ],
+  plugins: [DevTools(), Inspect()],
 })
 ```
 
-启动 dev server 后访问 `http://localhost:5173/__inspect`:
+## 5. 给自己的 Vite 插件挂一个 Dock 面板
 
-### 能看到什么
+DevTools 最有意思的地方是**任何 Vite 插件都能往 Dock 里塞自己的图标**。机制是 Vite 插件对象上多了一个 `devtools` 字段,里面的 `setup(ctx)` 在 DevTools 启用时被调用。
 
-1. **模块列表**:所有被加载的模块及其 transform 时间
-2. **Transform 链路**:每个模块经过哪些插件处理、各耗时多少
-3. **代码 Diff**:每个插件处理前后的代码对比
-4. **插件图**:插件调用关系
-
-### 典型使用场景
-
-**场景一:某个文件加载特别慢**
-
-在模块列表里按时间排序,找出耗时最长的模块。点进去看是哪个插件导致的。
-
-**场景二:某个插件没有生效**
-
-在模块的 transform 链路里找你的插件。如果不在列表里:
-
-- 检查 `apply` 配置是否正确
-- 检查文件过滤条件
-
-**场景三:代码被意外修改**
-
-用 Diff 模式查看每个插件的修改范围,找出修改了你不期望内容的插件。
-
-## Chrome DevTools Performance
-
-对于更底层的性能分析,直接用 Chrome DevTools:
-
-```bash
-# 开启 V8 profiler
-node --prof $(which vite) dev
-node --prof-process isolate-*.log > processed.txt
-```
-
-或者用 Clinic.js:
-
-```bash
-pnpm add -g clinic
-clinic doctor -- node ./node_modules/.bin/vite dev
-```
-
-## 调试 transform 耗时
-
-在自己的插件里加计时:
-
-```ts
+```ts filename="my-plugin/index.ts"
+/// <reference types="@vitejs/devtools-kit" />
+import { fileURLToPath } from "node:url"
+import { defineRpcFunction } from "@vitejs/devtools-kit"
 import type { Plugin } from "vite"
 
-export function timedPlugin(wrappedPlugin: Plugin): Plugin {
-  const original = wrappedPlugin.transform
-
+export default function myPlugin(): Plugin {
   return {
-    ...wrappedPlugin,
-    transform(code, id, options) {
-      const start = performance.now()
-      const result = original?.call(this, code, id, options)
-      const elapsed = performance.now() - start
+    name: "my-analyzer",
+    devtools: {
+      setup(ctx) {
+        // 1. 托管前端静态资源(你自己用 Vite/Vue/React 打包的 SPA)
+        const clientPath = fileURLToPath(new URL("../dist/client", import.meta.url))
+        ctx.views.hostStatic("/__my-analyzer/", clientPath)
 
-      if (elapsed > 10) {
-        console.log(`[${wrappedPlugin.name}] transform ${id}: ${elapsed.toFixed(1)}ms`)
-      }
+        // 2. 注册一个 Dock 入口
+        ctx.docks.register({
+          id: "my-analyzer",
+          title: "My Analyzer",
+          icon: "ph:puzzle-piece-duotone",
+          type: "iframe",
+          url: "/__my-analyzer/",
+        })
 
-      return result
+        // 3. 暴露一个 RPC,前端 panel 能通过类型安全的方式调用
+        ctx.rpc.register(
+          defineRpcFunction({
+            name: "my-analyzer:get-modules",
+            type: "query",
+            setup: () => ({
+              handler: async () => {
+                // ctx.viteServer 在 dev 模式下可用,可以读 module graph
+                return Array.from(ctx.viteServer?.moduleGraph.idToModuleMap.keys() ?? [])
+              },
+            }),
+          })
+        )
+      },
     },
   }
 }
 ```
 
+`ctx` 上能拿到的关键字段:
+
+- `ctx.docks` — Dock 注册 API
+- `ctx.views` — 静态资源托管
+- `ctx.rpc` — 双向 RPC 注册
+- `ctx.viteConfig` — `ResolvedConfig`
+- `ctx.viteServer` — dev 模式下的 `ViteDevServer`(build 模式为 `undefined`)
+- `ctx.mode` — `"dev" | "build"`
+- `ctx.cwd` / `ctx.workspaceRoot`
+
+写自定义 panel 时记得用 `ctx.mode` 分支,因为构建模式下你拿不到 `viteServer`,对应的 hot path 数据要换成构建产物的快照。
+
+## 6. 实战工作流:「页面好慢」的诊断顺序
+
+把 DevTools 当成漏斗,从粗到细:
+
+1. **Embedded Dock → Plugin insights**:先看「累计耗时 Top 5 的插件」。如果 90% 时间都被一个插件吃掉,问题就锁定了。
+2. **同一面板 → Module analysis**:看那个插件实际处理了哪些模块。常见反模式:本来只该处理 `.svg` 的插件被全量 `.ts` 文件触发。
+3. **切到 `vite-plugin-inspect`**:对最慢的那个文件看 transform diff,判断是 sourcemap 重生成、AST 重解析、还是字符串拼接太重。
+4. **如果构建大而不是慢** → 切到 Rolldown 集成的 **Chunk treemap**,抓最大的 chunk。
+5. **Treemap 找到大块** → 切 **Flamegraph** 看是哪个 npm 包贡献的。
+6. **怀疑有重复打包** → **Package detection** 一眼定位。
+7. **PR 提交前** → **Session compare** 对比 main 分支,拦截体积回归。
+
+走完这套漏斗,绝大多数 Vite 项目的性能问题都能定位到具体行号或 chunk。
+
 ## 自测题
 
-1. `vite-plugin-inspect` 需要在生产环境里启用吗?为什么?
-2. 如何找出"哪个插件让某个文件的 transform 最慢"?
-3. 如果你的插件在 transform 链路里没有出现,可能是什么原因?
-4. Vite 8 Devtools 和 `vite-plugin-inspect` 有什么不同?各适合什么场景?
+1. `@vitejs/devtools` 和 `vite-plugin-inspect` 各自最擅长解决什么问题?两者能不能同时装?
+2. Standalone 模式与 Embedded 模式的差异在哪?什么时候各自更合适?
+3. Rolldown 集成的 Chunk 视图里,Treemap 和 Flamegraph 各自回答什么问题?
+4. 一个插件想在 DevTools Dock 里加自己的面板,最少需要做哪 3 件事?
+5. `ctx.viteServer` 在什么模式下是 `undefined`?这意味着你写的 RPC handler 要怎么处理?
 
 ```ts filename="练习"
-// 使用 vite-plugin-inspect 诊断以下假设的问题:
-// 你的项目里有一个 transform 特别慢(超过 500ms)的文件
-// 步骤:
-// 1. 如何定位是哪个文件?
-// 2. 如何找出是哪个插件导致的?
-// 3. 找到后,如何在不修改该插件源码的情况下,
-//    让它只处理真正需要处理的文件?(提示:可以包一层 wrapper)
+// 给下面这个简易的 transform 计时插件,加上 DevTools Dock 集成:
+// - Dock id 为 "transform-timer"
+// - Panel 标题 "Transform Timer"
+// - 暴露一个 RPC `transform-timer:list`,返回累计耗时 Top 10 的模块
+//
+// 不需要写前端 UI,只补全 Node 侧 setup() 即可。
 
+/// <reference types="@vitejs/devtools-kit" />
+import { defineRpcFunction } from "@vitejs/devtools-kit"
 import type { Plugin } from "vite"
 
-// 写出 wrapper 插件的实现:
-function withFileFilter(plugin: Plugin, pattern: RegExp): Plugin {
-  // TODO:包装插件,只让 id 匹配 pattern 的文件进入 transform
+interface ModuleTiming {
+  id: string
+  totalMs: number
+  count: number
+}
+
+export function transformTimerPlugin(): Plugin {
+  const timings = new Map<string, ModuleTiming>()
+
+  return {
+    name: "transform-timer",
+    transform(_code, id) {
+      const start = performance.now()
+      // 实际项目里这里要包住下游 transform,示意起见省略
+      const elapsed = performance.now() - start
+      const prev = timings.get(id) ?? { id, totalMs: 0, count: 0 }
+      timings.set(id, { id, totalMs: prev.totalMs + elapsed, count: prev.count + 1 })
+    },
+    devtools: {
+      setup(ctx) {
+        // TODO: 1. 注册 Dock
+        // TODO: 2. 注册 RPC `transform-timer:list`,返回 timings 里耗时 Top 10
+      },
+    },
+  }
 }
 ```

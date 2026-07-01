@@ -1,50 +1,129 @@
 ---
 title: 为什么需要 Vite
-description: 从 Webpack dev server 的痛点出发,理解 Vite 在 dev 模式不打包的根本动机。
+description: 从传统 dev server 的瓶颈出发,理解 Vite 为什么在开发阶段不打包,以及 Vite 8 为什么要用 Rolldown 收敛 dev/build 心智模型。
 order: 1
 part: 00-getting-started
 chapter: "0.1"
 difficulty: 1
-readingTime: 8
-updatedAt: "2026-06-25"
+readingTime: 12
+updatedAt: "2026-06-29"
 viteVersion: "8.1"
 apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - Webpack dev server 慢在哪里 - 浏览器原生 ESM 解决了什么问题 - 为什么 Vite 在 dev 用 esbuild、build 用 Rollup
+  - 传统 bundler dev server 慢在哪里
+  - 浏览器原生 ESM 为什么让 dev 阶段可以不打包
+  - Vite 8 的 Rolldown 主线解决了哪些旧架构问题
+  - 什么时候应该关心 build,什么时候应该先关心 dev 体验
 </Callout>
 
-## 历史问题:为什么 dev server 变得这么慢
+## 传统 dev server 为什么慢
 
-Webpack 把所有源码打成一个 bundle 才能让浏览器跑起来。项目从 100 个模块涨到 10000 个,冷启动时间从 2 秒变成 90 秒。HMR 也跟着拖累 —— 每次改一行代码,整条依赖链都要重新走一遍。
+Webpack 时代的开发服务器通常要先从入口文件开始,递归解析所有 import,把整棵依赖图打成一个或多个 bundle,然后浏览器才能执行应用。项目小时这没什么;项目从 100 个模块长到 10000 个模块后,冷启动就会变成几十秒甚至更久。
 
-更精确的描述是:**JavaScript 工具链的瓶颈在 JavaScript 自己**。Webpack 的核心循环是 JS 在跑,资源处理也是 JS,序列化反序列化也是 JS。一个中等规模的应用,dev 启动时这台编译机要执行几百万行 JS。
+慢不只来自“文件多”。更核心的问题是:开发阶段做了太多**启动前必须完成**的工作:
 
-## 浏览器原生 ESM 改变了什么
+1. 解析每个模块的语法。
+2. 解析和重写每条 import。
+3. 运行 loader / plugin。
+4. 生成 bundle、sourcemap 和 runtime 包装代码。
+5. 把结果交给浏览器。
 
-2018 年起,主流浏览器都支持了 `<script type="module">`,可以直接发起 `import "./foo.js"` 这种请求。这意味着:**dev 模式下,根本不需要打包**。
+改一行组件代码时,HMR 也要沿着 bundler 内部图谱重新计算影响范围。即使最终只更新一个组件,工具链也要维护一套完整 bundle 状态。
+
+## 浏览器原生 ESM 改变了入口模型
+
+现代浏览器已经支持:
 
 ```html
-<!-- 浏览器拿到这个,就会自己去拉 main.ts 以及它所有的依赖 -->
-<script type="module" src="/src/main.ts"></script>
+<script type="module" src="/src/main.tsx"></script>
 ```
 
-Vite 的 dev server 做的事很简单:**当浏览器请求一个模块时,Vite 把它即时编译(esbuild,Rust + Go)再丢回去**。整个过程没有打包。新增 1000 个文件,dev 启动时间几乎不变,因为没有任何一个文件被提前编译。
+这意味着浏览器自己能发起模块请求。它看到 `import "./App.tsx"` 就继续请求 `/src/App.tsx`;看到 `import react from "react"` 就请求 Vite 已经准备好的依赖入口。
 
-## 双引擎架构:dev vs build
+Vite 的关键选择是:**开发阶段不先打包整站**。dev server 只在浏览器请求某个模块时才转换它:
 
-| 阶段      | 工具    | 为什么                                          |
-| --------- | ------- | ----------------------------------------------- |
-| **dev**   | esbuild | 单文件 transform 性能极高,适合按需编译          |
-| **build** | Rollup  | 代码分割、tree-shaking、插件生态成熟,产物质量高 |
+```text
+浏览器请求 /src/App.tsx
+  -> Vite 找到源文件
+  -> 执行按需 transform
+  -> 返回浏览器可执行的 ESM
+```
 
-esbuild 也能做 build,但 tree-shaking 与代码分割不如 Rollup 精细,所以 Vite 选择了"开发用 esbuild、生产用 Rollup"的双引擎设计。
+新增 1000 个暂时没有被访问的页面文件,不会显著拖慢冷启动。因为 Vite 没有在启动时提前处理它们。
+
+## 依赖预构建解决请求风暴
+
+“不打包源码”不代表完全没有预处理。`node_modules` 里的依赖经常有这些问题:
+
+- CommonJS 包需要转成 ESM。
+- 一个包内部可能有很多深层 import。
+- 某些依赖有复杂的条件导出。
+
+所以 Vite 会把依赖预处理到 `.vite/deps` 缓存中。源码保持按需转换,依赖则提前整理成浏览器更容易消费的 ESM 入口。这个分工让冷启动和首次页面加载都保持可控。
+
+## Vite 8 的心智模型
+
+早期 Vite 的经典解释是“dev 用快速单文件 transform,build 用 Rollup 打包”。这个解释能说明 Vite 为什么快,但也带来一个长期问题:dev 和 build 背后是两套不同引擎,插件 hook、解析细节、sourcemap 和输出行为可能不完全一致。
+
+Vite 8 的主线是用 Rolldown 收敛这套模型:
+
+| 阶段 | Vite 8 关注点 | 你应该记住的心智模型 |
+| --- | --- | --- |
+| dev | 按需转换源码、快速 HMR、依赖预处理 | 浏览器请求什么,Vite 就处理什么 |
+| build | 完整静态分析、tree-shaking、chunk 生成、资源指纹 | 为生产环境生成可缓存、可部署的产物 |
+| 插件 | Vite hooks + Rollup/Rolldown 风格 hooks | dev/build 行为尽量靠同一套插件语义收敛 |
+
+这也是本指南反复强调 Rolldown 的原因:它不是一个“更快的 build 实现”这么简单,而是让 Vite 的开发和构建模型更一致。
+
+## Dev 快不等于 Build 不重要
+
+开发阶段不打包是为了反馈速度;生产构建仍然必须打包,因为线上需要:
+
+- 把大量模块合成更少的 chunk,减少网络开销。
+- 删除未使用代码,降低 JS 体积。
+- 给文件名加 hash,方便长期缓存。
+- 提取 CSS、处理图片、生成 manifest。
+- 按动态 import 边界拆分路由级代码。
+
+所以正确心智模型不是“Vite 不打包”,而是:
+
+> Vite 在 dev 阶段避免提前打包源码,在 build 阶段用完整构建管线产出生产资源。
+
+## 什么时候你会感受到差异
+
+Vite 的优势在这些场景最明显:
+
+1. **大型前端应用**:冷启动不再和源码总量线性绑定。
+2. **频繁改 UI**:HMR 只更新相关模块,反馈更短。
+3. **插件开发**:可以在 dev server 里快速验证 `resolveId`、`load`、`transform`。
+4. **Monorepo**:源码包可以直接参与 dev,不必先发布或预构建。
+
+但如果你只看一个 3 个文件的 demo,Vite 和其他工具的差异不会特别大。Vite 真正的价值出现在项目变大、团队变多、反馈链路变长之后。
+
+## 这篇之后该记住什么
+
+读完本节,不要把 Vite 简化成“启动快”。更准确的结论是:
+
+- Vite 把开发反馈链路从“先处理全量源码”改成“按浏览器请求处理源码”。
+- 依赖预构建是为了让浏览器消费 npm 生态更顺滑,不是为了提前编译你的业务代码。
+- build 阶段仍然是完整工程问题,需要考虑 chunk、缓存、压缩、manifest 和部署路径。
+- Vite 8 的 Rolldown 主线让你更少遇到“dev 能跑,build 不行”这类双引擎割裂问题。
+
+后面每一章都可以回到这四句话检查:一个配置、插件或优化到底是在缩短 dev 反馈,还是在改善 build 产物,还是在减少两者的不一致。
+
+如果你在团队里解释 Vite,建议也用这三个词组织语言:**按需**、**缓存**、**收敛**。按需解释 dev 为什么快,缓存解释依赖和构建为什么稳定,收敛解释 Vite 8 为什么要围绕 Rolldown 重整架构。
+
+这比“Vite 比 Webpack 快”更有用,因为它能指导你判断一个慢点到底该从请求、缓存还是构建管线入手。
+
+后面遇到任何性能章节,都可以先用这三个词定位问题层级。
 
 ## 自测题
 
-1. 为什么 dev 模式可以不打包,而 build 模式必须打包?
-2. 用 `<script type="module">` 引入 1000 个模块,浏览器会发起多少次请求?Vite 怎么优化这个问题?
-3. esbuild 比 webpack 快 10-100 倍的关键是什么?
+1. 为什么 Vite dev 阶段可以不提前打包整站?
+2. 源码按需转换和依赖预构建分别解决什么问题?
+3. 为什么生产 build 仍然需要完整打包?
+4. Vite 8 引入 Rolldown 后,它想减少哪类 dev/build 不一致?
 
-<Callout type="tip">答案在 [Part 1 · Core Concepts](/docs/01-core-concepts) 里展开。</Callout>
+<Callout type="tip">下一步读 [0.2 · 第一个 Vite 项目](/docs/00-getting-started/02-first-project),把这套模型跑起来。</Callout>
