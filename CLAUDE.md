@@ -1,3 +1,8 @@
+# Project Instructions
+
+@AGENTS.md
+@COMPACT.md
+
 # Claude Code CLI 提示词 v2 · vite-mastery 站点
 
 > 配套文档:`PLAN.md` v2
