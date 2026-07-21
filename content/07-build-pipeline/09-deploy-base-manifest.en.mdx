@@ -12,15 +12,15 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - How `base` affects JS, CSS, images, and dynamic chunks
-  - How to deploy to root paths, sub paths, and relative paths
-  - Why double-clicking `dist/index.html` often fails
-  - How manifests and cache policy work together
+
+- How `base` affects JS, CSS, images, and dynamic chunks - How to deploy to root paths, sub paths, and relative paths
+  - Why double-clicking `dist/index.html` often fails - How manifests and cache policy work together
+
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understand [7.1 · Production Build](/docs/07-build-pipeline/01-rolldown-in-build)
-  - Understand [0.5 · CLI preview](/docs/00-getting-started/05-cli-workflow)
+  - Understand [7.1 · Production Build](/docs/07-build-pipeline/01-rolldown-in-build) - Understand [0.5 · CLI
+  preview](/docs/00-getting-started/05-cli-workflow)
 </Callout>
 
 ## Most Deployment Bugs Are Path Bugs
@@ -66,11 +66,11 @@ export default defineConfig({
 
 ## Three Base Modes
 
-| Deployment | `base` | Notes |
-| ---------- | ------ | ----- |
-| domain root | `"/"` | default |
-| fixed sub path | `"/docs/"` | GitHub Pages, reverse proxy subdir |
-| unknown final path | `"./"` | relative deployment |
+| Deployment         | `base`     | Notes                              |
+| ------------------ | ---------- | ---------------------------------- |
+| domain root        | `"/"`      | default                            |
+| fixed sub path     | `"/docs/"` | GitHub Pages, reverse proxy subdir |
+| unknown final path | `"./"`     | relative deployment                |
 
 With a fixed sub path, Vite rewrites JS-imported assets, CSS `url(...)`, HTML references, and dynamic import chunks.
 
@@ -175,10 +175,10 @@ assets/index-ChJ_j-JJ.css
 
 Recommended policy:
 
-| File | Cache-Control |
-| ---- | ------------- |
-| `index.html` | `no-cache` or short cache |
-| `assets/*` | `public, max-age=31536000, immutable` |
+| File         | Cache-Control                         |
+| ------------ | ------------------------------------- |
+| `index.html` | `no-cache` or short cache             |
+| `assets/*`   | `public, max-age=31536000, immutable` |
 
 HTML should update quickly because it points to the latest hashed assets. Hashed assets can be cached for a long time.
 

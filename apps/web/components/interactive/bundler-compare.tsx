@@ -64,7 +64,7 @@ function FlowNode({ label, sub, highlight, nodeKey, onHover, accent = "blue" }: 
       onClick={() => onHover(active ? null : nodeKey)}
       className={cn(
         "flex w-full flex-col items-center rounded-md border px-3 py-2.5 text-center",
-        "transition-all duration-[--duration-fast] cursor-pointer",
+        "transition-all duration-(--duration-fast) cursor-pointer",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
         active
           ? cn("scale-[1.03] shadow-sm", accents[accent])
@@ -160,7 +160,7 @@ export function BundlerCompare() {
           <div
             className={cn(
               "rounded-md border border-dashed border-border px-3 py-2 text-center text-xs text-fg-muted",
-              "transition-colors duration-[--duration-fast]",
+              "transition-colors duration-(--duration-fast)",
               (highlight === "esbuild" || highlight === "rollup") &&
                 "border-brand-300 bg-brand-50/30 dark:bg-brand-900/10"
             )}
@@ -205,7 +205,7 @@ export function BundlerCompare() {
           <div
             className={cn(
               "grid grid-cols-3 gap-1 rounded-md border border-dashed border-border p-2",
-              "transition-colors duration-[--duration-fast]",
+              "transition-colors duration-(--duration-fast)",
               highlight === "rolldown" && "border-brand-300/70 bg-brand-50/20 dark:bg-brand-900/10"
             )}
           >
@@ -224,7 +224,7 @@ export function BundlerCompare() {
           <div
             className={cn(
               "rounded-md border border-dashed border-border px-3 py-2 text-center text-xs text-fg-muted",
-              "transition-colors duration-[--duration-fast]",
+              "transition-colors duration-(--duration-fast)",
               highlight === "rolldown" && "border-brand-300 bg-brand-50/30 dark:bg-brand-900/10"
             )}
           >

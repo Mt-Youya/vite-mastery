@@ -17,12 +17,16 @@ apiStability: "rc"
 </Callout>
 
 <Callout type="note" title="你将学到什么">
-  - 什么情况下需要自定义环境 - 自定义环境的配置结构 - 为 Cloudflare Workers 和 Edge Runtime 设计环境配置 -
+
+- 什么情况下需要自定义环境 - 自定义环境的配置结构 - 为 Cloudflare Workers 和 Edge Runtime 设计环境配置 -
   自定义环境与插件的交互
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 阅读「默认环境:client 与 ssr」(5.3 节) - 了解 Cloudflare Workers 或类似 Edge Runtime 的基本概念
+
+- 阅读「默认环境:client 与 ssr」(5.3 节) - 了解 Cloudflare Workers 或类似 Edge Runtime 的基本概念
+
 </Callout>
 
 ## 什么时候需要自定义环境
@@ -209,9 +213,7 @@ export default defineConfig({
     deno: {
       // TODO:为 Deno Deploy 配置合适的环境
       resolve: {
-        conditions: [
-          /* TODO */
-        ],
+        conditions: [/* TODO */],
         // TODO:哪些 Node.js 模块应该 external?
       },
     },

@@ -12,15 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - Vite 插件、Rollup 插件、Rolldown 插件的关系
-  - 哪些 hook 能跨工具复用，哪些只能在 Vite 里运行
-  - dev server 与 production build 为什么会触发不同 hook
-  - 判断插件形态的实际决策流程
+  - Vite 插件、Rollup 插件、Rolldown 插件的关系 - 哪些 hook 能跨工具复用，哪些只能在 Vite 里运行 - dev server 与
+  production build 为什么会触发不同 hook - 判断插件形态的实际决策流程
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 理解 [1.2 · Vite 8 统一架构](/docs/01-core-concepts/02-unified-architecture)
-  - 了解 [2.4 · 插件 API 兼容层](/docs/02-bundler-evolution/04-plugin-api-compat)
+  - 理解 [1.2 · Vite 8 统一架构](/docs/01-core-concepts/02-unified-architecture) - 了解 [2.4 · 插件 API
+  兼容层](/docs/02-bundler-evolution/04-plugin-api-compat)
 </Callout>
 
 ## 先给结论
@@ -47,11 +45,11 @@ Vite plugin
   └─ Rolldown/Rollup compatibility layer
 ```
 
-| 插件形态 | 面向对象 | 典型能力 | 能否直接用于 Vite |
-| -------- | -------- | -------- | ---------------- |
-| Rollup 插件 | Rollup/Rolldown 构建管线 | 路径解析、加载、转换、产物处理 | 通常可以 |
-| Rolldown 插件 | Rolldown 构建管线 | 更贴近 Rolldown 的构建扩展 | build 阶段可以 |
-| Vite 插件 | Vite dev + build 全流程 | 配置、dev server、HTML、HMR、构建 | 原生支持 |
+| 插件形态      | 面向对象                 | 典型能力                          | 能否直接用于 Vite |
+| ------------- | ------------------------ | --------------------------------- | ----------------- |
+| Rollup 插件   | Rollup/Rolldown 构建管线 | 路径解析、加载、转换、产物处理    | 通常可以          |
+| Rolldown 插件 | Rolldown 构建管线        | 更贴近 Rolldown 的构建扩展        | build 阶段可以    |
+| Vite 插件     | Vite dev + build 全流程  | 配置、dev server、HTML、HMR、构建 | 原生支持          |
 
 Vite 插件不是“比 Rollup 插件高级”的替代品，而是把同一套构建 hook 放进了更大的开发服务器模型里。
 
@@ -59,16 +57,16 @@ Vite 插件不是“比 Rollup 插件高级”的替代品，而是把同一套�
 
 这些 hook 只关心“模块如何被解析、读取、转换、输出”，因此更容易跨 Vite / Rollup / Rolldown 复用:
 
-| Hook | 作用 | 典型场景 |
-| ---- | ---- | -------- |
-| `options` | 调整构建选项 | 给 Rollup/Rolldown 传默认值 |
-| `buildStart` | 构建开始 | 初始化缓存、扫描文件 |
-| `resolveId` | 解析 import 路径 | alias、虚拟模块、条件导出 |
-| `load` | 提供模块源码 | 虚拟模块、自定义文件读取 |
-| `transform` | 转换模块源码 | 编译 DSL、注入代码、替换常量 |
-| `renderChunk` | 渲染每个 chunk | 包裹代码、后处理 chunk |
-| `generateBundle` | 产物生成后 | 生成额外文件、分析 bundle |
-| `writeBundle` | 写盘后 | 上传 sourcemap、打印报告 |
+| Hook             | 作用             | 典型场景                     |
+| ---------------- | ---------------- | ---------------------------- |
+| `options`        | 调整构建选项     | 给 Rollup/Rolldown 传默认值  |
+| `buildStart`     | 构建开始         | 初始化缓存、扫描文件         |
+| `resolveId`      | 解析 import 路径 | alias、虚拟模块、条件导出    |
+| `load`           | 提供模块源码     | 虚拟模块、自定义文件读取     |
+| `transform`      | 转换模块源码     | 编译 DSL、注入代码、替换常量 |
+| `renderChunk`    | 渲染每个 chunk   | 包裹代码、后处理 chunk       |
+| `generateBundle` | 产物生成后       | 生成额外文件、分析 bundle    |
+| `writeBundle`    | 写盘后           | 上传 sourcemap、打印报告     |
 
 如果你的插件只用这些 hook，并且不依赖 Vite 的 `server`、`config`、`moduleGraph`，它就更适合写成“兼容 Rollup/Rolldown 的插件”，再在 Vite 中复用。
 
@@ -101,14 +99,14 @@ export function virtualVersionPlugin(version: string): Plugin {
 
 这些 hook 依赖 Vite 的应用模型:
 
-| Hook | 只属于 Vite 的原因 |
-| ---- | ------------------ |
-| `config` | Vite 有自己的配置合并、mode、env 加载流程 |
-| `configResolved` | 读取最终 `ResolvedConfig` |
-| `configureServer` | dev server 和 middleware 是 Vite 提供的 |
-| `configurePreviewServer` | `vite preview` 是 Vite 的本地预览服务 |
-| `transformIndexHtml` | Vite 把 HTML 当入口模块处理 |
-| `handleHotUpdate` | HMR、module graph、websocket 都是 Vite dev server 语义 |
+| Hook                     | 只属于 Vite 的原因                                     |
+| ------------------------ | ------------------------------------------------------ |
+| `config`                 | Vite 有自己的配置合并、mode、env 加载流程              |
+| `configResolved`         | 读取最终 `ResolvedConfig`                              |
+| `configureServer`        | dev server 和 middleware 是 Vite 提供的                |
+| `configurePreviewServer` | `vite preview` 是 Vite 的本地预览服务                  |
+| `transformIndexHtml`     | Vite 把 HTML 当入口模块处理                            |
+| `handleHotUpdate`        | HMR、module graph、websocket 都是 Vite dev server 语义 |
 
 示例:注入 dev middleware:
 
@@ -135,14 +133,14 @@ export function devHealthPlugin(): Plugin {
 
 Vite dev server 是“按请求转换”，build 是“完整图谱打包”。这会影响 hook 触发方式:
 
-| 问题 | dev 阶段 | build 阶段 |
-| ---- | -------- | ---------- |
-| 模块何时处理 | 浏览器请求到才处理 | 从入口递归扫描完整图谱 |
-| 是否生成 bundle | 不生成完整 bundle | 生成 chunks/assets |
-| `generateBundle` | 通常没有意义 | 核心产物 hook |
-| `configureServer` | 会调用 | 不调用 |
-| `transform` | 每个被请求模块触发 | 构建图谱中每个模块触发 |
-| HMR | 有 | 没有 |
+| 问题              | dev 阶段           | build 阶段             |
+| ----------------- | ------------------ | ---------------------- |
+| 模块何时处理      | 浏览器请求到才处理 | 从入口递归扫描完整图谱 |
+| 是否生成 bundle   | 不生成完整 bundle  | 生成 chunks/assets     |
+| `generateBundle`  | 通常没有意义       | 核心产物 hook          |
+| `configureServer` | 会调用             | 不调用                 |
+| `transform`       | 每个被请求模块触发 | 构建图谱中每个模块触发 |
+| HMR               | 有                 | 没有                   |
 
 这也是为什么很多插件需要 `apply`:
 
@@ -176,11 +174,7 @@ user post plugins
 
 ```ts filename="vite.config.ts"
 export default defineConfig({
-  plugins: [
-    aliasBeforeEverything(),
-    markdownPlugin(),
-    analyzerPlugin(),
-  ],
+  plugins: [aliasBeforeEverything(), markdownPlugin(), analyzerPlugin()],
 })
 ```
 
@@ -205,14 +199,14 @@ export default defineConfig({
 
 几个具体判断:
 
-| 需求 | 推荐形态 |
-| ---- | -------- |
-| 把 `.md` 转成 JS 模块 | Rollup/Rolldown 兼容插件 |
-| 给 dev server 加 `/api/mock` | Vite 插件 |
-| 注入 `<script>` 到 HTML | Vite 插件 |
-| 分析 build 产物大小 | build-only Vite 插件或 Rolldown 插件 |
-| 给 `.yaml` 做 HMR | Vite 插件 |
-| 发布给多 bundler 使用 | 尽量只依赖通用 hook |
+| 需求                         | 推荐形态                             |
+| ---------------------------- | ------------------------------------ |
+| 把 `.md` 转成 JS 模块        | Rollup/Rolldown 兼容插件             |
+| 给 dev server 加 `/api/mock` | Vite 插件                            |
+| 注入 `<script>` 到 HTML      | Vite 插件                            |
+| 分析 build 产物大小          | build-only Vite 插件或 Rolldown 插件 |
+| 给 `.yaml` 做 HMR            | Vite 插件                            |
+| 发布给多 bundler 使用        | 尽量只依赖通用 hook                  |
 
 ## 常见误区
 

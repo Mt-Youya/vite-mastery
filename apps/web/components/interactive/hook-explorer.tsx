@@ -324,7 +324,7 @@ export function HookExplorer({ filter }: HookExplorerProps) {
                     onClick={() => setActive(isActive ? null : hook.name)}
                     className={cn(
                       "flex w-full items-center gap-2 px-4 py-2 text-left text-sm",
-                      "transition-colors duration-[--duration-fast]",
+                      "transition-colors duration-(--duration-fast)",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-400/50",
                       isActive
                         ? "bg-brand-50 font-semibold text-brand-700 dark:bg-brand-900/20 dark:text-brand-300"

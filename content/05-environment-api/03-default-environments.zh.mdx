@@ -17,12 +17,16 @@ apiStability: "rc"
 </Callout>
 
 <Callout type="note" title="你将学到什么">
-  - Vite 内置的 `client` 和 `ssr` 两个默认环境的默认配置 - 两个环境在 resolve 条件上的核心差异 - 如何自定义这两个环境 -
+
+- Vite 内置的 `client` 和 `ssr` 两个默认环境的默认配置 - 两个环境在 resolve 条件上的核心差异 - 如何自定义这两个环境 -
   什么情况下必须显式配置 `environments` 字段
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 阅读「核心概念」(5.2 节) - 了解 package.json 的 `exports` 字段和 `conditions` 概念
+
+- 阅读「核心概念」(5.2 节) - 了解 package.json 的 `exports` 字段和 `conditions` 概念
+
 </Callout>
 
 ## 两个默认环境
@@ -254,9 +258,7 @@ export default defineConfig({
   environments: {
     worker: {
       resolve: {
-        conditions: [
-          /* TODO */
-        ],
+        conditions: [/* TODO */],
       },
     },
   },

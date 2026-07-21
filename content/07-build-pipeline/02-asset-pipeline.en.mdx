@@ -18,7 +18,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Familiarity with basic Vite usage (Part 0)
+
+- Familiarity with basic Vite usage (Part 0)
+
 </Callout>
 
 ## Default asset handling
@@ -158,10 +160,10 @@ Suitable for: special files the browser requests directly (favicon, manifest, si
 
 Do not put every imported image, font, or SVG in `public/`. That bypasses hashing, dependency tracking, path rewriting, and build-time processing.
 
-| Location | Good for | Access |
-| -------- | -------- | ------ |
+| Location      | Good for                                     | Access                          |
+| ------------- | -------------------------------------------- | ------------------------------- |
 | `src/assets/` | resources imported by components, CSS, or JS | `import logo from "./logo.png"` |
-| `public/` | fixed browser-requested files | `"/favicon.ico"` |
+| `public/`     | fixed browser-requested files                | `"/favicon.ico"`                |
 
 When deploying under a sub path, public assets still need the base path:
 
@@ -241,13 +243,13 @@ If you see this content, fetch the LFS assets before debugging Vite configuratio
 
 ## Common mistakes
 
-| Symptom | Cause | Fix |
-| ------- | ----- | --- |
-| image 404 after deploy | `base` does not match deployment path | configure `base` |
-| SVG component expected, string returned | default asset import returns URL | use an SVG loader/plugin |
-| large PNG bundled into JS | `?inline` or high inline limit | use default import / `?url` |
-| public asset fails under sub path | root path hard-coded | use `BASE_URL` |
-| custom model import fails | extension not recognized | configure `assetsInclude` |
+| Symptom                                 | Cause                                 | Fix                         |
+| --------------------------------------- | ------------------------------------- | --------------------------- |
+| image 404 after deploy                  | `base` does not match deployment path | configure `base`            |
+| SVG component expected, string returned | default asset import returns URL      | use an SVG loader/plugin    |
+| large PNG bundled into JS               | `?inline` or high inline limit        | use default import / `?url` |
+| public asset fails under sub path       | root path hard-coded                  | use `BASE_URL`              |
+| custom model import fails               | extension not recognized              | configure `assetsInclude`   |
 
 ## Self-check
 

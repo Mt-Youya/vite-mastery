@@ -12,27 +12,26 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - How to classify Vite problems before changing config
-  - Common failures in dev server, HMR, build, and dependency optimization
-  - When to use `--debug`, `--force`, `vite-plugin-inspect`, and DevTools
-  - How to trace blank pages to paths, cache, chunks, or browser extensions
+  - How to classify Vite problems before changing config - Common failures in dev server, HMR, build, and dependency
+  optimization - When to use `--debug`, `--force`, `vite-plugin-inspect`, and DevTools - How to trace blank pages to
+  paths, cache, chunks, or browser extensions
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understand [0.5 · CLI Workflow](/docs/00-getting-started/05-cli-workflow)
-  - Understand [12.2 · Vite DevTools](/docs/12-performance/02-vite-devtools)
+  - Understand [0.5 · CLI Workflow](/docs/00-getting-started/05-cli-workflow) - Understand [12.2 · Vite
+  DevTools](/docs/12-performance/02-vite-devtools)
 </Callout>
 
 ## Classify First
 
-| Stage | Symptom | First tool |
-| ----- | ------- | ---------- |
-| CLI/config | startup or config failure | terminal stack |
-| dev server | pending requests, blank page | Network + `--debug` |
-| HMR | changes ignored or full reloads | `DEBUG=vite:hmr` |
-| deps | slow startup, repeated optimization | `DEBUG=vite:deps` + `--force` |
-| build | blank production, chunk 404 | `pnpm build` + `pnpm preview` |
-| plugins | slow transform or wrong order | DevTools / inspect |
+| Stage      | Symptom                             | First tool                    |
+| ---------- | ----------------------------------- | ----------------------------- |
+| CLI/config | startup or config failure           | terminal stack                |
+| dev server | pending requests, blank page        | Network + `--debug`           |
+| HMR        | changes ignored or full reloads     | `DEBUG=vite:hmr`              |
+| deps       | slow startup, repeated optimization | `DEBUG=vite:deps` + `--force` |
+| build      | blank production, chunk 404         | `pnpm build` + `pnpm preview` |
+| plugins    | slow transform or wrong order       | DevTools / inspect            |
 
 Do not start by deleting `node_modules`. First identify the stage, or you may erase the evidence.
 
@@ -91,12 +90,12 @@ configureServer(server) {
 DEBUG=vite:hmr pnpm dev
 ```
 
-| Cause | How to tell | Fix |
-| ----- | ----------- | --- |
-| no HMR boundary | full reload logs | add `import.meta.hot.accept` or framework plugin |
-| circular dependency | debug log shows path | break the cycle |
-| custom hook returns wrong modules | after adding `handleHotUpdate` | return correct modules or full reload |
-| watcher does not fire | no terminal log after save | check WSL/Docker/network drive |
+| Cause                             | How to tell                    | Fix                                              |
+| --------------------------------- | ------------------------------ | ------------------------------------------------ |
+| no HMR boundary                   | full reload logs               | add `import.meta.hot.accept` or framework plugin |
+| circular dependency               | debug log shows path           | break the cycle                                  |
+| custom hook returns wrong modules | after adding `handleHotUpdate` | return correct modules or full reload            |
+| watcher does not fire             | no terminal log after save     | check WSL/Docker/network drive                   |
 
 Do not return an empty array casually from `handleHotUpdate`; it means no module should be updated.
 
@@ -153,12 +152,12 @@ pnpm vite --force
 
 If it keeps happening, fix the cause:
 
-| Cause | Fix |
-| ----- | --- |
-| dynamic import dependency missed | `optimizeDeps.include` |
+| Cause                                     | Fix                                       |
+| ----------------------------------------- | ----------------------------------------- |
+| dynamic import dependency missed          | `optimizeDeps.include`                    |
 | workspace package optimized as dependency | `optimizeDeps.exclude` or alias to source |
-| lockfile and node_modules mismatch | reinstall |
-| patches or overrides change often | stabilize overrides |
+| lockfile and node_modules mismatch        | reinstall                                 |
+| patches or overrides change often         | stabilize overrides                       |
 
 ## 6. Node Module Externalized in Browser
 
@@ -220,4 +219,3 @@ Change one variable at a time.
 # CDN has long cache enabled.
 # Write your debugging order and likely fix.
 ```
-

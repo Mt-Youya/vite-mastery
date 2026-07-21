@@ -16,7 +16,7 @@
     "dev:playground": "pnpm --filter @vite-mastery/playground dev",
     "dev:all": "pnpm -r --parallel --if-present run dev",
     "build": "pnpm -r --if-present run build",
-    "build:web": "pnpm --filter @vite-mastery/web build",
+    "build:web": "VERCEL=1 pnpm --filter @vite-mastery/web build",
     "build:playground": "pnpm --filter @vite-mastery/playground build",
     "start": "pnpm -r --if-present run start",
     "start:web": "pnpm --filter @vite-mastery/web start",
@@ -32,20 +32,21 @@
     "new:example": "node --experimental-strip-types scripts/new-example.ts",
     "new:v7note": "node --experimental-strip-types scripts/new-v7note.ts",
     "check:content": "node --experimental-strip-types scripts/check-content.ts",
-    "fix:tw": "node --experimental-strip-types scripts/fix-tw-classes.ts",
-    "fix:tw:preview": "node --experimental-strip-types scripts/fix-tw-classes.ts -- --dry-run"
+    "fix:tw": "dlx @tailwindcss/upgrade",
+    "pre-commit": "pnpm format && pnpm lint && pnpm build:web"
   },
   "devDependencies": {
-    "@types/node": "^26.0.1",
-    "oxfmt": "^0.56.0",
-    "oxlint": "^1.71.0",
+    "@types/node": "^26.1.1",
+    "oxfmt": "^0.59.0",
+    "oxlint": "^1.74.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",
-    "vite": "^8.1.0",
-    "vitest": "^4.1.9"
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=24",
     "pnpm": ">=11"
   },
-  "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b"
+  "packageManager": "pnpm@11.15.1+sha512.81350b07e53c9538a02f1f2303b4290fa2d7be04e56e2a970c4cc4b417dc761de196edabd49d55c7dc9580db81007c44143e4e3d7e462b3000d23c255122d065"
 }

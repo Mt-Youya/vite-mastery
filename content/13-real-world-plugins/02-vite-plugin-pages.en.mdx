@@ -12,16 +12,14 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - Why file-system routing is a natural fit for virtual modules
-  - How to scan `src/pages` into a stable route table
-  - How file add/delete/rename events should invalidate the generated route module
-  - Which edge cases real routing plugins handle beyond the teaching version
+  - Why file-system routing is a natural fit for virtual modules - How to scan `src/pages` into a stable route table -
+  How file add/delete/rename events should invalidate the generated route module - Which edge cases real routing plugins
+  handle beyond the teaching version
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Read [3.4 · Virtual Modules](/docs/03-plugin-system/04-virtual-modules-plugin)
-  - Read [6.3 · `handleHotUpdate`](/docs/06-hmr/03-handle-hot-update)
-  - Understand the Vite dev server module graph and file watcher
+  - Read [3.4 · Virtual Modules](/docs/03-plugin-system/04-virtual-modules-plugin) - Read [6.3 ·
+  `handleHotUpdate`](/docs/06-hmr/03-handle-hot-update) - Understand the Vite dev server module graph and file watcher
 </Callout>
 
 ## Start With The Target
@@ -204,14 +202,14 @@ function fileToRoutePath(relativeFile: string) {
 
 Real projects need rules for more cases:
 
-| Case | Required handling |
-| --- | --- |
+| Case                                       | Required handling                                              |
+| ------------------------------------------ | -------------------------------------------------------------- |
 | `blog.vue` and `blog/index.vue` both exist | They map to the same route; report an error or define priority |
-| `[id].vue` next to `settings.vue` | Static routes should usually sort before dynamic routes |
-| `[...all].vue` | Catch-all routes should come last |
-| `_layout.vue`, `_middleware.ts` | Convention files may not be pages |
-| `(admin)/users.vue` | Decide whether route groups appear in the URL |
-| `users.[id].vue` | Dot segments and nested conventions must be specified |
+| `[id].vue` next to `settings.vue`          | Static routes should usually sort before dynamic routes        |
+| `[...all].vue`                             | Catch-all routes should come last                              |
+| `_layout.vue`, `_middleware.ts`            | Convention files may not be pages                              |
+| `(admin)/users.vue`                        | Decide whether route groups appear in the URL                  |
+| `users.[id].vue`                           | Dot segments and nested conventions must be specified          |
 
 If the plugin only serves one internal team, narrow rules are fine. If it is published to npm, those rules need to be in the README, type declarations, and tests.
 
@@ -326,12 +324,10 @@ If the source uses caching, ignore the cache at first. Draw the flow from input 
 ## Common Failure Modes
 
 <Callout type="warning" title="High-frequency bugs in file-routing plugins">
-  - Generated code emits OS absolute paths that the browser cannot import
-  - Windows paths are not normalized, so route parsing breaks
-  - New files do not update routes because only old files were watched
-  - Dynamic routes sort before static routes, so `/:id` captures `/settings`
-  - The virtual module has no TypeScript declaration
-  - Deleting a page does not invalidate the route module, leaving stale routes behind
+  - Generated code emits OS absolute paths that the browser cannot import - Windows paths are not normalized, so route
+  parsing breaks - New files do not update routes because only old files were watched - Dynamic routes sort before
+  static routes, so `/:id` captures `/settings` - The virtual module has no TypeScript declaration - Deleting a page
+  does not invalidate the route module, leaving stale routes behind
 </Callout>
 
 ## Self-check
@@ -348,4 +344,3 @@ If the source uses caching, ignore the cache at first. Draw the flow from input 
 // 3. Sort static, dynamic, and catch-all routes deterministically
 // 4. Add a client.d.ts declaration for `~pages`
 ```
-

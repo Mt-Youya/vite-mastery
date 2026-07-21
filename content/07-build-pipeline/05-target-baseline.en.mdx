@@ -17,7 +17,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Basic understanding of browser compatibility concepts
+
+- Basic understanding of browser compatibility concepts
+
 </Callout>
 
 ## What is Baseline
@@ -86,12 +88,12 @@ Do not raise the target just because it looks more modern. The target affects tw
 
 Use this rule of thumb:
 
-| Project type | Recommended target |
-| --- | --- |
-| Public web app | Keep the default `baseline-widely-available` |
-| Internal tool on latest Chromium only | A newer Chrome target or `esnext` can work, but document the runtime |
-| Embedded WebView / old mobile browsers | List explicit versions and test on real devices |
-| Component library | Avoid setting it too high, or you push compatibility risk to consumers |
+| Project type                           | Recommended target                                                     |
+| -------------------------------------- | ---------------------------------------------------------------------- |
+| Public web app                         | Keep the default `baseline-widely-available`                           |
+| Internal tool on latest Chromium only  | A newer Chrome target or `esnext` can work, but document the runtime   |
+| Embedded WebView / old mobile browsers | List explicit versions and test on real devices                        |
+| Component library                      | Avoid setting it too high, or you push compatibility risk to consumers |
 
 Library mode needs special care. Apps know their users' browsers; libraries usually do not. A library target that is too modern may prevent downstream apps from safely lowering syntax later.
 

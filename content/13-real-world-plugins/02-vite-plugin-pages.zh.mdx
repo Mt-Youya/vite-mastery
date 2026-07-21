@@ -12,16 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 文件路由插件为什么适合用虚拟模块实现
-  - 如何从 `src/pages` 扫描出稳定的路由表
-  - 文件新增、删除、重命名时如何让 HMR 更新路由模块
-  - 真实插件比教学版多处理了哪些复杂边界
+  - 文件路由插件为什么适合用虚拟模块实现 - 如何从 `src/pages` 扫描出稳定的路由表 - 文件新增、删除、重命名时如何让 HMR
+  更新路由模块 - 真实插件比教学版多处理了哪些复杂边界
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 先读 [3.4 · 虚拟模块](/docs/03-plugin-system/04-virtual-modules-plugin)
-  - 先读 [6.3 · `handleHotUpdate`](/docs/06-hmr/03-handle-hot-update)
-  - 理解 Vite dev server 的 module graph 和文件 watcher
+  - 先读 [3.4 · 虚拟模块](/docs/03-plugin-system/04-virtual-modules-plugin) - 先读 [6.3 ·
+  `handleHotUpdate`](/docs/06-hmr/03-handle-hot-update) - 理解 Vite dev server 的 module graph 和文件 watcher
 </Callout>
 
 ## 先明确阅读对象
@@ -204,14 +201,14 @@ function fileToRoutePath(relativeFile: string) {
 
 但真实项目通常还要回答这些问题:
 
-| 场景 | 不能忽略的处理 |
-| --- | --- |
-| `blog.vue` 和 `blog/index.vue` 同时存在 | 两者映射到同一路由,必须报错或定义优先级 |
-| `[id].vue` 与 `settings.vue` 同级 | 静态路由通常要排在动态路由前面 |
-| `[...all].vue` | catch-all 只能放在最后,否则会吞掉后续路由 |
-| `_layout.vue`、`_middleware.ts` | 这些可能是框架约定文件,不能直接当页面 |
-| `(admin)/users.vue` | 路由分组目录是否出现在 URL 中,必须由规则决定 |
-| `users.[id].vue` | 点号分段、嵌套路由、文件名约定要提前定清楚 |
+| 场景                                    | 不能忽略的处理                               |
+| --------------------------------------- | -------------------------------------------- |
+| `blog.vue` 和 `blog/index.vue` 同时存在 | 两者映射到同一路由,必须报错或定义优先级      |
+| `[id].vue` 与 `settings.vue` 同级       | 静态路由通常要排在动态路由前面               |
+| `[...all].vue`                          | catch-all 只能放在最后,否则会吞掉后续路由    |
+| `_layout.vue`、`_middleware.ts`         | 这些可能是框架约定文件,不能直接当页面        |
+| `(admin)/users.vue`                     | 路由分组目录是否出现在 URL 中,必须由规则决定 |
+| `users.[id].vue`                        | 点号分段、嵌套路由、文件名约定要提前定清楚   |
 
 如果插件只服务一个团队,可以把规则写窄;如果要发布到 npm,这些规则必须写进 README、类型定义和测试。
 
@@ -326,12 +323,11 @@ function invalidateRoutesModule(server: ViteDevServer) {
 ## 常见踩坑
 
 <Callout type="warning" title="文件路由插件的高频 bug">
-  - 生成代码里使用了 OS 绝对路径,浏览器无法 import
-  - 没有 normalize Windows 路径,导致 Windows 用户路由全错
-  - 新增文件不会触发更新,因为只 watch 了旧文件
-  - 动态路由排序错误,`/:id` 抢在 `/settings` 前面
-  - 生成虚拟模块没有类型声明,TS 用户体验很差
-  - 删除页面后 module graph 没失效,路由表仍然保留旧页面
+
+- 生成代码里使用了 OS 绝对路径,浏览器无法 import - 没有 normalize Windows 路径,导致 Windows 用户路由全错 -
+  新增文件不会触发更新,因为只 watch 了旧文件 - 动态路由排序错误,`/:id` 抢在 `/settings` 前面 -
+  生成虚拟模块没有类型声明,TS 用户体验很差 - 删除页面后 module graph 没失效,路由表仍然保留旧页面
+
 </Callout>
 
 ## 自测题

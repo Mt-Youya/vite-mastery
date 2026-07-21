@@ -12,21 +12,20 @@ apiStability: "rc"
 ---
 
 <Callout type="warning" title="Environment API 处于 RC 阶段">
-  官方 SSR 指南仍保留 `vite.ssrLoadModule()` 的低层示例，同时变更文档说明未来会迁移到 `ModuleRunner.import()`。本项目采用“先跑通兼容实现，再抽象加载入口”的写法，方便你在 API 稳定后替换加载层。
+  官方 SSR 指南仍保留 `vite.ssrLoadModule()` 的低层示例，同时变更文档说明未来会迁移到
+  `ModuleRunner.import()`。本项目采用“先跑通兼容实现，再抽象加载入口”的写法，方便你在 API 稳定后替换加载层。
 </Callout>
 
 <Callout type="note" title="你将学到什么">
-  - 一个最小 SSR 应用需要哪些文件
-  - dev 模式为什么要用 Vite middleware
-  - production 模式为什么要先构建 client 和 server 两份产物
-  - `ssrLoadModule` 与 `ModuleRunner.import()` 的职责差异
-  - 如何验证 SSR、hydration、数据注入和错误堆栈
+  - 一个最小 SSR 应用需要哪些文件 - dev 模式为什么要用 Vite middleware - production 模式为什么要先构建 client 和 server
+  两份产物 - `ssrLoadModule` 与 `ModuleRunner.import()` 的职责差异 - 如何验证 SSR、hydration、数据注入和错误堆栈
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 阅读 [8.1 · Vite 8 时代的 SSR API](/docs/08-ssr-ssg/01-vite8-ssr-api)
-  - 理解 React `renderToString` / `hydrateRoot`
+
+- 阅读 [8.1 · Vite 8 时代的 SSR API](/docs/08-ssr-ssg/01-vite8-ssr-api) - 理解 React `renderToString` / `hydrateRoot`
   - 了解 Node.js HTTP server 基础
+
 </Callout>
 
 ## 目标架构
@@ -46,10 +45,10 @@ apiStability: "rc"
 
 开发和生产最大的差异是“server entry 从哪里来”:
 
-| 阶段 | server entry 来源 | 为什么 |
-| ---- | ----------------- | ------ |
-| dev | Vite 即时转换后的源码 | 支持 HMR、源码堆栈、按需转换 |
-| prod | `dist/server/entry-server.js` | 不在生产环境依赖 dev server |
+| 阶段 | server entry 来源             | 为什么                       |
+| ---- | ----------------------------- | ---------------------------- |
+| dev  | Vite 即时转换后的源码         | 支持 HMR、源码堆栈、按需转换 |
+| prod | `dist/server/entry-server.js` | 不在生产环境依赖 dev server  |
 
 这也是 SSR 项目一般要构建两次的原因:client build 给浏览器，server build 给 Node/Worker runtime。
 
@@ -69,11 +68,11 @@ examples/ssr-with-env-api/
 
 三个入口分工:
 
-| 文件 | 运行环境 | 职责 |
-| ---- | -------- | ---- |
-| `src/App.tsx` | client + server | 共享 React 树 |
-| `src/entry-server.tsx` | server | 把 React 树渲染成 HTML |
-| `src/main.tsx` | client | hydrate 服务端 HTML |
+| 文件                   | 运行环境        | 职责                   |
+| ---------------------- | --------------- | ---------------------- |
+| `src/App.tsx`          | client + server | 共享 React 树          |
+| `src/entry-server.tsx` | server          | 把 React 树渲染成 HTML |
+| `src/main.tsx`         | client          | hydrate 服务端 HTML    |
 
 ## Vite 配置
 
@@ -176,18 +175,15 @@ declare global {
   }
 }
 
-hydrateRoot(
-  document.getElementById("root")!,
-  <App url={window.location.pathname} data={window.__SSR_DATA__} />
-)
+hydrateRoot(document.getElementById("root")!, <App url={window.location.pathname} data={window.__SSR_DATA__} />)
 ```
 
 这里用的是 `hydrateRoot`，不是 `createRoot`。区别:
 
-| API | 适合场景 |
-| --- | -------- |
-| `createRoot` | 纯客户端渲染，容器里通常是空的 |
-| `hydrateRoot` | SSR 后接管已有 HTML |
+| API           | 适合场景                       |
+| ------------- | ------------------------------ |
+| `createRoot`  | 纯客户端渲染，容器里通常是空的 |
+| `hydrateRoot` | SSR 后接管已有 HTML            |
 
 如果 SSR 页面用了 `createRoot`，React 会丢弃服务端 HTML 重新渲染，SSR 的首屏优势就没了。
 
@@ -310,9 +306,7 @@ async function startServer() {
         html = template
       }
 
-      html = html
-        .replace("<!--ssr-outlet-->", appHtml)
-        .replace("<!--ssr-data-->", JSON.stringify(data))
+      html = html.replace("<!--ssr-outlet-->", appHtml).replace("<!--ssr-data-->", JSON.stringify(data))
 
       res.setHeader("Content-Type", "text/html; charset=utf-8")
       res.end(html)

@@ -16,8 +16,10 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="note" title="你将学到什么">
-  - Full Bundle Mode 的设计目标 - 为什么需要它:原生 ESM dev 的局限 - 与传统 dev server 模式的权衡 -
+
+- Full Bundle Mode 的设计目标 - 为什么需要它:原生 ESM dev 的局限 - 与传统 dev server 模式的权衡 -
   何时可能需要关注这个特性
+
 </Callout>
 
 ## 原生 ESM dev 的局限
@@ -76,21 +78,21 @@ Full Bundle Mode:
 4. 等官方 API 稳定后,再把它纳入团队默认配置。
 
 <Callout type="warning">
-  实验性 API 随时可能变化。本节只讲设计动机和取舍,不提供未稳定配置。最新状态请查看
-  [Vite 官方 GitHub](https://github.com/vitejs/vite) 与 Vite release notes。
+  实验性 API 随时可能变化。本节只讲设计动机和取舍,不提供未稳定配置。最新状态请查看 [Vite 官方
+  GitHub](https://github.com/vitejs/vite) 与 Vite release notes。
 </Callout>
 
 ## 判断是否值得等待
 
 Full Bundle Mode 不是“更高级就一定更好”。如果你的瓶颈是插件 transform 慢,full bundle 仍然要跑这些 transform;如果瓶颈是网络请求太多,它才更可能有明显收益。
 
-| 主要瓶颈 | Full Bundle Mode 可能性 |
-| --- | --- |
-| 远程开发,浏览器到 dev server 延迟高 | 可能有帮助 |
-| 大量小模块导致首次页面请求慢 | 可能有帮助 |
-| 单个 Babel/MDX 插件很慢 | 帮助有限,先优化插件 |
-| HMR 传播链太大 | 帮助不确定,先拆模块边界 |
-| 只是本地 SSD + 最新 Chrome | 未必值得牺牲冷启动 |
+| 主要瓶颈                            | Full Bundle Mode 可能性 |
+| ----------------------------------- | ----------------------- |
+| 远程开发,浏览器到 dev server 延迟高 | 可能有帮助              |
+| 大量小模块导致首次页面请求慢        | 可能有帮助              |
+| 单个 Babel/MDX 插件很慢             | 帮助有限,先优化插件     |
+| HMR 传播链太大                      | 帮助不确定,先拆模块边界 |
+| 只是本地 SSD + 最新 Chrome          | 未必值得牺牲冷启动      |
 
 ## 现阶段怎么优化类似问题
 

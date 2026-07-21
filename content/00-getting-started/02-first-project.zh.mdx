@@ -12,7 +12,9 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="前置知识">
-  - 装好 Node 24+ 与 pnpm 11+ - 命令行基本操作
+
+- 装好 Node 24+ 与 pnpm 11+ - 命令行基本操作
+
 </Callout>
 
 ## 起一个项目
@@ -71,11 +73,11 @@ export default defineConfig({
 
 刚才运行的命令看起来只是脚手架流程,但它们对应了 Vite 项目的 4 个阶段:
 
-| 命令 | 真正发生的事 |
-| --- | --- |
-| `pnpm create vite@latest` | 下载 create-vite,按模板生成最小项目文件 |
-| `pnpm install` | 安装 Vite、React 插件、React 运行时和 TypeScript 相关依赖 |
-| `pnpm dev` | 启动 Vite dev server,用原生 ESM 按需服务源码 |
+| 命令                        | 真正发生的事                                              |
+| --------------------------- | --------------------------------------------------------- |
+| `pnpm create vite@latest`   | 下载 create-vite,按模板生成最小项目文件                   |
+| `pnpm install`              | 安装 Vite、React 插件、React 运行时和 TypeScript 相关依赖 |
+| `pnpm dev`                  | 启动 Vite dev server,用原生 ESM 按需服务源码              |
 | 浏览器打开 `localhost:5173` | 浏览器请求 `index.html`,再顺着 module import 拉取源码模块 |
 
 如果 `pnpm dev` 启动很快,不要误以为 Vite 已经把整个项目编译完了。它只是准备好了服务器和依赖缓存;源码模块是在浏览器请求时才转换的。
@@ -98,13 +100,13 @@ export default defineConfig({
 
 常见问题可以按这个顺序排:
 
-| 现象 | 优先检查 |
-| --- | --- |
-| `pnpm create vite@latest` 很慢 | npm registry、代理、公司网络 |
-| `pnpm dev` 报 Node 版本错误 | Node 是否满足项目要求 |
-| 端口不是 5173 | 5173 被占用,Vite 会自动尝试下一个端口 |
-| 页面打开但 HMR 不动 | 浏览器控制台、WebSocket 连接、是否通过代理访问 |
-| TypeScript 报找不到 Vite 类型 | `src/vite-env.d.ts` 是否存在 |
+| 现象                           | 优先检查                                       |
+| ------------------------------ | ---------------------------------------------- |
+| `pnpm create vite@latest` 很慢 | npm registry、代理、公司网络                   |
+| `pnpm dev` 报 Node 版本错误    | Node 是否满足项目要求                          |
+| 端口不是 5173                  | 5173 被占用,Vite 会自动尝试下一个端口          |
+| 页面打开但 HMR 不动            | 浏览器控制台、WebSocket 连接、是否通过代理访问 |
+| TypeScript 报找不到 Vite 类型  | `src/vite-env.d.ts` 是否存在                   |
 
 ## 下一步不要急着改配置
 

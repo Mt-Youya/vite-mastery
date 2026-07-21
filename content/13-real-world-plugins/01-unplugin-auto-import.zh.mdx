@@ -12,12 +12,16 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `unplugin-auto-import` 的核心实现思路 - unplugin 框架:一次实现,多 bundler 使用 - 自动 import 的 transform 逻辑 -
+
+- `unplugin-auto-import` 的核心实现思路 - unplugin 框架:一次实现,多 bundler 使用 - 自动 import 的 transform 逻辑 -
   `.d.ts` 类型声明的自动生成
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 完成前三节插件系统的学习(3.1~3.4) - 理解 transform hook 和 resolveId hook
+
+- 完成前三节插件系统的学习(3.1~3.4) - 理解 transform hook 和 resolveId hook
+
 </Callout>
 
 ## 功能回顾
@@ -189,11 +193,9 @@ function generateDtsContent(imports: ImportMap): string {
 ## 边界与坑点
 
 <Callout type="warning" title="auto-import 插件最容易踩的坑">
-  - 正则扫描会把对象属性、字符串、注释里的名字误认为变量
-  - 没有排除已有 import 会生成重复导入
-  - 没有区分 type-only 使用会把类型引用变成运行时 import
-  - `.d.ts` 更新不及时会导致编辑器提示和实际 transform 不一致
-  - barrel preset 太大时,每个文件都扫描全量 API 会拖慢 HMR
+  - 正则扫描会把对象属性、字符串、注释里的名字误认为变量 - 没有排除已有 import 会生成重复导入 - 没有区分 type-only
+  使用会把类型引用变成运行时 import - `.d.ts` 更新不及时会导致编辑器提示和实际 transform 不一致 - barrel preset
+  太大时,每个文件都扫描全量 API 会拖慢 HMR
 </Callout>
 
 生产级实现通常会用 AST、作用域分析和 MagicString。AST 解决“这个标识符到底是不是自由变量”,作用域分析解决“它是不是已经在本文件声明”,MagicString 解决“插入 import 后 sourcemap 还能不能用”。

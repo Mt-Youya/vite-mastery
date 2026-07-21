@@ -17,7 +17,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Basic understanding of WebAssembly concepts - Read "SSR API in the Vite 8 Era" (section 8.1)
+
+- Basic understanding of WebAssembly concepts - Read "SSR API in the Vite 8 Era" (section 8.1)
+
 </Callout>
 
 ## Why Use Wasm in SSR
@@ -124,12 +126,12 @@ export async function render(url: string) {
 
 Wasm SSR is attractive, but it is not the right answer for every performance problem:
 
-| Scenario | Better choice |
-| --- | --- |
-| A mature maintained Node native package exists | Use it first, for example evaluate `sharp` for image processing |
-| The logic is light and the bottleneck is database or network I/O | Optimize I/O instead of adding Wasm initialization cost |
-| The module depends on DOM, Canvas, or WebGL | Keep it on the client or in a worker |
-| A new instance is created per request | Design a singleton or instance pool first |
+| Scenario                                                         | Better choice                                                   |
+| ---------------------------------------------------------------- | --------------------------------------------------------------- |
+| A mature maintained Node native package exists                   | Use it first, for example evaluate `sharp` for image processing |
+| The logic is light and the bottleneck is database or network I/O | Optimize I/O instead of adding Wasm initialization cost         |
+| The module depends on DOM, Canvas, or WebGL                      | Keep it on the client or in a worker                            |
+| A new instance is created per request                            | Design a singleton or instance pool first                       |
 
 Wasm fits pure computation that can be initialized once and reused for a long time: Markdown, syntax highlighting, compression, parsers, codecs. It should not replace every Node.js package by default.
 

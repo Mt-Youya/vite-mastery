@@ -12,11 +12,15 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - HMR 慢的几种根本原因 - `--debug hmr` 命令的使用 - 模块图过大如何优化 - transform 耗时过长的排查方法
+
+- HMR 慢的几种根本原因 - `--debug hmr` 命令的使用 - 模块图过大如何优化 - transform 耗时过长的排查方法
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 HMR 的基本工作原理(6.1 节) - 了解 Module Graph(1.4 节)
+
+- 了解 HMR 的基本工作原理(6.1 节) - 了解 Module Graph(1.4 节)
+
 </Callout>
 
 ## HMR 时间组成
@@ -147,13 +151,13 @@ React Fast Refresh 在 HMR 更新时需要比较新旧组件树。对于大型�
 
 HMR 慢时不要直接改代码结构,先把症状归类:
 
-| 症状 | 优先看什么 |
-| --- | --- |
-| 保存后很久才看到日志 | 文件 watcher 或编辑器保存策略 |
-| 日志很快,页面慢 | 浏览器端框架更新或组件渲染 |
-| `propagate` 很久 | 模块图传播链太大 |
-| transform 日志很久 | 插件或编译器处理慢 |
-| 每次都 full reload | HMR 边界不成立或插件主动 invalidate |
+| 症状                 | 优先看什么                          |
+| -------------------- | ----------------------------------- |
+| 保存后很久才看到日志 | 文件 watcher 或编辑器保存策略       |
+| 日志很快,页面慢      | 浏览器端框架更新或组件渲染          |
+| `propagate` 很久     | 模块图传播链太大                    |
+| transform 日志很久   | 插件或编译器处理慢                  |
+| 每次都 full reload   | HMR 边界不成立或插件主动 invalidate |
 
 建议保留一个临时诊断插件,只在需要时打开:
 

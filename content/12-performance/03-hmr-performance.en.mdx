@@ -17,7 +17,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Basic understanding of how HMR works (section 6.1) - Understanding the Module Graph (section 1.4)
+
+- Basic understanding of how HMR works (section 6.1) - Understanding the Module Graph (section 1.4)
+
 </Callout>
 
 ## HMR time breakdown
@@ -148,13 +150,13 @@ React Fast Refresh needs to diff the old and new component trees during an HMR u
 
 When HMR feels slow, classify the symptom before changing code structure:
 
-| Symptom | Check first |
-| --- | --- |
-| Long delay before any log appears | File watcher or editor save behavior |
-| Logs appear quickly but the page is slow | Browser-side framework update or component rendering |
-| `propagate` takes a long time | The module graph propagation chain is too large |
-| Transform logs take a long time | A plugin or compiler step is slow |
-| Every change causes full reload | HMR boundary failed or a plugin invalidated deliberately |
+| Symptom                                  | Check first                                              |
+| ---------------------------------------- | -------------------------------------------------------- |
+| Long delay before any log appears        | File watcher or editor save behavior                     |
+| Logs appear quickly but the page is slow | Browser-side framework update or component rendering     |
+| `propagate` takes a long time            | The module graph propagation chain is too large          |
+| Transform logs take a long time          | A plugin or compiler step is slow                        |
+| Every change causes full reload          | HMR boundary failed or a plugin invalidated deliberately |
 
 Keep a temporary diagnostic plugin that can be enabled when needed:
 

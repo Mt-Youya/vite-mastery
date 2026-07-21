@@ -12,14 +12,16 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `create-vite` 和项目内 `vite` CLI 的边界
-  - `dev` / `build` / `preview` 三个命令分别验证什么
-  - `--host`、`--mode`、`--debug`、`--force` 的真实用途
-  - 如何把一组命令整理成团队可复用的 scripts
+
+- `create-vite` 和项目内 `vite` CLI 的边界 - `dev` / `build` / `preview` 三个命令分别验证什么 -
+  `--host`、`--mode`、`--debug`、`--force` 的真实用途 - 如何把一组命令整理成团队可复用的 scripts
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 已经跑通过 [0.2 · 第一个 Vite 项目](/docs/00-getting-started/02-first-project)
+
+- 已经跑通过 [0.2 · 第一个 Vite 项目](/docs/00-getting-started/02-first-project)
+
 </Callout>
 
 ## 两类 CLI 不要混淆
@@ -111,12 +113,12 @@ pnpm build
 
 开发服务器能跑，不代表 build 一定能过。常见差异包括:
 
-| dev 正常但 build 失败的原因 | 为什么 dev 没暴露出来                     |
-| --------------------------- | ---------------------------------------- |
-| 只在生产构建执行的插件报错  | dev 阶段插件可能被 `apply: "build"` 跳过 |
+| dev 正常但 build 失败的原因  | 为什么 dev 没暴露出来                    |
+| ---------------------------- | ---------------------------------------- |
+| 只在生产构建执行的插件报错   | dev 阶段插件可能被 `apply: "build"` 跳过 |
 | 动态 import 路径无法静态分析 | dev 可能直到点击某个页面才请求到该模块   |
 | Node-only 代码进了浏览器包   | dev 只转换当前请求，build 会扫完整图谱   |
-| 大小写路径不一致            | macOS 本地可能不敏感，CI/Linux 会失败    |
+| 大小写路径不一致             | macOS 本地可能不敏感，CI/Linux 会失败    |
 
 所以本项目的内容验收不应只跑 `pnpm dev`。写完插件、构建或资源相关章节后，至少要跑 `pnpm build:web` 或对应 example 的 build。
 
@@ -180,11 +182,11 @@ DEBUG=vite:hmr pnpm dev
 
 实战里最常用的三个 namespace:
 
-| 日志             | 适合排查                   |
-| ---------------- | -------------------------- |
-| `vite:deps`      | 依赖预构建、二次刷新、缓存 |
-| `vite:resolve`   | alias、条件导出、路径解析  |
-| `vite:hmr`       | 热更新边界、循环依赖       |
+| 日志           | 适合排查                   |
+| -------------- | -------------------------- |
+| `vite:deps`    | 依赖预构建、二次刷新、缓存 |
+| `vite:resolve` | alias、条件导出、路径解析  |
+| `vite:hmr`     | 热更新边界、循环依赖       |
 
 这些日志会比较吵。定位问题时开，平时不要放进默认 `dev` 脚本。
 

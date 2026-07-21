@@ -200,7 +200,7 @@ export function PlaygroundApp() {
               width={44}
               height={44}
               aria-hidden="true"
-              className="mt-1 size-11 shrink-0 rounded-[13px] shadow-[0_18px_42px_rgb(45_212_191_/_0.18)]"
+              className="mt-1 size-11 shrink-0 rounded-[13px] shadow-[0_18px_42px_rgb(45_212_191/0.18)]"
             />
             <div>
               <p className="mb-2 font-mono text-xs text-amber-300 uppercase">Vite 8 WebContainer</p>

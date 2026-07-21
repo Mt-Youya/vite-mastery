@@ -12,30 +12,28 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - Vite 默认支持哪些源码能力
-  - `import.meta.glob` 如何把文件系统变成模块列表
-  - Worker、WASM、JSON、CSS Modules 的导入边界
-  - 什么时候该用官方能力，什么时候该写插件
+  - Vite 默认支持哪些源码能力 - `import.meta.glob` 如何把文件系统变成模块列表 - Worker、WASM、JSON、CSS Modules
+  的导入边界 - 什么时候该用官方能力，什么时候该写插件
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 理解 [1.1 · Native ESM](/docs/01-core-concepts/01-native-esm)
-  - 了解 [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+  - 理解 [1.1 · Native ESM](/docs/01-core-concepts/01-native-esm) - 了解 [7.2 · Asset
+  Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
 </Callout>
 
 ## Vite 的“开箱能力”来自插件管线
 
 很多人以为 Vite 只负责启动 dev server，其他能力都靠框架插件。实际不是。Vite 自己就内置了一组源码特性:
 
-| 能力 | 典型写法 | 返回值 |
-| ---- | -------- | ------ |
-| CSS 导入 | `import "./style.css"` | 注入页面或抽取为 CSS 产物 |
-| CSS Modules | `import styles from "./a.module.css"` | class name 映射对象 |
-| JSON 导入 | `import pkg from "./package.json"` | JSON 对象或命名导出 |
-| 静态资源 | `import logo from "./logo.png"` | URL 字符串或 data URL |
-| Glob 导入 | `import.meta.glob("./pages/*.tsx")` | 模块映射表 |
-| Worker | `new Worker(new URL("./w.ts", import.meta.url))` | 独立线程入口 |
-| WASM | `import init from "./math.wasm"` | 初始化函数或 URL |
+| 能力        | 典型写法                                         | 返回值                    |
+| ----------- | ------------------------------------------------ | ------------------------- |
+| CSS 导入    | `import "./style.css"`                           | 注入页面或抽取为 CSS 产物 |
+| CSS Modules | `import styles from "./a.module.css"`            | class name 映射对象       |
+| JSON 导入   | `import pkg from "./package.json"`               | JSON 对象或命名导出       |
+| 静态资源    | `import logo from "./logo.png"`                  | URL 字符串或 data URL     |
+| Glob 导入   | `import.meta.glob("./pages/*.tsx")`              | 模块映射表                |
+| Worker      | `new Worker(new URL("./w.ts", import.meta.url))` | 独立线程入口              |
+| WASM        | `import init from "./math.wasm"`                 | 初始化函数或 URL          |
 
 这些能力都不是“魔法语法”。它们进入的是同一条模块解析、加载、转换管线。理解这一点，后面写插件时就能判断:我要复用 Vite 内置规则，还是接管某一类文件?
 
@@ -197,11 +195,11 @@ const inlineWorker = new InlineWorker()
 
 选择方式:
 
-| 写法 | 适合场景 |
-| ---- | -------- |
-| `new Worker(new URL(...))` | 最接近浏览器标准，库代码更推荐 |
-| `?worker` | 应用代码更短，Vite 项目内部方便 |
-| `?worker&inline` | 小 worker、离线场景、减少额外请求 |
+| 写法                       | 适合场景                          |
+| -------------------------- | --------------------------------- |
+| `new Worker(new URL(...))` | 最接近浏览器标准，库代码更推荐    |
+| `?worker`                  | 应用代码更短，Vite 项目内部方便   |
+| `?worker&inline`           | 小 worker、离线场景、减少额外请求 |
 
 Worker 有自己的模块图和构建配置。复杂 worker 项目可以看 `worker` 配置项，而不是把所有逻辑塞进主应用配置。
 
@@ -239,13 +237,13 @@ const result = await WebAssembly.instantiateStreaming(response)
 
 内置能力够用时，不要急着写插件:
 
-| 需求 | 优先方案 |
-| ---- | -------- |
-| 批量收集页面文件 | `import.meta.glob` |
-| 读取 Markdown 原文 | `?raw` |
-| 读取图片 URL | 默认 asset import 或 `?url` |
-| 启动 Worker | 标准 Worker URL 或 `?worker` |
-| JSON 配置 | JSON import 或运行时 fetch |
+| 需求               | 优先方案                     |
+| ------------------ | ---------------------------- |
+| 批量收集页面文件   | `import.meta.glob`           |
+| 读取 Markdown 原文 | `?raw`                       |
+| 读取图片 URL       | 默认 asset import 或 `?url`  |
+| 启动 Worker        | 标准 Worker URL 或 `?worker` |
+| JSON 配置          | JSON import 或运行时 fetch   |
 
 需要写插件的信号:
 

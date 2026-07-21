@@ -80,7 +80,9 @@ function docsTargetExists(href: string): boolean {
   const slug = cleanHref.replace(/^\/docs\/?/, "")
   if (!slug) return true
   if (fs.existsSync(path.join(CONTENT_DIR, slug))) return true
-  return fs.existsSync(path.join(CONTENT_DIR, `${slug}.zh.mdx`)) || fs.existsSync(path.join(CONTENT_DIR, `${slug}.en.mdx`))
+  return (
+    fs.existsSync(path.join(CONTENT_DIR, `${slug}.zh.mdx`)) || fs.existsSync(path.join(CONTENT_DIR, `${slug}.en.mdx`))
+  )
 }
 
 function checkFile(filePath: string) {
@@ -169,7 +171,8 @@ function checkFile(filePath: string) {
   if (fm.part === "13-real-world-plugins" && /源码导读|Source Walkthrough/i.test(fm.title ?? "")) {
     const lowerBody = body.toLowerCase()
     const hasSourceContext = body.includes("源码") || lowerBody.includes("source")
-    const hasFlow = body.includes("流程") || body.includes("架构") || lowerBody.includes("flow") || lowerBody.includes("hook")
+    const hasFlow =
+      body.includes("流程") || body.includes("架构") || lowerBody.includes("flow") || lowerBody.includes("hook")
     const hasCaveat =
       body.includes("踩坑") ||
       body.includes("边界") ||

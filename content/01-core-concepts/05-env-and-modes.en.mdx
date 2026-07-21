@@ -12,15 +12,15 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - Built-in constants on `import.meta.env`
-  - `.env`, `.env.local`, and `.env.[mode]` priority
-  - Why only `VITE_` variables are exposed to browser code
-  - What `--mode`, `NODE_ENV`, and `loadEnv` are for
-  - How to add TypeScript completion for custom variables
+  - Built-in constants on `import.meta.env` - `.env`, `.env.local`, and `.env.[mode]` priority - Why only `VITE_`
+  variables are exposed to browser code - What `--mode`, `NODE_ENV`, and `loadEnv` are for - How to add TypeScript
+  completion for custom variables
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Read [0.5 · Vite CLI Workflow](/docs/00-getting-started/05-cli-workflow)
+
+- Read [0.5 · Vite CLI Workflow](/docs/00-getting-started/05-cli-workflow)
+
 </Callout>
 
 ## `import.meta.env` Is Compile-Time Data
@@ -49,13 +49,13 @@ In production, `import.meta.env.DEV` becomes `false`, and the minifier can remov
 
 ## Built-In Constants
 
-| Constant | Type | Meaning |
-| -------- | ---- | ------- |
-| `import.meta.env.MODE` | `string` | active mode, such as `development` |
-| `import.meta.env.BASE_URL` | `string` | public base path from the `base` config |
-| `import.meta.env.DEV` | `boolean` | development environment |
-| `import.meta.env.PROD` | `boolean` | production environment |
-| `import.meta.env.SSR` | `boolean` | running in a server environment |
+| Constant                   | Type      | Meaning                                 |
+| -------------------------- | --------- | --------------------------------------- |
+| `import.meta.env.MODE`     | `string`  | active mode, such as `development`      |
+| `import.meta.env.BASE_URL` | `string`  | public base path from the `base` config |
+| `import.meta.env.DEV`      | `boolean` | development environment                 |
+| `import.meta.env.PROD`     | `boolean` | production environment                  |
+| `import.meta.env.SSR`      | `boolean` | running in a server environment         |
 
 `BASE_URL` is easy to miss. If the app is deployed under a sub-path, avoid hard-coding URLs:
 
@@ -134,12 +134,12 @@ Never set `envPrefix` to an empty string. That would expose every environment va
 
 ## Mode Is Not `NODE_ENV`
 
-| Command | `NODE_ENV` | `import.meta.env.MODE` |
-| ------- | ---------- | ---------------------- |
-| `vite dev` | `"development"` | `"development"` |
-| `vite build` | `"production"` | `"production"` |
-| `vite build --mode staging` | `"production"` | `"staging"` |
-| `NODE_ENV=development vite build` | `"development"` | `"production"` |
+| Command                           | `NODE_ENV`      | `import.meta.env.MODE` |
+| --------------------------------- | --------------- | ---------------------- |
+| `vite dev`                        | `"development"` | `"development"`        |
+| `vite build`                      | `"production"`  | `"production"`         |
+| `vite build --mode staging`       | `"production"`  | `"staging"`            |
+| `NODE_ENV=development vite build` | `"development"` | `"production"`         |
 
 Mode answers: "Which `.env.[mode]` file should be loaded?"  
 `NODE_ENV` answers: "Should tooling use development or production semantics?"
@@ -171,8 +171,7 @@ The third argument is the prefix filter. `"VITE_"` loads client-exposed variable
 ## HTML Constant Replacement
 
 ```html filename="index.html"
-<title>%VITE_APP_TITLE%</title>
-<meta name="app-mode" content="%MODE%" />
+<title>%VITE_APP_TITLE%</title> <meta name="app-mode" content="%MODE%" />
 ```
 
 Missing HTML constants remain unchanged, while `import.meta.env.NON_EXISTENT` in JS becomes `undefined`. For complex HTML injection, use the `transformIndexHtml` plugin hook instead.
@@ -197,13 +196,13 @@ This gives completion and catches misspelled variable names earlier.
 
 ## Recommended Layering
 
-| File | Commit it? | Typical content |
-| ---- | ---------- | --------------- |
-| `.env` | yes | public defaults |
-| `.env.local` | no | local overrides |
-| `.env.staging` | yes | public staging config |
-| `.env.production` | yes | public production config |
-| `.env.production.local` | no | deployment-only overrides |
+| File                    | Commit it? | Typical content           |
+| ----------------------- | ---------- | ------------------------- |
+| `.env`                  | yes        | public defaults           |
+| `.env.local`            | no         | local overrides           |
+| `.env.staging`          | yes        | public staging config     |
+| `.env.production`       | yes        | public production config  |
+| `.env.production.local` | no         | deployment-only overrides |
 
 Ask one question before adding `VITE_`: is it acceptable if every user can see this value? If not, do not expose it.
 

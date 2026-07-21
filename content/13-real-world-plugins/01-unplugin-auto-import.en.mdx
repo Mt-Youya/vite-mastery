@@ -190,11 +190,10 @@ This flow explains why auto-import cannot be implemented mainly with `resolveId`
 ## Edge Cases And Pitfalls
 
 <Callout type="warning" title="Common auto-import plugin pitfalls">
-  - Regex scanning treats object properties, strings, or comments as variable usage
-  - Failing to exclude existing imports generates duplicate imports
-  - Failing to detect type-only usage turns type references into runtime imports
-  - Stale `.d.ts` output makes editor hints disagree with actual transforms
-  - Huge barrel presets make every file scan too many candidate APIs and slow down HMR
+  - Regex scanning treats object properties, strings, or comments as variable usage - Failing to exclude existing
+  imports generates duplicate imports - Failing to detect type-only usage turns type references into runtime imports -
+  Stale `.d.ts` output makes editor hints disagree with actual transforms - Huge barrel presets make every file scan too
+  many candidate APIs and slow down HMR
 </Callout>
 
 Production implementations usually need ASTs, scope analysis, and MagicString. ASTs answer "is this identifier really a free variable?", scope analysis answers "was it already declared in this file?", and MagicString keeps sourcemaps usable after import insertion.

@@ -12,12 +12,16 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - Common causes of slow cold starts - Tuning `optimizeDeps` - Preventing second restarts by pre-declaring dependencies
+
+- Common causes of slow cold starts - Tuning `optimizeDeps` - Preventing second restarts by pre-declaring dependencies
   - How Vite 8 Rolldown improves cold start time
+
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understanding dependency pre-bundling (section 1.3)
+
+- Understanding dependency pre-bundling (section 1.3)
+
 </Callout>
 
 ## What makes up cold start time
@@ -146,13 +150,13 @@ This creates a configuration people can maintain instead of a dependency list no
 
 ## Cold-start Optimization Checklist
 
-| Check | Why it affects startup |
-| --- | --- |
-| Does the lockfile change often? | Dependency pre-bundle cache invalidates with it |
-| Does `vite.config.ts` do synchronous I/O? | Config loading blocks dev server startup |
-| Do plugins scan the whole repo in `configResolved`? | Work happens before the server is ready |
-| Are workspace packages pre-bundled accidentally? | Local source packages usually should be transformed by Vite |
-| Are large optional dependencies in the initial route? | First page request lengthens dependency processing |
+| Check                                                 | Why it affects startup                                      |
+| ----------------------------------------------------- | ----------------------------------------------------------- |
+| Does the lockfile change often?                       | Dependency pre-bundle cache invalidates with it             |
+| Does `vite.config.ts` do synchronous I/O?             | Config loading blocks dev server startup                    |
+| Do plugins scan the whole repo in `configResolved`?   | Work happens before the server is ready                     |
+| Are workspace packages pre-bundled accidentally?      | Local source packages usually should be transformed by Vite |
+| Are large optional dependencies in the initial route? | First page request lengthens dependency processing          |
 
 Measure first, then change config. Slow cold start can come from dependency pre-bundling, config loading, plugin initialization, or network proxies. Blaming every case on `optimizeDeps` leads to the wrong fix.
 
