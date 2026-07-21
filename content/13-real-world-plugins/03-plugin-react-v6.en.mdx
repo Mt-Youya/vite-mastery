@@ -12,16 +12,15 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - What `@vitejs/plugin-react` v6 configures in Vite 8
-  - Why Fast Refresh runtime and HTML preamble are separate concerns
-  - Why SSR/backend-integrated apps may need `@vitejs/plugin-react/preamble`
-  - How to migrate Babel-dependent v5 setups to v6
+  - What `@vitejs/plugin-react` v6 configures in Vite 8 - Why Fast Refresh runtime and HTML preamble are separate
+  concerns - Why SSR/backend-integrated apps may need `@vitejs/plugin-react/preamble` - How to migrate Babel-dependent
+  v5 setups to v6
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Read [4.3 · `transform` Hook](/docs/04-hooks-deep-dive/03-build-hooks-2)
-  - Read [6.5 · React Fast Refresh](/docs/06-hmr/05-framework-hmr)
-  - Understand [7.8 · Backend Integration](/docs/07-build-pipeline/08-backend-integration)
+  - Read [4.3 · `transform` Hook](/docs/04-hooks-deep-dive/03-build-hooks-2) - Read [6.5 · React Fast
+  Refresh](/docs/06-hmr/05-framework-hmr) - Understand [7.8 · Backend
+  Integration](/docs/07-build-pipeline/08-backend-integration)
 </Callout>
 
 ## Correct A Common Misread
@@ -60,14 +59,14 @@ export default function viteReact(options: Options = {}): Plugin[] {
 
 Each layer has a separate job:
 
-| Layer | Main responsibility |
-| --- | --- |
-| Oxc config layer | Configure JSX and Refresh from `jsxRuntime`, `jsxImportSource`, `include`, and `exclude` |
-| Refresh wrapper | Wrap React modules with Fast Refresh HMR logic in dev/client environments |
-| Config post layer | Disable refresh when `server.hmr === false` |
-| Bundled dev mode preamble | Inject the preamble early in full bundle mode |
-| Refresh runtime module | Expose the `/@react-refresh` runtime |
-| Preamble virtual plugin | Support explicit `@vitejs/plugin-react/preamble` imports |
+| Layer                     | Main responsibility                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| Oxc config layer          | Configure JSX and Refresh from `jsxRuntime`, `jsxImportSource`, `include`, and `exclude` |
+| Refresh wrapper           | Wrap React modules with Fast Refresh HMR logic in dev/client environments                |
+| Config post layer         | Disable refresh when `server.hmr === false`                                              |
+| Bundled dev mode preamble | Inject the preamble early in full bundle mode                                            |
+| Refresh runtime module    | Expose the `/@react-refresh` runtime                                                     |
+| Preamble virtual plugin   | Support explicit `@vitejs/plugin-react/preamble` imports                                 |
 
 This is typical Vite plugin design. Configuration, HTML injection, virtual modules, and environment filtering belong in different hooks instead of one large `transform`.
 
@@ -229,13 +228,13 @@ export default defineConfig({
 
 Migration checklist:
 
-| v5 habit | v6 approach |
-| --- | --- |
-| `react({ babel: { plugins: [...] } })` | Move it to `@rolldown/plugin-babel` |
-| Custom JSX import source | Keep using `react({ jsxImportSource: "..." })` |
-| Old classic JSX runtime | Use `react({ jsxRuntime: "classic" })` |
-| MDX also needs Refresh | Adjust `include` and ensure the MDX plugin runs before React |
-| SSR does not call `transformIndexHtml` | Import `@vitejs/plugin-react/preamble` in the client entry |
+| v5 habit                               | v6 approach                                                  |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `react({ babel: { plugins: [...] } })` | Move it to `@rolldown/plugin-babel`                          |
+| Custom JSX import source               | Keep using `react({ jsxImportSource: "..." })`               |
+| Old classic JSX runtime                | Use `react({ jsxRuntime: "classic" })`                       |
+| MDX also needs Refresh                 | Adjust `include` and ensure the MDX plugin runs before React |
+| SSR does not call `transformIndexHtml` | Import `@vitejs/plugin-react/preamble` in the client entry   |
 
 This boundary matters. The React plugin owns the default React + Oxc + Refresh experience; Babel extension work is composed through a separate plugin.
 
@@ -256,11 +255,11 @@ If build fails, first suspect Babel migration. If dev hot updates fail, start wi
 ## Edge Cases And Pitfalls
 
 <Callout type="warning" title="Common React plugin migration pitfalls">
-  - SSR or backend integration skips `transformIndexHtml`, so the preamble is never installed
-  - A v5 migration keeps writing `react({ babel })`, but v6 expects `@rolldown/plugin-babel` composition
-  - MDX files are not added to `include`, so they never receive the Fast Refresh wrapper
-  - A file mixes component exports with mutable non-component exports, forcing Fast Refresh to invalidate
-  - Module federation setups omit `reactRefreshHost`, causing multiple refresh runtimes to conflict
+  - SSR or backend integration skips `transformIndexHtml`, so the preamble is never installed - A v5 migration keeps
+  writing `react({babel})`, but v6 expects `@rolldown/plugin-babel` composition - MDX files are not added to `include`,
+  so they never receive the Fast Refresh wrapper - A file mixes component exports with mutable non-component exports,
+  forcing Fast Refresh to invalidate - Module federation setups omit `reactRefreshHost`, causing multiple refresh
+  runtimes to conflict
 </Callout>
 
 Map each pitfall back to the plugin layer when reading the source. Preamble issues live in HTML/virtual-module handling. Babel issues live in plugin composition. MDX issues live in include/exclude filters. Export-boundary issues live in the refresh wrapper. That keeps debugging from collapsing into one giant `transform` search.

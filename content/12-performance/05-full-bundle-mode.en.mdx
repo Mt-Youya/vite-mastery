@@ -85,13 +85,13 @@ Do not invent configuration fields in documentation. Full Bundle Mode related wo
 
 Full Bundle Mode is not automatically better. If your bottleneck is a slow transform plugin, full bundling still has to run that transform. If your bottleneck is too many browser requests, it is more likely to help.
 
-| Main bottleneck | Full Bundle Mode potential |
-| --- | --- |
-| Remote development with high browser-to-server latency | Likely helpful |
-| Many small modules slowing first page load | Likely helpful |
-| One Babel/MDX plugin is slow | Limited; optimize the plugin first |
-| HMR propagation chain is huge | Unclear; split module boundaries first |
-| Local SSD plus latest Chrome | May not justify slower cold start |
+| Main bottleneck                                        | Full Bundle Mode potential             |
+| ------------------------------------------------------ | -------------------------------------- |
+| Remote development with high browser-to-server latency | Likely helpful                         |
+| Many small modules slowing first page load             | Likely helpful                         |
+| One Babel/MDX plugin is slow                           | Limited; optimize the plugin first     |
+| HMR propagation chain is huge                          | Unclear; split module boundaries first |
+| Local SSD plus latest Chrome                           | May not justify slower cold start      |
 
 ## What To Optimize Today
 

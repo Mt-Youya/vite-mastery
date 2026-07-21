@@ -12,7 +12,9 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="Prerequisites">
-  - Node 24+ and pnpm 11+ installed - Basic command-line familiarity
+
+- Node 24+ and pnpm 11+ installed - Basic command-line familiarity
+
 </Callout>
 
 ## Scaffolding
@@ -71,12 +73,12 @@ We'll take this plugin apart later.
 
 The setup sequence looks like simple scaffolding, but it maps to four different project phases:
 
-| Command | What actually happens |
-| --- | --- |
-| `pnpm create vite@latest` | Downloads create-vite and writes the minimal template files |
-| `pnpm install` | Installs Vite, the React plugin, React runtime packages, and TypeScript-related dependencies |
-| `pnpm dev` | Starts the Vite dev server and serves source through native ESM |
-| Opening `localhost:5173` | The browser requests `index.html`, then follows module imports into your source files |
+| Command                   | What actually happens                                                                        |
+| ------------------------- | -------------------------------------------------------------------------------------------- |
+| `pnpm create vite@latest` | Downloads create-vite and writes the minimal template files                                  |
+| `pnpm install`            | Installs Vite, the React plugin, React runtime packages, and TypeScript-related dependencies |
+| `pnpm dev`                | Starts the Vite dev server and serves source through native ESM                              |
+| Opening `localhost:5173`  | The browser requests `index.html`, then follows module imports into your source files        |
 
 When `pnpm dev` starts quickly, do not assume Vite already compiled the whole project. It prepared the server and dependency cache; source modules are transformed when the browser asks for them.
 
@@ -93,18 +95,19 @@ These checks correspond to Vite's three basic ideas: on-demand source transform,
 ## Common Startup Problems
 
 <Callout type="warning" title="Do not skip runtime versions">
-  Current Vite releases have explicit Node requirements. If the project fails to start, run `node -v` and `pnpm -v` before blaming plugin configuration.
+  Current Vite releases have explicit Node requirements. If the project fails to start, run `node -v` and `pnpm -v`
+  before blaming plugin configuration.
 </Callout>
 
 Triage common failures in this order:
 
-| Symptom | Check first |
-| --- | --- |
-| `pnpm create vite@latest` is slow | npm registry, proxy, company network |
-| `pnpm dev` reports a Node version error | Whether Node satisfies the project requirement |
-| Port is not 5173 | 5173 is occupied; Vite tries the next available port |
-| Page opens but HMR does not work | Browser console, WebSocket connection, proxy setup |
-| TypeScript cannot find Vite globals | Whether `src/vite-env.d.ts` exists |
+| Symptom                                 | Check first                                          |
+| --------------------------------------- | ---------------------------------------------------- |
+| `pnpm create vite@latest` is slow       | npm registry, proxy, company network                 |
+| `pnpm dev` reports a Node version error | Whether Node satisfies the project requirement       |
+| Port is not 5173                        | 5173 is occupied; Vite tries the next available port |
+| Page opens but HMR does not work        | Browser console, WebSocket connection, proxy setup   |
+| TypeScript cannot find Vite globals     | Whether `src/vite-env.d.ts` exists                   |
 
 ## Do Not Rush Into Configuration
 

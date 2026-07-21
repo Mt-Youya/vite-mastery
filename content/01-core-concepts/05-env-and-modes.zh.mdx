@@ -12,15 +12,14 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `import.meta.env` 里有哪些内置常量
-  - `.env` / `.env.local` / `.env.[mode]` 的加载优先级
-  - 为什么只有 `VITE_` 前缀变量会暴露给浏览器
-  - `--mode`、`NODE_ENV`、`loadEnv` 分别解决什么问题
-  - 如何给 TypeScript 补全自定义环境变量
+  - `import.meta.env` 里有哪些内置常量 - `.env` / `.env.local` / `.env.[mode]` 的加载优先级 - 为什么只有 `VITE_`
+  前缀变量会暴露给浏览器 - `--mode`、`NODE_ENV`、`loadEnv` 分别解决什么问题 - 如何给 TypeScript 补全自定义环境变量
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 读过 [0.5 · Vite CLI 工作流](/docs/00-getting-started/05-cli-workflow)
+
+- 读过 [0.5 · Vite CLI 工作流](/docs/00-getting-started/05-cli-workflow)
+
 </Callout>
 
 ## `import.meta.env` 是编译期常量
@@ -49,13 +48,13 @@ if (import.meta.env.DEV) {
 
 ## 内置常量
 
-| 常量                   | 类型      | 含义                           |
-| ---------------------- | --------- | ------------------------------ |
-| `import.meta.env.MODE` | `string`  | 当前 mode，比如 `development`  |
-| `import.meta.env.BASE_URL` | `string` | 当前 `base` 配置决定的公共路径 |
-| `import.meta.env.DEV`  | `boolean` | 是否是开发环境                 |
-| `import.meta.env.PROD` | `boolean` | 是否是生产环境                 |
-| `import.meta.env.SSR`  | `boolean` | 当前模块是否在服务端环境执行   |
+| 常量                       | 类型      | 含义                           |
+| -------------------------- | --------- | ------------------------------ |
+| `import.meta.env.MODE`     | `string`  | 当前 mode，比如 `development`  |
+| `import.meta.env.BASE_URL` | `string`  | 当前 `base` 配置决定的公共路径 |
+| `import.meta.env.DEV`      | `boolean` | 是否是开发环境                 |
+| `import.meta.env.PROD`     | `boolean` | 是否是生产环境                 |
+| `import.meta.env.SSR`      | `boolean` | 当前模块是否在服务端环境执行   |
 
 `BASE_URL` 最容易被忽略。项目部署到子路径时，不要手写:
 
@@ -125,7 +124,8 @@ console.log(import.meta.env.DB_PASSWORD) // undefined
 这是一个安全边界。Vite 默认不把所有环境变量暴露给浏览器，避免数据库密码、token、私钥被打进前端包。
 
 <Callout type="warning">
-  `VITE_` 不是加密。带这个前缀的变量会进入前端源码或构建产物，用户可以在浏览器里看到。不要把任何真正的密钥写成 `VITE_SECRET_KEY`。
+  `VITE_` 不是加密。带这个前缀的变量会进入前端源码或构建产物，用户可以在浏览器里看到。不要把任何真正的密钥写成
+  `VITE_SECRET_KEY`。
 </Callout>
 
 ### 自定义前缀: `envPrefix`
@@ -146,8 +146,8 @@ export default defineConfig({
 
 这是很多线上问题的来源。
 
-| 命令                              | `NODE_ENV`     | `import.meta.env.MODE` |
-| --------------------------------- | -------------- | ---------------------- |
+| 命令                              | `NODE_ENV`      | `import.meta.env.MODE` |
+| --------------------------------- | --------------- | ---------------------- |
 | `vite dev`                        | `"development"` | `"development"`        |
 | `vite build`                      | `"production"`  | `"production"`         |
 | `vite build --mode staging`       | `"production"`  | `"staging"`            |
@@ -196,8 +196,7 @@ export default defineConfig(({ mode }) => {
 Vite 也会替换 HTML 里的 `%CONST_NAME%`:
 
 ```html filename="index.html"
-<title>%VITE_APP_TITLE%</title>
-<meta name="app-mode" content="%MODE%" />
+<title>%VITE_APP_TITLE%</title> <meta name="app-mode" content="%MODE%" />
 ```
 
 如果变量不存在，HTML 里的 `%NON_EXISTENT%` 会保留原样；而 JS 里的 `import.meta.env.NON_EXISTENT` 会被替换成 `undefined`。这两个行为不同，写模板时要注意。
@@ -228,13 +227,13 @@ interface ImportMeta {
 
 实战中可以这样分:
 
-| 文件 | 应提交吗 | 内容示例 |
-| ---- | -------- | -------- |
-| `.env` | 是 | 默认 API 路径、公开 feature flag |
-| `.env.local` | 否 | 本机代理地址、本机实验开关 |
-| `.env.staging` | 是 | staging 的公开配置 |
-| `.env.production` | 是 | production 的公开配置 |
-| `.env.production.local` | 否 | 只在部署机注入的私有覆盖值 |
+| 文件                    | 应提交吗 | 内容示例                         |
+| ----------------------- | -------- | -------------------------------- |
+| `.env`                  | 是       | 默认 API 路径、公开 feature flag |
+| `.env.local`            | 否       | 本机代理地址、本机实验开关       |
+| `.env.staging`          | 是       | staging 的公开配置               |
+| `.env.production`       | 是       | production 的公开配置            |
+| `.env.production.local` | 否       | 只在部署机注入的私有覆盖值       |
 
 判断变量是否能写进 `VITE_` 的简单问题是:这个值被用户看到是否没关系?如果答案不是明确的“没关系”，就不要暴露给客户端。
 

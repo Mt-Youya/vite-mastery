@@ -12,15 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 什么时候需要后端集成，而不是让 Vite 直接服务 `index.html`
-  - dev 阶段如何注入 `@vite/client` 和应用入口
-  - production 阶段如何读取 `.vite/manifest.json`
-  - React Fast Refresh、静态资源 URL、modulepreload 的注意事项
+  - 什么时候需要后端集成，而不是让 Vite 直接服务 `index.html` - dev 阶段如何注入 `@vite/client` 和应用入口 - production
+  阶段如何读取 `.vite/manifest.json` - React Fast Refresh、静态资源 URL、modulepreload 的注意事项
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 [7.1 · Rolldown 在构建中的角色](/docs/07-build-pipeline/01-rolldown-in-build)
-  - 了解 [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+  - 了解 [7.1 · Rolldown 在构建中的角色](/docs/07-build-pipeline/01-rolldown-in-build) - 了解 [7.2 · Asset
+  Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
 </Callout>
 
 ## 什么时候需要后端集成
@@ -73,10 +71,10 @@ export default defineConfig({
 
 几个关键点:
 
-| 配置 | 作用 |
-| ---- | ---- |
-| `server.cors.origin` | 允许后端页面从 Vite dev server 加载模块 |
-| `build.manifest` | 生成 `.vite/manifest.json`，供后端模板读取 |
+| 配置                          | 作用                                       |
+| ----------------------------- | ------------------------------------------ |
+| `server.cors.origin`          | 允许后端页面从 Vite dev server 加载模块    |
+| `build.manifest`              | 生成 `.vite/manifest.json`，供后端模板读取 |
 | `build.rolldownOptions.input` | 告诉构建从 JS/TS 入口开始，而不是默认 HTML |
 
 如果你的后端模板会输出多个页面入口，可以配置多入口:
@@ -252,13 +250,13 @@ export const viteEntries = {
 
 ## 常见错误
 
-| 现象 | 原因 | 修复 |
-| ---- | ---- | ---- |
-| dev 页面加载但 HMR 不动 | 漏了 `@vite/client` | 在后端模板注入 client |
-| React 刷新后状态丢失 | 漏了 React Refresh preamble | 在入口前注入 preamble |
-| 图片 URL 指向后端端口 | 没配代理或 `server.origin` | 二选一固定策略 |
-| 生产 CSS 丢失 | 后端只输出 JS | 从 manifest 读取 `css` 字段 |
-| 动态 chunk 404 | `base` 或静态文件挂载路径不一致 | 统一 Vite `base` 与后端静态路径 |
+| 现象                    | 原因                            | 修复                            |
+| ----------------------- | ------------------------------- | ------------------------------- |
+| dev 页面加载但 HMR 不动 | 漏了 `@vite/client`             | 在后端模板注入 client           |
+| React 刷新后状态丢失    | 漏了 React Refresh preamble     | 在入口前注入 preamble           |
+| 图片 URL 指向后端端口   | 没配代理或 `server.origin`      | 二选一固定策略                  |
+| 生产 CSS 丢失           | 后端只输出 JS                   | 从 manifest 读取 `css` 字段     |
+| 动态 chunk 404          | `base` 或静态文件挂载路径不一致 | 统一 Vite `base` 与后端静态路径 |
 
 ## 自测题
 

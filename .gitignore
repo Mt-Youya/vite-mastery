@@ -38,6 +38,7 @@ Thumbs.db
 
 # Vercel
 .vercel
+next-env.d.ts
 
 # Content Collections 生成物
 .content-collections/

@@ -12,10 +12,12 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you'll learn">
-  - Where traditional bundler dev servers get slow
-  - Why native browser ESM lets Vite skip source bundling in dev
-  - What problems the Vite 8 + Rolldown path solves
-  - When to think about dev feedback and when to think about production build output
+
+- Where traditional bundler dev servers get slow
+- Why native browser ESM lets Vite skip source bundling in dev
+- What problems the Vite 8 + Rolldown path solves
+- When to think about dev feedback and when to think about production build output
+
 </Callout>
 
 ## Why Traditional Dev Servers Got Slow
@@ -69,11 +71,11 @@ The classic early-Vite explanation was "fast per-file transforms in dev, Rollup 
 
 Vite 8's direction is to align the model around Rolldown:
 
-| Stage | Vite 8 focus | Mental model |
-| --- | --- | --- |
-| dev | On-demand source transforms, fast HMR, dependency preprocessing | Vite processes what the browser asks for |
-| build | Full static analysis, tree-shaking, chunk generation, asset hashing | Vite produces deployable, cacheable assets |
-| plugins | Vite hooks plus Rollup/Rolldown-style hooks | dev/build behavior should converge around one plugin story |
+| Stage   | Vite 8 focus                                                        | Mental model                                               |
+| ------- | ------------------------------------------------------------------- | ---------------------------------------------------------- |
+| dev     | On-demand source transforms, fast HMR, dependency preprocessing     | Vite processes what the browser asks for                   |
+| build   | Full static analysis, tree-shaking, chunk generation, asset hashing | Vite produces deployable, cacheable assets                 |
+| plugins | Vite hooks plus Rollup/Rolldown-style hooks                         | dev/build behavior should converge around one plugin story |
 
 That is why this guide spends so much time on Rolldown. It is not only "a faster build implementation"; it is part of making Vite's development and production models easier to reason about together.
 
@@ -120,4 +122,6 @@ Every later chapter can be checked against these statements. Is a config, plugin
 3. Why does production build still need a full bundling pipeline?
 4. Which dev/build inconsistencies does the Vite 8 + Rolldown path try to reduce?
 
-<Callout type="tip">Next, read [0.2 · Your First Vite Project](/docs/00-getting-started/02-first-project) and run this model locally.</Callout>
+<Callout type="tip">
+  Next, read [0.2 · Your First Vite Project](/docs/00-getting-started/02-first-project) and run this model locally.
+</Callout>

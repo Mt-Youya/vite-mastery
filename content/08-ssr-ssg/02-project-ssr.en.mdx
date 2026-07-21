@@ -12,21 +12,20 @@ apiStability: "rc"
 ---
 
 <Callout type="warning" title="Environment API is RC">
-  The official SSR guide still shows `vite.ssrLoadModule()` for low-level SSR, while the changes documentation points toward `ModuleRunner.import()` in the Environment API model. This project keeps the compatible implementation but isolates the loading layer so it can be replaced later.
+  The official SSR guide still shows `vite.ssrLoadModule()` for low-level SSR, while the changes documentation points
+  toward `ModuleRunner.import()` in the Environment API model. This project keeps the compatible implementation but
+  isolates the loading layer so it can be replaced later.
 </Callout>
 
 <Callout type="note" title="What you will learn">
-  - The files required for a minimal SSR app
-  - Why dev mode uses Vite middleware
-  - Why production builds client and server outputs separately
-  - How `ssrLoadModule` differs from `ModuleRunner.import()`
-  - How to verify SSR, hydration, data injection, and stack traces
+  - The files required for a minimal SSR app - Why dev mode uses Vite middleware - Why production builds client and
+  server outputs separately - How `ssrLoadModule` differs from `ModuleRunner.import()` - How to verify SSR, hydration,
+  data injection, and stack traces
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Read [8.1 · SSR API in the Vite 8 Era](/docs/08-ssr-ssg/01-vite8-ssr-api)
-  - Understand React `renderToString` and `hydrateRoot`
-  - Know basic Node.js HTTP servers
+  - Read [8.1 · SSR API in the Vite 8 Era](/docs/08-ssr-ssg/01-vite8-ssr-api) - Understand React `renderToString` and
+  `hydrateRoot` - Know basic Node.js HTTP servers
 </Callout>
 
 ## Target Architecture
@@ -44,10 +43,10 @@ browser requests /
 
 The key dev/prod difference is where the server entry comes from:
 
-| Phase | Server entry source | Why |
-| ----- | ------------------- | --- |
-| dev | Vite-transformed source | HMR, source stacks, on-demand transforms |
-| prod | `dist/server/entry-server.js` | no dev server in production |
+| Phase | Server entry source           | Why                                      |
+| ----- | ----------------------------- | ---------------------------------------- |
+| dev   | Vite-transformed source       | HMR, source stacks, on-demand transforms |
+| prod  | `dist/server/entry-server.js` | no dev server in production              |
 
 SSR apps usually build twice: client output for browsers, server output for the runtime.
 
@@ -65,11 +64,11 @@ examples/ssr-with-env-api/
     └── entry-server.tsx
 ```
 
-| File | Runtime | Job |
-| ---- | ------- | --- |
-| `src/App.tsx` | client + server | shared React tree |
-| `src/entry-server.tsx` | server | render React to HTML |
-| `src/main.tsx` | client | hydrate server HTML |
+| File                   | Runtime         | Job                  |
+| ---------------------- | --------------- | -------------------- |
+| `src/App.tsx`          | client + server | shared React tree    |
+| `src/entry-server.tsx` | server          | render React to HTML |
+| `src/main.tsx`         | client          | hydrate server HTML  |
 
 ## Vite Config
 
@@ -153,10 +152,7 @@ declare global {
   }
 }
 
-hydrateRoot(
-  document.getElementById("root")!,
-  <App url={window.location.pathname} data={window.__SSR_DATA__} />
-)
+hydrateRoot(document.getElementById("root")!, <App url={window.location.pathname} data={window.__SSR_DATA__} />)
 ```
 
 Use `hydrateRoot`, not `createRoot`. `createRoot` is for client-only rendering and would throw away the server HTML.
@@ -274,9 +270,7 @@ async function startServer() {
         html = template
       }
 
-      html = html
-        .replace("<!--ssr-outlet-->", appHtml)
-        .replace("<!--ssr-data-->", JSON.stringify(data))
+      html = html.replace("<!--ssr-outlet-->", appHtml).replace("<!--ssr-data-->", JSON.stringify(data))
 
       res.setHeader("Content-Type", "text/html; charset=utf-8")
       res.end(html)

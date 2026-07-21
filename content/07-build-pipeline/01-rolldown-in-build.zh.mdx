@@ -12,15 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `vite build` 在 Vite 8 中如何调用 Rolldown
-  - 为什么新配置应优先写 `build.rolldownOptions`
-  - `build.rollupOptions` 作为 alias 的迁移意义
-  - Oxc / Lightning CSS / manifest / chunk import map 等构建选项如何分工
+  - `vite build` 在 Vite 8 中如何调用 Rolldown - 为什么新配置应优先写 `build.rolldownOptions` - `build.rollupOptions`
+  作为 alias 的迁移意义 - Oxc / Lightning CSS / manifest / chunk import map 等构建选项如何分工
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 读过 [2.2 · Rolldown 是什么](/docs/02-bundler-evolution/02-what-is-rolldown)
-  - 理解 [3.1 · Vite 插件 vs Rollup 插件](/docs/03-plugin-system/01-vite-vs-rollup-plugin)
+  - 读过 [2.2 · Rolldown 是什么](/docs/02-bundler-evolution/02-what-is-rolldown) - 理解 [3.1 · Vite 插件 vs Rollup
+  插件](/docs/03-plugin-system/01-vite-vs-rollup-plugin)
 </Callout>
 
 ## `vite build` 仍是 Vite 命令，不是直接裸跑 Rolldown
@@ -36,9 +34,9 @@ Vite 8 的生产构建使用 Rolldown 打包，但 `vite build` 并不等于“�
 
 所以调构建配置时要分清两层:
 
-| 层 | 配置入口 | 例子 |
-| -- | -------- | ---- |
-| Vite 构建语义 | `build.*` | `outDir`、`target`、`manifest`、`minify` |
+| 层                | 配置入口                | 例子                                         |
+| ----------------- | ----------------------- | -------------------------------------------- |
+| Vite 构建语义     | `build.*`               | `outDir`、`target`、`manifest`、`minify`     |
 | 底层 bundler 选项 | `build.rolldownOptions` | `input`、`external`、`output`、Rolldown 插件 |
 
 优先使用 Vite 提供的上层配置；只有需要直接控制 bundler 行为时，才进入 `build.rolldownOptions`。
@@ -85,22 +83,23 @@ export default defineConfig({
 ```
 
 <Callout type="warning" title="迁移建议">
-  迁移旧项目时，可以先保持 `rollupOptions` 让构建跑通；等验证完成后，把字段名改成 `rolldownOptions`，并逐项确认 output / plugin 选项是否仍是你需要的行为。
+  迁移旧项目时，可以先保持 `rollupOptions` 让构建跑通；等验证完成后，把字段名改成 `rolldownOptions`，并逐项确认 output /
+  plugin 选项是否仍是你需要的行为。
 </Callout>
 
 ## 关键 build 配置速查
 
-| 配置项 | 默认/说明 | 什么时候改 |
-| ------ | --------- | ---------- |
-| `build.outDir` | 默认 `"dist"` | 部署系统要求其他目录 |
-| `build.assetsDir` | 默认 `"assets"` | 静态资源路径有约定 |
-| `build.target` | 默认 `baseline-widely-available` | 需要更低浏览器目标 |
-| `build.sourcemap` | 默认 `false` | 线上错误追踪、调试 |
-| `build.manifest` | 默认 `false` | 后端模板要读产物映射 |
-| `build.ssrManifest` | 默认 `false` | SSR 需要 preload / style 信息 |
-| `build.minify` | client 默认 Oxc，SSR 默认 `false` | 调试、兼容 terser 选项 |
-| `build.cssMinify` | 默认 Lightning CSS | CSS 压缩需要特殊目标 |
-| `build.chunkImportMap` | 实验性，默认 `false` | 优化 chunk 缓存命中 |
+| 配置项                 | 默认/说明                         | 什么时候改                    |
+| ---------------------- | --------------------------------- | ----------------------------- |
+| `build.outDir`         | 默认 `"dist"`                     | 部署系统要求其他目录          |
+| `build.assetsDir`      | 默认 `"assets"`                   | 静态资源路径有约定            |
+| `build.target`         | 默认 `baseline-widely-available`  | 需要更低浏览器目标            |
+| `build.sourcemap`      | 默认 `false`                      | 线上错误追踪、调试            |
+| `build.manifest`       | 默认 `false`                      | 后端模板要读产物映射          |
+| `build.ssrManifest`    | 默认 `false`                      | SSR 需要 preload / style 信息 |
+| `build.minify`         | client 默认 Oxc，SSR 默认 `false` | 调试、兼容 terser 选项        |
+| `build.cssMinify`      | 默认 Lightning CSS                | CSS 压缩需要特殊目标          |
+| `build.chunkImportMap` | 实验性，默认 `false`              | 优化 chunk 缓存命中           |
 
 这些配置里，`target`、`minify`、`cssMinify` 很容易被误用。先确认真实目标，再改默认值。
 

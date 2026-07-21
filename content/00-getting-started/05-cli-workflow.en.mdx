@@ -12,24 +12,25 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - The difference between `create-vite` and the project-local `vite` CLI
-  - What `dev`, `build`, and `preview` actually validate
-  - When to use `--host`, `--mode`, `--debug`, and `--force`
-  - How to turn one-off commands into reusable team scripts
+  - The difference between `create-vite` and the project-local `vite` CLI - What `dev`, `build`, and `preview` actually
+  validate - When to use `--host`, `--mode`, `--debug`, and `--force` - How to turn one-off commands into reusable team
+  scripts
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - You have completed [0.2 · Your first Vite project](/docs/00-getting-started/02-first-project)
+
+- You have completed [0.2 · Your first Vite project](/docs/00-getting-started/02-first-project)
+
 </Callout>
 
 ## Two CLIs, Two Jobs
 
 There are two command families in a Vite workflow:
 
-| Command       | Purpose                    | When to use it           |
-| ------------- | -------------------------- | ------------------------ |
-| `create-vite` | Scaffold a project         | At the start of a project |
-| `vite`        | Run the current project    | Every day after creation |
+| Command       | Purpose                 | When to use it            |
+| ------------- | ----------------------- | ------------------------- |
+| `create-vite` | Scaffold a project      | At the start of a project |
+| `vite`        | Run the current project | Every day after creation  |
 
 `pnpm create vite@latest my-app --template react-ts` creates the template. After that, your daily workflow is powered by the locally installed `vite` package:
 
@@ -76,7 +77,8 @@ For teams that do this often:
 ```
 
 <Callout type="warning">
-  `--host 0.0.0.0` exposes the dev server to your local network. Avoid it on untrusted networks, especially when proxying sensitive APIs.
+  `--host 0.0.0.0` exposes the dev server to your local network. Avoid it on untrusted networks, especially when
+  proxying sensitive APIs.
 </Callout>
 
 ### Fixed Ports for Automation
@@ -99,12 +101,12 @@ The production build validates the HTML entry, the full import graph, static ass
 
 Dev passing does not guarantee build passing:
 
-| Works in dev, fails in build | Why dev may miss it |
-| --------------------------- | ------------------- |
-| A build-only plugin throws | It may be skipped by `apply: "build"` in dev |
-| Dynamic import cannot be statically analyzed | The route may not be requested during dev |
-| Node-only code leaks into browser output | Build scans the full graph |
-| Path casing differs | macOS may be case-insensitive, CI/Linux is not |
+| Works in dev, fails in build                 | Why dev may miss it                            |
+| -------------------------------------------- | ---------------------------------------------- |
+| A build-only plugin throws                   | It may be skipped by `apply: "build"` in dev   |
+| Dynamic import cannot be statically analyzed | The route may not be requested during dev      |
+| Node-only code leaks into browser output     | Build scans the full graph                     |
+| Path casing differs                          | macOS may be case-insensitive, CI/Linux is not |
 
 For docs and examples in this repo, anything touching plugins, build, or assets should be verified with `pnpm build:web` or the relevant example build.
 
@@ -161,11 +163,11 @@ DEBUG=vite:resolve pnpm dev
 DEBUG=vite:hmr pnpm dev
 ```
 
-| Namespace      | Useful for |
-| -------------- | ---------- |
+| Namespace      | Useful for                                     |
+| -------------- | ---------------------------------------------- |
 | `vite:deps`    | dependency pre-bundling and cache invalidation |
-| `vite:resolve` | aliases, conditional exports, path resolution |
-| `vite:hmr`     | HMR boundaries and circular dependencies |
+| `vite:resolve` | aliases, conditional exports, path resolution  |
+| `vite:hmr`     | HMR boundaries and circular dependencies       |
 
 These logs are noisy. Use them while diagnosing, not in the default dev script.
 

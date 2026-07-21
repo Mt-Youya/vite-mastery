@@ -39,7 +39,7 @@ export function V7Note({
       open={open}
       onOpenChange={setOpen}
       className={cn(
-        "not-prose my-6 rounded-lg border transition-colors duration-[--duration-base]",
+        "not-prose my-6 rounded-lg border transition-colors duration-(--duration-base)",
         open ? "border-warning-500/40 dark:border-warning-500/30" : "border-warning-200/60 dark:border-warning-800/30"
       )}
     >
@@ -47,7 +47,7 @@ export function V7Note({
         className={cn(
           "flex w-full cursor-pointer items-center gap-3 rounded-lg px-4 py-3 text-sm",
           "text-warning-700 dark:text-warning-400",
-          "transition-colors duration-[--duration-fast]",
+          "transition-colors duration-(--duration-fast)",
           "hover:bg-warning-50 dark:hover:bg-warning-900/10",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning-400/50",
           open && "rounded-b-none"
@@ -60,7 +60,7 @@ export function V7Note({
             "flex h-5 w-8 shrink-0 items-center justify-center rounded-sm",
             "font-mono text-[10px] font-bold tracking-tight",
             "bg-warning-100 text-warning-700 dark:bg-warning-900/40 dark:text-warning-400",
-            "transition-all duration-[--duration-base]",
+            "transition-all duration-(--duration-base)",
             open ? "opacity-100" : "opacity-60 grayscale"
           )}
           aria-hidden
@@ -73,7 +73,7 @@ export function V7Note({
         {/* 展开箭头 */}
         <svg
           className={cn(
-            "h-4 w-4 shrink-0 transition-transform duration-[--duration-base]",
+            "h-4 w-4 shrink-0 transition-transform duration-(--duration-base)",
             open ? "rotate-180" : "rotate-0"
           )}
           fill="none"

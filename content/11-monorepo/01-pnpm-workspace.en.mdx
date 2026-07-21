@@ -17,7 +17,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Basic understanding of npm package dependencies - Know what a monorepo (multi-package repository) is
+
+- Basic understanding of npm package dependencies - Know what a monorepo (multi-package repository) is
+
 </Callout>
 
 ## pnpm-workspace.yaml
@@ -133,12 +135,12 @@ pnpm --filter "@my/ui..." test
 
 Common meanings:
 
-| Pattern | Meaning |
-| --- | --- |
-| `@my/web` | Select only that package |
-| `...@my/web` | Select `@my/web` and its dependencies |
-| `@my/ui...` | Select `@my/ui` and packages that depend on it |
-| `./packages/ui` | Select by path |
+| Pattern         | Meaning                                        |
+| --------------- | ---------------------------------------------- |
+| `@my/web`       | Select only that package                       |
+| `...@my/web`    | Select `@my/web` and its dependencies          |
+| `@my/ui...`     | Select `@my/ui` and packages that depend on it |
+| `./packages/ui` | Select by path                                 |
 
 Once you use filters well, you do not need `pnpm -r run build` for every change. In a large monorepo, that directly improves feedback speed.
 

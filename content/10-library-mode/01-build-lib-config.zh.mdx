@@ -12,16 +12,16 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 库模式和应用模式的根本差异
-  - `build.lib` 每个字段的真实用途
-  - 为什么库要 external 掉 peer dependencies
-  - `package.json exports` 如何决定消费者 import 行为
-  - 如何验证一个包真的能被别的项目使用
+
+- 库模式和应用模式的根本差异 - `build.lib` 每个字段的真实用途 - 为什么库要 external 掉 peer dependencies -
+  `package.json exports` 如何决定消费者 import 行为 - 如何验证一个包真的能被别的项目使用
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 理解 ESM 和 CommonJS 的区别
-  - 了解 [7.1 · Vite build 与 Rolldown](/docs/07-build-pipeline/01-rolldown-in-build)
+
+- 理解 ESM 和 CommonJS 的区别 - 了解 [7.1 · Vite build 与 Rolldown](/docs/07-build-pipeline/01-rolldown-in-build)
+
 </Callout>
 
 ## 库模式解决的不是“部署”，而是“被别人 import”
@@ -40,14 +40,14 @@ import { Button } from "@myorg/ui"
 
 所以两者关注点不同:
 
-| 维度 | 应用模式 | 库模式 |
-| ---- | -------- | ------ |
-| 入口 | HTML | JS/TS public API |
-| 使用者 | 浏览器 | 另一个项目的 bundler/runtime |
-| 文件名 | hash 优先 | 稳定路径优先 |
-| 依赖 | 通常打进应用包 | 常把框架列为 peer |
-| package.json | 不影响浏览器入口 | 决定消费者能 import 什么 |
-| CSS | 自动注入页面 | 需要考虑如何让消费者引入 |
+| 维度         | 应用模式         | 库模式                       |
+| ------------ | ---------------- | ---------------------------- |
+| 入口         | HTML             | JS/TS public API             |
+| 使用者       | 浏览器           | 另一个项目的 bundler/runtime |
+| 文件名       | hash 优先        | 稳定路径优先                 |
+| 依赖         | 通常打进应用包   | 常把框架列为 peer            |
+| package.json | 不影响浏览器入口 | 决定消费者能 import 什么     |
+| CSS          | 自动注入页面     | 需要考虑如何让消费者引入     |
 
 写库时最重要的问题不是“能不能 build”，而是“消费者用 Node、Vite、Next、Vitest、tsc 时能不能解析到正确文件和类型”。
 
@@ -125,12 +125,12 @@ lib: {
 
 选择建议:
 
-| 格式 | 适合场景 |
-| ---- | -------- |
-| `es` | 现代 bundler、tree-shaking、默认首选 |
-| `cjs` | 兼容仍使用 `require()` 的工具链 |
-| `umd` | CDN `<script>` 全局变量 |
-| `iife` | 极少数直接浏览器全局场景 |
+| 格式   | 适合场景                             |
+| ------ | ------------------------------------ |
+| `es`   | 现代 bundler、tree-shaking、默认首选 |
+| `cjs`  | 兼容仍使用 `require()` 的工具链      |
+| `umd`  | CDN `<script>` 全局变量              |
+| `iife` | 极少数直接浏览器全局场景             |
 
 现代 npm 包通常先考虑 `["es"]` 或 `["es", "cjs"]`。只有明确要支持 CDN 全局变量时，才输出 UMD/IIFE。
 
@@ -247,11 +247,11 @@ import "@myorg/ui/style.css"
 
 组件库有三种常见策略:
 
-| 策略 | 用法 | 适合 |
-| ---- | ---- | ---- |
-| 单独 CSS 文件 | `import "@myorg/ui/style.css"` | 传统组件库 |
-| 每组件 CSS side effect | 组件入口内部 import CSS | 小型内部库 |
-| CSS-in-JS / runtime styles | JS 内生成样式 | 主题高度动态 |
+| 策略                       | 用法                           | 适合         |
+| -------------------------- | ------------------------------ | ------------ |
+| 单独 CSS 文件              | `import "@myorg/ui/style.css"` | 传统组件库   |
+| 每组件 CSS side effect     | 组件入口内部 import CSS        | 小型内部库   |
+| CSS-in-JS / runtime styles | JS 内生成样式                  | 主题高度动态 |
 
 Vite 库模式会把库里 import 的 CSS 输出为 CSS 文件。你需要决定消费者如何拿到它。
 

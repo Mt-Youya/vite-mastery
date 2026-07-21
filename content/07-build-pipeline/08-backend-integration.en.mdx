@@ -12,15 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - When backend integration is needed
-  - How to inject `@vite/client` and app entries in dev
-  - How to read `.vite/manifest.json` in production
-  - React Fast Refresh, asset URLs, and modulepreload caveats
+  - When backend integration is needed - How to inject `@vite/client` and app entries in dev - How to read
+  `.vite/manifest.json` in production - React Fast Refresh, asset URLs, and modulepreload caveats
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understand [7.1 · Rolldown in Build](/docs/07-build-pipeline/01-rolldown-in-build)
-  - Understand [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+  - Understand [7.1 · Rolldown in Build](/docs/07-build-pipeline/01-rolldown-in-build) - Understand [7.2 · Asset
+  Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
 </Callout>
 
 ## When You Need Backend Integration
@@ -64,11 +62,11 @@ export default defineConfig({
 })
 ```
 
-| Option | Purpose |
-| ------ | ------- |
-| `server.cors.origin` | allow backend pages to load modules from the Vite dev server |
-| `build.manifest` | emit `.vite/manifest.json` for backend templates |
-| `build.rolldownOptions.input` | build from JS/TS entries instead of HTML |
+| Option                        | Purpose                                                      |
+| ----------------------------- | ------------------------------------------------------------ |
+| `server.cors.origin`          | allow backend pages to load modules from the Vite dev server |
+| `build.manifest`              | emit `.vite/manifest.json` for backend templates             |
+| `build.rolldownOptions.input` | build from JS/TS entries instead of HTML                     |
 
 For multiple backend templates:
 
@@ -224,13 +222,13 @@ Avoid building paths from template names. Explicit maps are easier to audit and 
 
 ## Common Failures
 
-| Symptom | Cause | Fix |
-| ------- | ----- | --- |
-| Page loads but HMR does not work | missing `@vite/client` | inject the client script |
-| React refresh loses state | missing preamble | inject React Refresh preamble |
-| Asset URLs point to backend port | no proxy or `server.origin` | choose one asset strategy |
-| CSS missing in production | backend renders only JS | read `css` from manifest |
-| Dynamic chunks 404 | `base` and static mount differ | align Vite `base` with backend static path |
+| Symptom                          | Cause                          | Fix                                        |
+| -------------------------------- | ------------------------------ | ------------------------------------------ |
+| Page loads but HMR does not work | missing `@vite/client`         | inject the client script                   |
+| React refresh loses state        | missing preamble               | inject React Refresh preamble              |
+| Asset URLs point to backend port | no proxy or `server.origin`    | choose one asset strategy                  |
+| CSS missing in production        | backend renders only JS        | read `css` from manifest                   |
+| Dynamic chunks 404               | `base` and static mount differ | align Vite `base` with backend static path |
 
 ## Check Yourself
 
@@ -247,4 +245,3 @@ Avoid building paths from template names. Explicit maps are easier to audit and 
 // - output entry script
 // - throw a clear error for missing entries
 ```
-

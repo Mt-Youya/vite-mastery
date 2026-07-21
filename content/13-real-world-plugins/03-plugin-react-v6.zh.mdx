@@ -12,16 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `@vitejs/plugin-react` v6 在 Vite 8 中到底配置了什么
-  - Fast Refresh runtime 和 HTML preamble 为什么分开处理
-  - SSR / 后端集成项目为什么需要 `@vitejs/plugin-react/preamble`
-  - 从 v5 的 Babel 选项迁移到 v6 时要改哪些思路
+  - `@vitejs/plugin-react` v6 在 Vite 8 中到底配置了什么 - Fast Refresh runtime 和 HTML preamble 为什么分开处理 - SSR /
+  后端集成项目为什么需要 `@vitejs/plugin-react/preamble` - 从 v5 的 Babel 选项迁移到 v6 时要改哪些思路
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 先读 [4.3 · `transform` hook](/docs/04-hooks-deep-dive/03-build-hooks-2)
-  - 先读 [6.5 · React Fast Refresh](/docs/06-hmr/05-framework-hmr)
-  - 了解 [7.8 · 后端集成](/docs/07-build-pipeline/08-backend-integration)
+  - 先读 [4.3 · `transform` hook](/docs/04-hooks-deep-dive/03-build-hooks-2) - 先读 [6.5 · React Fast
+  Refresh](/docs/06-hmr/05-framework-hmr) - 了解 [7.8 · 后端集成](/docs/07-build-pipeline/08-backend-integration)
 </Callout>
 
 ## 先纠正一个常见误解
@@ -60,14 +57,14 @@ export default function viteReact(options: Options = {}): Plugin[] {
 
 每一层的职责不同:
 
-| 插件层 | 主要职责 |
-| --- | --- |
-| Oxc 配置层 | 根据 `jsxRuntime`、`jsxImportSource`、`include`、`exclude` 配置 JSX 与 Refresh |
-| refresh wrapper | dev/client 环境下给 React 模块包一层 Fast Refresh HMR 逻辑 |
-| config post | 当 `server.hmr === false` 时关闭 refresh |
-| bundled dev mode preamble | full bundle mode 下提前注入 preamble |
-| refresh runtime module | 暴露 `/@react-refresh` runtime |
-| preamble virtual plugin | 支持 `@vitejs/plugin-react/preamble` 这种显式入口导入 |
+| 插件层                    | 主要职责                                                                       |
+| ------------------------- | ------------------------------------------------------------------------------ |
+| Oxc 配置层                | 根据 `jsxRuntime`、`jsxImportSource`、`include`、`exclude` 配置 JSX 与 Refresh |
+| refresh wrapper           | dev/client 环境下给 React 模块包一层 Fast Refresh HMR 逻辑                     |
+| config post               | 当 `server.hmr === false` 时关闭 refresh                                       |
+| bundled dev mode preamble | full bundle mode 下提前注入 preamble                                           |
+| refresh runtime module    | 暴露 `/@react-refresh` runtime                                                 |
+| preamble virtual plugin   | 支持 `@vitejs/plugin-react/preamble` 这种显式入口导入                          |
 
 这类拆分是 Vite 插件的典型写法:不是所有事情都塞进 `transform`;配置、HTML 注入、虚拟模块、环境过滤分别放在最合适的 hook 里。
 
@@ -229,13 +226,13 @@ export default defineConfig({
 
 迁移时按这个清单排查:
 
-| v5 习惯 | v6 处理方式 |
-| --- | --- |
-| `react({ babel: { plugins: [...] } })` | 移到 `@rolldown/plugin-babel` |
-| 自定义 JSX import source | 继续用 `react({ jsxImportSource: "..." })` |
-| 旧 JSX classic runtime | 用 `react({ jsxRuntime: "classic" })` |
-| MDX 也需要 Refresh | 调整 `include`,并确保 MDX 插件在 React 插件前处理 |
-| SSR 没有 `transformIndexHtml` | 在 client entry import `@vitejs/plugin-react/preamble` |
+| v5 习惯                                | v6 处理方式                                            |
+| -------------------------------------- | ------------------------------------------------------ |
+| `react({ babel: { plugins: [...] } })` | 移到 `@rolldown/plugin-babel`                          |
+| 自定义 JSX import source               | 继续用 `react({ jsxImportSource: "..." })`             |
+| 旧 JSX classic runtime                 | 用 `react({ jsxRuntime: "classic" })`                  |
+| MDX 也需要 Refresh                     | 调整 `include`,并确保 MDX 插件在 React 插件前处理      |
+| SSR 没有 `transformIndexHtml`          | 在 client entry import `@vitejs/plugin-react/preamble` |
 
 这条边界非常重要:React 插件负责 React + Oxc + Refresh 的默认体验;Babel 扩展能力由独立插件接入。
 
@@ -256,11 +253,10 @@ export default defineConfig({
 ## 边界与坑点
 
 <Callout type="warning" title="React 插件迁移的高频坑">
-  - SSR 或后端集成没有执行 `transformIndexHtml`,导致 preamble 未安装
-  - 迁移 v5 后继续写 `react({ babel })`,但 v6 需要外接 `@rolldown/plugin-babel`
-  - MDX 文件没有加入 `include`,因此没有 Fast Refresh wrapper
-  - 一个文件混合导出组件和可变普通值,Fast Refresh 只能 invalidate
-  - module federation 场景没有配置 `reactRefreshHost`,多个 runtime 互相干扰
+  - SSR 或后端集成没有执行 `transformIndexHtml`,导致 preamble 未安装 - 迁移 v5 后继续写 `react({babel})`,但 v6 需要外接
+  `@rolldown/plugin-babel` - MDX 文件没有加入 `include`,因此没有 Fast Refresh wrapper -
+  一个文件混合导出组件和可变普通值,Fast Refresh 只能 invalidate - module federation 场景没有配置 `reactRefreshHost`,多个
+  runtime 互相干扰
 </Callout>
 
 读源码时要把这些坑点映射回插件层级:preamble 问题看 HTML/虚拟模块层,Babel 问题看插件组合层,MDX 问题看 include/exclude filter,导出边界问题看 refresh wrapper。这样排查不会在一个 `transform` 函数里打转。

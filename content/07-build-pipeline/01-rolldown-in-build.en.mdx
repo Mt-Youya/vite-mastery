@@ -12,15 +12,14 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - How `vite build` invokes Rolldown in Vite 8
-  - Why new config should use `build.rolldownOptions`
-  - What `build.rollupOptions` means during migration
-  - How Oxc, Lightning CSS, manifests, and chunk import maps fit into the build
+  - How `vite build` invokes Rolldown in Vite 8 - Why new config should use `build.rolldownOptions` - What
+  `build.rollupOptions` means during migration - How Oxc, Lightning CSS, manifests, and chunk import maps fit into the
+  build
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Read [2.2 · What is Rolldown](/docs/02-bundler-evolution/02-what-is-rolldown)
-  - Understand [3.1 · Vite Plugins vs Rollup Plugins](/docs/03-plugin-system/01-vite-vs-rollup-plugin)
+  - Read [2.2 · What is Rolldown](/docs/02-bundler-evolution/02-what-is-rolldown) - Understand [3.1 · Vite Plugins vs
+  Rollup Plugins](/docs/03-plugin-system/01-vite-vs-rollup-plugin)
 </Callout>
 
 ## `vite build` Is Still a Vite Command
@@ -36,10 +35,10 @@ Vite 8 uses Rolldown for production bundling, but `vite build` is not just raw R
 
 Think in two layers:
 
-| Layer | Config entry | Examples |
-| ----- | ------------ | -------- |
-| Vite build semantics | `build.*` | `outDir`, `target`, `manifest`, `minify` |
-| Bundler options | `build.rolldownOptions` | `input`, `external`, `output`, Rolldown plugins |
+| Layer                | Config entry            | Examples                                        |
+| -------------------- | ----------------------- | ----------------------------------------------- |
+| Vite build semantics | `build.*`               | `outDir`, `target`, `manifest`, `minify`        |
+| Bundler options      | `build.rolldownOptions` | `input`, `external`, `output`, Rolldown plugins |
 
 Use Vite's high-level options first. Drop into `build.rolldownOptions` only when controlling bundler behavior directly.
 
@@ -72,22 +71,23 @@ export default defineConfig({
 `build.rollupOptions` still exists as an alias, but it is deprecated in current Vite 8 config docs. New code should use `build.rolldownOptions`.
 
 <Callout type="warning" title="Migration note">
-  During migration, keeping `rollupOptions` can help you get a build passing first. After validation, rename it to `rolldownOptions` and review each output/plugin option.
+  During migration, keeping `rollupOptions` can help you get a build passing first. After validation, rename it to
+  `rolldownOptions` and review each output/plugin option.
 </Callout>
 
 ## Key Build Options
 
-| Option | Default / meaning | Change it when |
-| ------ | ----------------- | -------------- |
-| `build.outDir` | `"dist"` | deployment expects another directory |
-| `build.assetsDir` | `"assets"` | static paths are constrained |
-| `build.target` | `baseline-widely-available` | lower browser target required |
-| `build.sourcemap` | `false` | production debugging or error tracking |
-| `build.manifest` | `false` | backend templates need asset mapping |
-| `build.ssrManifest` | `false` | SSR needs preload/style info |
-| `build.minify` | Oxc for client, `false` for SSR | debugging or terser compatibility |
-| `build.cssMinify` | Lightning CSS | CSS minification target differs |
-| `build.chunkImportMap` | experimental, `false` | optimizing chunk cache invalidation |
+| Option                 | Default / meaning               | Change it when                         |
+| ---------------------- | ------------------------------- | -------------------------------------- |
+| `build.outDir`         | `"dist"`                        | deployment expects another directory   |
+| `build.assetsDir`      | `"assets"`                      | static paths are constrained           |
+| `build.target`         | `baseline-widely-available`     | lower browser target required          |
+| `build.sourcemap`      | `false`                         | production debugging or error tracking |
+| `build.manifest`       | `false`                         | backend templates need asset mapping   |
+| `build.ssrManifest`    | `false`                         | SSR needs preload/style info           |
+| `build.minify`         | Oxc for client, `false` for SSR | debugging or terser compatibility      |
+| `build.cssMinify`      | Lightning CSS                   | CSS minification target differs        |
+| `build.chunkImportMap` | experimental, `false`           | optimizing chunk cache invalidation    |
 
 ## Target
 

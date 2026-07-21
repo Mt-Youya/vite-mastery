@@ -12,12 +12,12 @@
 
 ### 1.1 重要时间线(确认事实)
 
-| 时间          | 事件                        | 影响                                                                                                                                |
-| ------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 2025-06       | **Vite 7** 发布             | 新增 `buildApp` hook;默认 target 切到 `baseline-widely-available`;Rolldown 通过 `rolldown-vite` 实验性提供                          |
-| 2025-12       | Vite 8 beta(Rolldown 集成)  | 早期采用者迁移                                                                                                                      |
+| 时间          | 事件                        | 影响                                                                                                                                                        |
+| ------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 2025-06       | **Vite 7** 发布             | 新增 `buildApp` hook;默认 target 切到 `baseline-widely-available`;Rolldown 通过 `rolldown-vite` 实验性提供                                                  |
+| 2025-12       | Vite 8 beta(Rolldown 集成)  | 早期采用者迁移                                                                                                                                              |
 | **2026-03**   | **Vite 8 稳定版**发布       | **Rolldown 成为唯一 bundler**,替换 esbuild + Rollup;`@vitejs/plugin-react` v6 改用 Oxc;`@vitejs/devtools` 进入 early preview;CSS minifier 切到 lightningcss |
-| 2026-06(现在) | Vite 8.1.x 是 current minor | Vite 7.3 接收重要修复;Vite 6.4 仅安全补丁                                                                                           |
+| 2026-06(现在) | Vite 8.1.x 是 current minor | Vite 7.3 接收重要修复;Vite 6.4 仅安全补丁                                                                                                                   |
 
 ### 1.2 双版本策略(确认版)
 
@@ -197,14 +197,14 @@ vite-mastery/
 
 ### Part 3 · Plugin System(插件系统)⭐
 
-| 节  | 标题                                      | 重点                                           |
-| --- | ----------------------------------------- | ---------------------------------------------- |
-| 3.1 | Vite 插件 vs Rolldown 插件 vs Rollup 插件 | 三者关系图                                     |
-| 3.2 | 插件结构剖析                              | `name` / `enforce` / `apply`                   |
-| 3.3 | 插件执行顺序                              | `pre` / 默认 / `post` 在 Rolldown 下的时序     |
-| 3.4 | 实战项目 1:虚拟模块插件                   |                                                |
-| 3.5 | 插件间通信                                | `this.meta` / 共享状态                         |
-| 3.6 | 调试插件                                  | `@vitejs/devtools` + `DEBUG=vite:*`             |
+| 节  | 标题                                      | 重点                                       |
+| --- | ----------------------------------------- | ------------------------------------------ |
+| 3.1 | Vite 插件 vs Rolldown 插件 vs Rollup 插件 | 三者关系图                                 |
+| 3.2 | 插件结构剖析                              | `name` / `enforce` / `apply`               |
+| 3.3 | 插件执行顺序                              | `pre` / 默认 / `post` 在 Rolldown 下的时序 |
+| 3.4 | 实战项目 1:虚拟模块插件                   |                                            |
+| 3.5 | 插件间通信                                | `this.meta` / 共享状态                     |
+| 3.6 | 调试插件                                  | `@vitejs/devtools` + `DEBUG=vite:*`        |
 
 ### Part 4 · Hooks Deep Dive(Hooks 深度解析)⭐
 
@@ -261,8 +261,8 @@ vite-mastery/
 | 7.5 | 默认 target:baseline-widely-available 🆕 | 浏览器兼容性新模型                                   |
 | 7.6 | Module Federation(Rolldown 解锁)🆕       | 概念介绍                                             |
 | 7.7 | 实战项目 4:图片优化插件                  | 集成 sharp,生成 webp/avif                            |
-| 7.8 | 后端集成                                 | 后端拥有 HTML 时的 dev/build 接入                     |
-| 7.9 | 部署路径、manifest 与缓存                | `base`、manifest、modulepreload、chunk 404            |
+| 7.8 | 后端集成                                 | 后端拥有 HTML 时的 dev/build 接入                    |
+| 7.9 | 部署路径、manifest 与缓存                | `base`、manifest、modulepreload、chunk 404           |
 
 ### Part 8 · SSR & SSG
 
@@ -275,14 +275,14 @@ vite-mastery/
 
 ### Part 9 · Framework Integration(框架集成)
 
-| 节  | 标题                       | 备注                                                    |
-| --- | -------------------------- | ------------------------------------------------------- |
+| 节  | 标题                       | 备注                                                            |
+| --- | -------------------------- | --------------------------------------------------------------- |
 | 9.1 | React + Vite 8             | **`@vitejs/plugin-react` v6**(Oxc Refresh,Babel 改为外接插件)🆕 |
-| 9.2 | Vue + Vite 8               | 单文件组件编译流程                                      |
-| 9.3 | Svelte + Vite              | Svelte preprocessor                                     |
-| 9.4 | Solid + Vite               | `vite-plugin-solid`                                     |
-| 9.5 | Meta 框架对比              | Next / Nuxt / SvelteKit / SolidStart                    |
-| 9.6 | React Compiler 怎么接入 🆕 | `reactCompilerPreset` + `@rolldown/plugin-babel`        |
+| 9.2 | Vue + Vite 8               | 单文件组件编译流程                                              |
+| 9.3 | Svelte + Vite              | Svelte preprocessor                                             |
+| 9.4 | Solid + Vite               | `vite-plugin-solid`                                             |
+| 9.5 | Meta 框架对比              | Next / Nuxt / SvelteKit / SolidStart                            |
+| 9.6 | React Compiler 怎么接入 🆕 | `reactCompilerPreset` + `@rolldown/plugin-babel`                |
 
 ### Part 10 · Library Mode(库模式)
 
@@ -472,8 +472,8 @@ Base UI 版本基线在 `packages/ui/README.md` 标注。
 | M3 · 核心内容(Bundler + Hooks) | 3~4 周 | **Part 2 Bundler Evolution** + Part 4 Hooks + 实战项目 1~3, 5        |
 | M4 · 独家内容(Env API)         | 2~3 周 | **Part 5 Environment API** + 实战项目 6                              |
 | M5 · HMR + 构建                | 2 周   | Part 6 HMR + Part 7 Build + 实战项目 4                               |
-| M6 · 应用层                    | 2~3 周 | Part 8~10 + 实战项目 7~8                                             |
-| M7 · 收尾                      | 2 周   | Part 11~13 + 实战项目 9~10 + Appendix 迁移指南 + SEO                 |
+| M6 · 应用层                    | 2~3 周 | Part 8~~10 + 实战项目 7~~8                                           |
+| M7 · 收尾                      | 2 周   | Part 11~~13 + 实战项目 9~~10 + Appendix 迁移指南 + SEO               |
 
 总计 ≈ **14~17 周**(比 v1 多 4 周,主要在 Part 2 + Part 5)。
 

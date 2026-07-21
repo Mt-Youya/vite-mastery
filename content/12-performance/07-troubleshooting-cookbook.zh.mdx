@@ -12,29 +12,27 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 用固定流程排查 Vite 问题，而不是凭感觉改配置
-  - dev server、HMR、build、依赖预构建各自的常见故障
-  - 什么时候用 `--debug`、`--force`、`vite-plugin-inspect`、DevTools
-  - 如何把“偶现白屏”定位到路径、缓存、chunk 或浏览器扩展
+  - 用固定流程排查 Vite 问题，而不是凭感觉改配置 - dev server、HMR、build、依赖预构建各自的常见故障 - 什么时候用
+  `--debug`、`--force`、`vite-plugin-inspect`、DevTools - 如何把“偶现白屏”定位到路径、缓存、chunk 或浏览器扩展
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 [0.5 · CLI 工作流](/docs/00-getting-started/05-cli-workflow)
-  - 了解 [12.2 · Vite DevTools](/docs/12-performance/02-vite-devtools)
+  - 了解 [0.5 · CLI 工作流](/docs/00-getting-started/05-cli-workflow) - 了解 [12.2 · Vite
+  DevTools](/docs/12-performance/02-vite-devtools)
 </Callout>
 
 ## 先分类，再动手
 
 Vite 问题看起来很多，先按阶段分类:
 
-| 阶段 | 典型现象 | 第一工具 |
-| ---- | -------- | -------- |
-| CLI/config | 命令启动失败、配置文件报错 | 终端堆栈 |
-| dev server | 请求卡住、页面白屏、端口转发异常 | Network + `--debug` |
-| HMR | 文件变了但页面不更新、全量刷新 | `DEBUG=vite:hmr` |
-| deps | 首次启动慢、反复预构建、link 包过期 | `DEBUG=vite:deps` + `--force` |
-| build | build 失败、产物白屏、chunk 404 | `pnpm build` + `pnpm preview` |
-| plugins | transform 慢、顺序错、插件没生效 | DevTools / inspect |
+| 阶段       | 典型现象                            | 第一工具                      |
+| ---------- | ----------------------------------- | ----------------------------- |
+| CLI/config | 命令启动失败、配置文件报错          | 终端堆栈                      |
+| dev server | 请求卡住、页面白屏、端口转发异常    | Network + `--debug`           |
+| HMR        | 文件变了但页面不更新、全量刷新      | `DEBUG=vite:hmr`              |
+| deps       | 首次启动慢、反复预构建、link 包过期 | `DEBUG=vite:deps` + `--force` |
+| build      | build 失败、产物白屏、chunk 404     | `pnpm build` + `pnpm preview` |
+| plugins    | transform 慢、顺序错、插件没生效    | DevTools / inspect            |
 
 不要一上来就删 `node_modules`。先确认问题属于哪一层，否则很容易把可复现线索抹掉。
 
@@ -112,12 +110,12 @@ DEBUG=vite:hmr pnpm dev
 
 常见原因:
 
-| 原因 | 判断方式 | 修复 |
-| ---- | -------- | ---- |
-| 模块没有 HMR 边界 | 日志显示 full reload | 增加 `import.meta.hot.accept` 或依赖框架插件 |
-| 循环依赖 | debug 日志输出循环路径 | 拆开循环依赖 |
-| 插件返回了错误 modules | 自定义 `handleHotUpdate` 后发生 | 返回正确模块或触发 full reload |
-| 文件监听没触发 | 保存后终端无日志 | 检查 WSL/Docker/网络盘监听 |
+| 原因                   | 判断方式                        | 修复                                         |
+| ---------------------- | ------------------------------- | -------------------------------------------- |
+| 模块没有 HMR 边界      | 日志显示 full reload            | 增加 `import.meta.hot.accept` 或依赖框架插件 |
+| 循环依赖               | debug 日志输出循环路径          | 拆开循环依赖                                 |
+| 插件返回了错误 modules | 自定义 `handleHotUpdate` 后发生 | 返回正确模块或触发 full reload               |
+| 文件监听没触发         | 保存后终端无日志                | 检查 WSL/Docker/网络盘监听                   |
 
 自定义 HMR 时，不要随便返回空数组。空数组表示“这次更新没有模块需要处理”，可能会让页面静默不更新。
 
@@ -211,12 +209,12 @@ pnpm vite --force
 
 如果是长期反复预构建，不要一直 `--force`，要找原因:
 
-| 原因 | 修复 |
-| ---- | ---- |
-| 动态 import 的依赖扫描不到 | `optimizeDeps.include` |
-| workspace 包被当成第三方依赖 | `optimizeDeps.exclude` 或 alias 到源码 |
-| lockfile 和 node_modules 状态不一致 | 重新安装依赖 |
-| patch/override 频繁变化 | 固定依赖覆盖策略 |
+| 原因                                | 修复                                   |
+| ----------------------------------- | -------------------------------------- |
+| 动态 import 的依赖扫描不到          | `optimizeDeps.include`                 |
+| workspace 包被当成第三方依赖        | `optimizeDeps.exclude` 或 alias 到源码 |
+| lockfile 和 node_modules 状态不一致 | 重新安装依赖                           |
+| patch/override 频繁变化             | 固定依赖覆盖策略                       |
 
 ## 6. Node 模块被外部化或浏览器里不可用
 

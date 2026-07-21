@@ -17,7 +17,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 WebAssembly 的基本概念 - 阅读「Vite 8 时代的 SSR API」(8.1 节)
+
+- 了解 WebAssembly 的基本概念 - 阅读「Vite 8 时代的 SSR API」(8.1 节)
+
 </Callout>
 
 ## 为什么要在 SSR 里用 Wasm
@@ -124,12 +126,12 @@ export async function render(url: string) {
 
 Wasm SSR 很诱人,但不是所有高性能场景都该上 Wasm:
 
-| 场景 | 更好的选择 |
-| --- | --- |
-| Node 原生库成熟且有维护者 | 直接用原生库,例如图片处理优先评估 `sharp` |
-| 逻辑很轻,瓶颈在数据库或网络 | 优化 I/O,不要引入 Wasm 初始化成本 |
-| 模块依赖 DOM、Canvas、WebGL | 放到 client 或 worker,SSR 无法直接运行 |
-| 每个请求都要创建新实例 | 先设计实例池或单例初始化,否则性能会更差 |
+| 场景                        | 更好的选择                                |
+| --------------------------- | ----------------------------------------- |
+| Node 原生库成熟且有维护者   | 直接用原生库,例如图片处理优先评估 `sharp` |
+| 逻辑很轻,瓶颈在数据库或网络 | 优化 I/O,不要引入 Wasm 初始化成本         |
+| 模块依赖 DOM、Canvas、WebGL | 放到 client 或 worker,SSR 无法直接运行    |
+| 每个请求都要创建新实例      | 先设计实例池或单例初始化,否则性能会更差   |
 
 Wasm 适合把“纯计算、可复用、初始化后长期运行”的逻辑放到服务端。例如 Markdown、代码高亮、压缩、解析器、编解码器。它不适合替代所有 Node.js 包。
 

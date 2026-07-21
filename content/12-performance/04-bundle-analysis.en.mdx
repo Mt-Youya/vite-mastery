@@ -17,7 +17,9 @@ apiStability: "stable"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Basic understanding of the Vite build process - Understanding code splitting (section 7.4)
+
+- Basic understanding of the Vite build process - Understanding code splitting (section 7.4)
+
 </Callout>
 
 ## Visualizing your bundle
@@ -115,13 +117,13 @@ Or use the GitHub Actions `preinstall-size-comment` action to automatically post
 
 The biggest rectangle in a bundle report is not always the first thing to optimize. Ask whether it is on a critical user path:
 
-| Case | What to do |
-| --- | --- |
-| Large package in the initial entry chunk | Prioritize splitting or replacement |
-| Large package only on an admin page | Lazy-load it; replacement may not be necessary |
-| Large package is a chart/editor/map feature | Wrap the feature entry in dynamic import |
-| Large package is framework runtime | First check for duplicate copies |
-| Large package is polyfill/legacy output | Revisit target and compatibility strategy |
+| Case                                        | What to do                                     |
+| ------------------------------------------- | ---------------------------------------------- |
+| Large package in the initial entry chunk    | Prioritize splitting or replacement            |
+| Large package only on an admin page         | Lazy-load it; replacement may not be necessary |
+| Large package is a chart/editor/map feature | Wrap the feature entry in dynamic import       |
+| Large package is framework runtime          | First check for duplicate copies               |
+| Large package is polyfill/legacy output     | Revisit target and compatibility strategy      |
 
 Do not over-split just to make the treemap look tidy. Too many chunks increase request, cache, and preload complexity. The goal is "faster critical paths", not "every rectangle is small".
 

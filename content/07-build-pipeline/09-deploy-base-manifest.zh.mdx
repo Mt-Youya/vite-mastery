@@ -12,15 +12,13 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - `base` 如何影响 JS、CSS、图片和动态 chunk 路径
-  - 部署到域名根路径、子路径和相对路径时怎么配置
-  - 为什么双击打开 `dist/index.html` 常常会失败
-  - manifest 与缓存策略如何配合
+  - `base` 如何影响 JS、CSS、图片和动态 chunk 路径 - 部署到域名根路径、子路径和相对路径时怎么配置 - 为什么双击打开
+  `dist/index.html` 常常会失败 - manifest 与缓存策略如何配合
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 [7.1 · 生产构建](/docs/07-build-pipeline/01-rolldown-in-build)
-  - 了解 [0.5 · CLI preview](/docs/00-getting-started/05-cli-workflow)
+  - 了解 [7.1 · 生产构建](/docs/07-build-pipeline/01-rolldown-in-build) - 了解 [0.5 · CLI
+  preview](/docs/00-getting-started/05-cli-workflow)
 </Callout>
 
 ## 部署失败最常见原因是路径错
@@ -69,11 +67,11 @@ export default defineConfig({
 
 ## 三种 base 模式
 
-| 部署场景 | 推荐 `base` | 说明 |
-| -------- | ----------- | ---- |
-| 域名根路径 | `"/"` | 默认值 |
-| 固定子路径 | `"/docs/"` | GitHub Pages、反向代理子目录 |
-| 不知道最终路径 | `"./"` | 相对路径部署，适合离线预览或任意目录挂载 |
+| 部署场景       | 推荐 `base` | 说明                                     |
+| -------------- | ----------- | ---------------------------------------- |
+| 域名根路径     | `"/"`       | 默认值                                   |
+| 固定子路径     | `"/docs/"`  | GitHub Pages、反向代理子目录             |
+| 不知道最终路径 | `"./"`      | 相对路径部署，适合离线预览或任意目录挂载 |
 
 ### 固定子路径
 
@@ -217,10 +215,10 @@ assets/index-ChJ_j-JJ.css
 
 推荐缓存策略:
 
-| 文件 | Cache-Control |
-| ---- | ------------- |
-| `index.html` | `no-cache` 或短缓存 |
-| `assets/*` | `public, max-age=31536000, immutable` |
+| 文件         | Cache-Control                         |
+| ------------ | ------------------------------------- |
+| `index.html` | `no-cache` 或短缓存                   |
+| `assets/*`   | `public, max-age=31536000, immutable` |
 
 原因:
 

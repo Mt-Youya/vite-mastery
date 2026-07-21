@@ -191,7 +191,7 @@ export function PluginPipeline({ plugins }: PluginPipelineProps) {
                       onClick={() => setHovered(isHovered ? null : plugin.name)}
                       className={cn(
                         "rounded-md border px-2.5 py-2 text-left text-xs",
-                        "transition-all duration-[--duration-fast] cursor-pointer",
+                        "transition-all duration-(--duration-fast) cursor-pointer",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
                         isHovered
                           ? "border-brand-400/60 bg-brand-50 dark:bg-brand-900/20 shadow-sm scale-[1.02]"

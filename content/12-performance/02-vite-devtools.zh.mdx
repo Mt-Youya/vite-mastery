@@ -13,21 +13,20 @@ apiStability: "experimental"
 
 <Callout type="warning" title="Early Preview">
   `@vitejs/devtools` 目前处于 early preview 阶段（仓库 [vitejs/devtools](https://github.com/vitejs/devtools)，文档
-  [devtools.vite.dev](https://devtools.vite.dev/)）。Dock 注册、RPC 与 Rolldown 集成的具体字段名仍可能在 minor 版本之间变化。生产项目建议把版本锁定到具体 patch，例如 `@vitejs/devtools@0.x.y`，而不是 `^0.x`。
+  [devtools.vite.dev](https://devtools.vite.dev/)）。Dock 注册、RPC 与 Rolldown 集成的具体字段名仍可能在 minor
+  版本之间变化。生产项目建议把版本锁定到具体 patch，例如 `@vitejs/devtools@0.x.y`，而不是 `^0.x`。
 </Callout>
 
 <Callout type="note" title="你将学到什么">
-  - `@vitejs/devtools` 的定位、与 `vite-plugin-inspect` 的边界
-  - 三种工作模式:Standalone / Embedded / Rolldown 集成
-  - Rolldown 集成提供的五大可视化:模块分析、插件洞察、Chunk/Asset 多视图、重复包检测、Session 对比
-  - 用 `devtools.setup(ctx)` 给自己的 Vite 插件挂一个 Dock 面板
-  - 一套「页面慢/构建大」的标准诊断工作流
+  - `@vitejs/devtools` 的定位、与 `vite-plugin-inspect` 的边界 - 三种工作模式:Standalone / Embedded / Rolldown 集成 -
+  Rolldown 集成提供的五大可视化:模块分析、插件洞察、Chunk/Asset 多视图、重复包检测、Session 对比 - 用
+  `devtools.setup(ctx)` 给自己的 Vite 插件挂一个 Dock 面板 - 一套「页面慢/构建大」的标准诊断工作流
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 跑通过 Vite 8 的 `dev` 和 `build`
-  - 熟悉 Vite 插件的 `resolveId` / `load` / `transform` 三大 hook(见 [Part 3 · 插件系统](/docs/03-plugin-system/02-anatomy))
-  - 了解 Rolldown 与 Rollup 的关系(见 [Part 2 · Bundler Evolution](/docs/02-bundler-evolution/03-rolldown-architecture))
+  - 跑通过 Vite 8 的 `dev` 和 `build` - 熟悉 Vite 插件的 `resolveId` / `load` / `transform` 三大 hook(见 [Part 3 ·
+  插件系统](/docs/03-plugin-system/02-anatomy)) - 了解 Rolldown 与 Rollup 的关系(见 [Part 2 · Bundler
+  Evolution](/docs/02-bundler-evolution/03-rolldown-architecture))
 </Callout>
 
 ## 1. Vite DevTools 到底是什么

@@ -37,7 +37,7 @@ export async function SiteHeader({ locale }: SiteHeaderProps) {
             width={32}
             height={32}
             aria-hidden="true"
-            className="size-8 shrink-0 rounded-[9px] shadow-[0_10px_24px_rgb(15_23_42_/_0.18)] transition-transform duration-base group-hover:-translate-y-0.5"
+            className="size-8 shrink-0 rounded-[9px] shadow-[0_10px_24px_rgb(15_23_42/0.18)] transition-transform duration-base group-hover:-translate-y-0.5"
           />
           <span>{SITE.name}</span>
         </Link>

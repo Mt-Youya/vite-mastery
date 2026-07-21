@@ -12,12 +12,16 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 静态资源的默认处理方式(小文件 inline vs 大文件 hash) - `?url` `?raw` `?inline` 三个后缀修饰符的用途 -
+
+- 静态资源的默认处理方式(小文件 inline vs 大文件 hash) - `?url` `?raw` `?inline` 三个后缀修饰符的用途 -
   `assetsInlineLimit` 配置:控制 inline 阈值 - 如何导入 JSON、WASM 等特殊资源
+
 </Callout>
 
 <Callout type="tip" title="前置知识">
-  - 了解 Vite 基本用法(Part 0)
+
+- 了解 Vite 基本用法(Part 0)
+
 </Callout>
 
 ## 资源的默认处理
@@ -157,10 +161,10 @@ public/
 
 不要把会被组件 import 的图片、字体、SVG 都放进 `public/`。那会绕过 hash、压缩、依赖追踪和路径重写。经验规则:
 
-| 文件位置 | 适合内容 | 访问方式 |
-| -------- | -------- | -------- |
+| 文件位置      | 适合内容                      | 访问方式                        |
+| ------------- | ----------------------------- | ------------------------------- |
 | `src/assets/` | 被组件、CSS、JS import 的资源 | `import logo from "./logo.png"` |
-| `public/` | 浏览器按固定路径请求的资源 | `"/favicon.ico"` |
+| `public/`     | 浏览器按固定路径请求的资源    | `"/favicon.ico"`                |
 
 部署到子路径时，`public/` 资源也要考虑 `base`:
 
@@ -247,13 +251,13 @@ size 123456
 
 ## 常见错误
 
-| 现象 | 原因 | 修复 |
-| ---- | ---- | ---- |
-| 构建后图片 404 | 部署 `base` 与真实路径不一致 | 配置正确 `base` |
-| SVG 想当组件用却得到字符串 | 默认 asset import 返回 URL | 用框架插件或自定义 SVG loader |
-| 大 PNG 被打进 JS | 使用了 `?inline` 或阈值过大 | 改用默认 import / `?url` |
-| public 资源部署到子路径失败 | 写死了根路径 | 使用 `BASE_URL` |
-| 自定义模型文件 import 报错 | 后缀不在默认资源列表 | 配置 `assetsInclude` |
+| 现象                        | 原因                         | 修复                          |
+| --------------------------- | ---------------------------- | ----------------------------- |
+| 构建后图片 404              | 部署 `base` 与真实路径不一致 | 配置正确 `base`               |
+| SVG 想当组件用却得到字符串  | 默认 asset import 返回 URL   | 用框架插件或自定义 SVG loader |
+| 大 PNG 被打进 JS            | 使用了 `?inline` 或阈值过大  | 改用默认 import / `?url`      |
+| public 资源部署到子路径失败 | 写死了根路径                 | 使用 `BASE_URL`               |
+| 自定义模型文件 import 报错  | 后缀不在默认资源列表         | 配置 `assetsInclude`          |
 
 ## 自测题
 

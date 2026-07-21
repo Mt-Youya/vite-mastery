@@ -12,30 +12,28 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - Which source features Vite supports out of the box
-  - How `import.meta.glob` turns files into module maps
-  - Where Workers, WASM, JSON, and CSS Modules fit
-  - When to use built-in features and when to write a plugin
+  - Which source features Vite supports out of the box - How `import.meta.glob` turns files into module maps - Where
+  Workers, WASM, JSON, and CSS Modules fit - When to use built-in features and when to write a plugin
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understand [1.1 · Native ESM](/docs/01-core-concepts/01-native-esm)
-  - Know [7.2 · Asset Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
+  - Understand [1.1 · Native ESM](/docs/01-core-concepts/01-native-esm) - Know [7.2 · Asset
+  Pipeline](/docs/07-build-pipeline/02-asset-pipeline)
 </Callout>
 
 ## Built-In Features Are Still Plugin Pipeline Features
 
 Vite is not only a dev server. It ships source handling features:
 
-| Feature | Example | Result |
-| ------- | ------- | ------ |
-| CSS import | `import "./style.css"` | injected in dev, extracted in build |
-| CSS Modules | `import styles from "./a.module.css"` | class name map |
-| JSON import | `import pkg from "./package.json"` | object or named exports |
-| Static assets | `import logo from "./logo.png"` | URL string or data URL |
-| Glob import | `import.meta.glob("./pages/*.tsx")` | module map |
-| Worker | `new Worker(new URL("./w.ts", import.meta.url))` | separate thread entry |
-| WASM | `import init from "./math.wasm"` | initializer or URL |
+| Feature       | Example                                          | Result                              |
+| ------------- | ------------------------------------------------ | ----------------------------------- |
+| CSS import    | `import "./style.css"`                           | injected in dev, extracted in build |
+| CSS Modules   | `import styles from "./a.module.css"`            | class name map                      |
+| JSON import   | `import pkg from "./package.json"`               | object or named exports             |
+| Static assets | `import logo from "./logo.png"`                  | URL string or data URL              |
+| Glob import   | `import.meta.glob("./pages/*.tsx")`              | module map                          |
+| Worker        | `new Worker(new URL("./w.ts", import.meta.url))` | separate thread entry               |
+| WASM          | `import init from "./math.wasm"`                 | initializer or URL                  |
 
 These are not magic. They run through the same resolve, load, and transform pipeline. That matters when authoring plugins: decide whether to reuse built-ins or take over a file type yourself.
 
@@ -178,11 +176,11 @@ const worker = new WorkerConstructor()
 const inlineWorker = new InlineWorker()
 ```
 
-| Pattern | Use case |
-| ------- | -------- |
-| `new Worker(new URL(...))` | standard browser-friendly form |
-| `?worker` | compact app-level imports |
-| `?worker&inline` | small workers or fewer requests |
+| Pattern                    | Use case                        |
+| -------------------------- | ------------------------------- |
+| `new Worker(new URL(...))` | standard browser-friendly form  |
+| `?worker`                  | compact app-level imports       |
+| `?worker&inline`           | small workers or fewer requests |
 
 Workers have their own module graph and worker build options.
 
@@ -218,13 +216,13 @@ Validate CSP on the real deployment target, not only with `vite preview`.
 
 Prefer built-ins when possible:
 
-| Need | First choice |
-| ---- | ------------ |
-| Collect page files | `import.meta.glob` |
-| Read Markdown text | `?raw` |
-| Get image URL | asset import or `?url` |
-| Start a Worker | standard Worker URL or `?worker` |
-| JSON config | JSON import or runtime fetch |
+| Need               | First choice                     |
+| ------------------ | -------------------------------- |
+| Collect page files | `import.meta.glob`               |
+| Read Markdown text | `?raw`                           |
+| Get image URL      | asset import or `?url`           |
+| Start a Worker     | standard Worker URL or `?worker` |
+| JSON config        | JSON import or runtime fetch     |
 
 Write a plugin when the file type is unsupported, dev/build transforms must match, HMR boundaries need control, virtual modules are required, or the build output must be analyzed.
 
@@ -242,4 +240,3 @@ Write a plugin when the file type is unsupported, dev/build transforms must matc
 // - eagerly load all content
 // - return { path, content }[]
 ```
-

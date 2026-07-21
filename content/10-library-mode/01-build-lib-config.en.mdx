@@ -12,16 +12,15 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="What you will learn">
-  - The real difference between application mode and library mode
-  - What each `build.lib` field controls
-  - Why libraries externalize peer dependencies
-  - How `package.json exports` controls consumer imports
-  - How to verify that another project can actually consume the package
+  - The real difference between application mode and library mode - What each `build.lib` field controls - Why libraries
+  externalize peer dependencies - How `package.json exports` controls consumer imports - How to verify that another
+  project can actually consume the package
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - Understand ESM and CommonJS
-  - Read [7.1 · Vite build and Rolldown](/docs/07-build-pipeline/01-rolldown-in-build)
+
+- Understand ESM and CommonJS - Read [7.1 · Vite build and Rolldown](/docs/07-build-pipeline/01-rolldown-in-build)
+
 </Callout>
 
 ## Library Mode Is About Being Imported
@@ -38,14 +37,14 @@ Library output is published to npm and imported by another project:
 import { Button } from "@myorg/ui"
 ```
 
-| Dimension | App mode | Library mode |
-| --------- | -------- | ------------ |
-| Entry | HTML | JS/TS public API |
-| Consumer | browser | another bundler/runtime |
-| Filenames | hash-friendly | stable paths |
-| Dependencies | often bundled | frameworks often peer |
-| package.json | not browser entry | defines import surface |
-| CSS | injected/extracted for app | delivery strategy required |
+| Dimension    | App mode                   | Library mode               |
+| ------------ | -------------------------- | -------------------------- |
+| Entry        | HTML                       | JS/TS public API           |
+| Consumer     | browser                    | another bundler/runtime    |
+| Filenames    | hash-friendly              | stable paths               |
+| Dependencies | often bundled              | frameworks often peer      |
+| package.json | not browser entry          | defines import surface     |
+| CSS          | injected/extracted for app | delivery strategy required |
 
 The question is not just "does it build?" It is "can consumers resolve the right JS and types?"
 
@@ -99,12 +98,12 @@ import { tokens } from "@myorg/ui/theme"
 
 ### `formats`
 
-| Format | Use case |
-| ------ | -------- |
-| `es` | modern bundlers and tree-shaking |
-| `cjs` | tools still using `require()` |
-| `umd` | CDN script global |
-| `iife` | rare direct browser global |
+| Format | Use case                         |
+| ------ | -------------------------------- |
+| `es`   | modern bundlers and tree-shaking |
+| `cjs`  | tools still using `require()`    |
+| `umd`  | CDN script global                |
+| `iife` | rare direct browser global       |
 
 Modern packages usually start with `["es"]` or `["es", "cjs"]`. Add UMD/IIFE only when you really support globals.
 
@@ -205,11 +204,11 @@ import "@myorg/ui/style.css"
 
 ## CSS Delivery
 
-| Strategy | Usage | Fits |
-| -------- | ----- | ---- |
-| separate CSS | `import "@myorg/ui/style.css"` | classic component libraries |
-| per-component side effect CSS | component entry imports CSS | small internal libraries |
-| runtime styles | JS generates styles | highly dynamic themes |
+| Strategy                      | Usage                          | Fits                        |
+| ----------------------------- | ------------------------------ | --------------------------- |
+| separate CSS                  | `import "@myorg/ui/style.css"` | classic component libraries |
+| per-component side effect CSS | component entry imports CSS    | small internal libraries    |
+| runtime styles                | JS generates styles            | highly dynamic themes       |
 
 If consumers import CSS explicitly:
 

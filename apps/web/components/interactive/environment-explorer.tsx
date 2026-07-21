@@ -206,7 +206,7 @@ export function EnvironmentExplorer() {
                       onClick={() => setSelected(isSelected ? null : mod.id)}
                       className={cn(
                         "flex w-full items-center gap-2 rounded-md border px-2.5 py-1.5 text-left",
-                        "transition-all duration-[--duration-fast] cursor-pointer",
+                        "transition-all duration-(--duration-fast) cursor-pointer",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/50",
                         isSelected
                           ? "border-brand-400/60 bg-brand-50 dark:bg-brand-900/20 shadow-sm"

@@ -12,28 +12,23 @@ apiStability: "experimental"
 ---
 
 <Callout type="warning" title="Early Preview">
-  `@vitejs/devtools` is currently in early preview (repo
-  [vitejs/devtools](https://github.com/vitejs/devtools), docs
-  [devtools.vite.dev](https://devtools.vite.dev/)). Field names for Dock registration, RPC,
-  and the Rolldown integration may still change between minor releases. For production
-  projects, pin to a specific patch — e.g. `@vitejs/devtools@0.x.y` — rather than `^0.x`.
+  `@vitejs/devtools` is currently in early preview (repo [vitejs/devtools](https://github.com/vitejs/devtools), docs
+  [devtools.vite.dev](https://devtools.vite.dev/)). Field names for Dock registration, RPC, and the Rolldown integration
+  may still change between minor releases. For production projects, pin to a specific patch — e.g.
+  `@vitejs/devtools@0.x.y` — rather than `^0.x`.
 </Callout>
 
 <Callout type="note" title="What you'll learn">
-  - What `@vitejs/devtools` is, and where it ends and `vite-plugin-inspect` begins
-  - The three working modes: Standalone / Embedded / Rolldown integration
-  - The five panels the Rolldown integration ships: module analysis, plugin insights,
-    chunk/asset multi-view, duplicate-package detection, session compare
-  - How to add your own Dock panel to a Vite plugin via `devtools.setup(ctx)`
-  - A standard diagnosis funnel for "slow page" and "huge bundle"
+  - What `@vitejs/devtools` is, and where it ends and `vite-plugin-inspect` begins - The three working modes: Standalone
+  / Embedded / Rolldown integration - The five panels the Rolldown integration ships: module analysis, plugin insights,
+  chunk/asset multi-view, duplicate-package detection, session compare - How to add your own Dock panel to a Vite plugin
+  via `devtools.setup(ctx)` - A standard diagnosis funnel for "slow page" and "huge bundle"
 </Callout>
 
 <Callout type="tip" title="Prerequisites">
-  - You've run `dev` and `build` on a Vite 8 project
-  - You're comfortable with the `resolveId` / `load` / `transform` hooks
-    (see [Part 3 · Plugin System](/docs/03-plugin-system/02-anatomy))
-  - You know how Rolldown relates to Rollup
-    (see [Part 2 · Bundler Evolution](/docs/02-bundler-evolution/03-rolldown-architecture))
+  - You've run `dev` and `build` on a Vite 8 project - You're comfortable with the `resolveId` / `load` / `transform`
+  hooks (see [Part 3 · Plugin System](/docs/03-plugin-system/02-anatomy)) - You know how Rolldown relates to Rollup (see
+  [Part 2 · Bundler Evolution](/docs/02-bundler-evolution/03-rolldown-architecture))
 </Callout>
 
 ## 1. What is Vite DevTools, really?
@@ -42,13 +37,13 @@ apiStability: "experimental"
 
 Internalizing that distinction prevents confusion with `vite-plugin-inspect`:
 
-| Dimension     | `vite-plugin-inspect`         | `@vitejs/devtools`                                          |
-| ------------- | ----------------------------- | ----------------------------------------------------------- |
-| Scope         | Single-purpose plugin         | Framework + integration collection                          |
-| Phases        | dev only                      | dev and build                                               |
-| Extensibility | Not extensible                | Any Vite plugin can host a Dock panel                       |
+| Dimension     | `vite-plugin-inspect`           | `@vitejs/devtools`                                                |
+| ------------- | ------------------------------- | ----------------------------------------------------------------- |
+| Scope         | Single-purpose plugin           | Framework + integration collection                                |
+| Phases        | dev only                        | dev and build                                                     |
+| Extensibility | Not extensible                  | Any Vite plugin can host a Dock panel                             |
 | Core power    | Per-file transform chain + diff | Module graph / plugin insights / chunk views / dup pkgs / compare |
-| Dependencies  | Standalone                    | Vite 8+, deep Rolldown integration                          |
+| Dependencies  | Standalone                      | Vite 8+, deep Rolldown integration                                |
 
 One-liner: **inspect tells you "what did this file become?"; DevTools tells you "what does the whole dev/build ecosystem look like, and where is it expensive?"** They're complementary, not competing.
 

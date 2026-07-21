@@ -12,10 +12,12 @@ apiStability: "stable"
 ---
 
 <Callout type="note" title="你将学到什么">
-  - 传统 bundler dev server 慢在哪里
-  - 浏览器原生 ESM 为什么让 dev 阶段可以不打包
-  - Vite 8 的 Rolldown 主线解决了哪些旧架构问题
-  - 什么时候应该关心 build,什么时候应该先关心 dev 体验
+
+- 传统 bundler dev server 慢在哪里
+- 浏览器原生 ESM 为什么让 dev 阶段可以不打包
+- Vite 8 的 Rolldown 主线解决了哪些旧架构问题
+- 什么时候应该关心 build,什么时候应该先关心 dev 体验
+
 </Callout>
 
 ## 传统 dev server 为什么慢
@@ -69,11 +71,11 @@ Vite 的关键选择是:**开发阶段不先打包整站**。dev server 只在�
 
 Vite 8 的主线是用 Rolldown 收敛这套模型:
 
-| 阶段 | Vite 8 关注点 | 你应该记住的心智模型 |
-| --- | --- | --- |
-| dev | 按需转换源码、快速 HMR、依赖预处理 | 浏览器请求什么,Vite 就处理什么 |
-| build | 完整静态分析、tree-shaking、chunk 生成、资源指纹 | 为生产环境生成可缓存、可部署的产物 |
-| 插件 | Vite hooks + Rollup/Rolldown 风格 hooks | dev/build 行为尽量靠同一套插件语义收敛 |
+| 阶段  | Vite 8 关注点                                    | 你应该记住的心智模型                   |
+| ----- | ------------------------------------------------ | -------------------------------------- |
+| dev   | 按需转换源码、快速 HMR、依赖预处理               | 浏览器请求什么,Vite 就处理什么         |
+| build | 完整静态分析、tree-shaking、chunk 生成、资源指纹 | 为生产环境生成可缓存、可部署的产物     |
+| 插件  | Vite hooks + Rollup/Rolldown 风格 hooks          | dev/build 行为尽量靠同一套插件语义收敛 |
 
 这也是本指南反复强调 Rolldown 的原因:它不是一个“更快的 build 实现”这么简单,而是让 Vite 的开发和构建模型更一致。
 
@@ -126,4 +128,6 @@ Vite 的优势在这些场景最明显:
 3. 为什么生产 build 仍然需要完整打包?
 4. Vite 8 引入 Rolldown 后,它想减少哪类 dev/build 不一致?
 
-<Callout type="tip">下一步读 [0.2 · 第一个 Vite 项目](/docs/00-getting-started/02-first-project),把这套模型跑起来。</Callout>
+<Callout type="tip">
+  下一步读 [0.2 · 第一个 Vite 项目](/docs/00-getting-started/02-first-project),把这套模型跑起来。
+</Callout>
