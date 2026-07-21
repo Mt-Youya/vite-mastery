@@ -14,6 +14,7 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "@vite-mastery/ui": "workspace:*",
     "@webcontainer/api": "^1.6.4",
     "clsx": "^2.1.1",
