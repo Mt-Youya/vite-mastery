@@ -11,10 +11,10 @@ import type { Locale } from "@/i18n/config"
 import { DOCS_HASH_CHANGE_EVENT, getCurrentHash } from "@/lib/docs-anchor"
 import { localizedHref } from "@/lib/i18n-routing"
 import { cn } from "@/lib/utils"
-import type { DocsTreeNode } from "@/lib/docs-tree"
+import type { DocsNavTreeNode } from "@/lib/docs-tree"
 
 interface SidebarProps {
-  tree: DocsTreeNode[]
+  tree: DocsNavTreeNode[]
   locale: Locale
 }
 

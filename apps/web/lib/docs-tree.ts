@@ -51,6 +51,34 @@ export function buildDocsTree(docs: DocItem[]): DocsTreeNode[] {
   }))
 }
 
+/**
+ * sidebar / mobile-sidebar 等客户端导航组件专用的轻量文档节点。
+ * 客户端组件的 props 会被整体序列化进每个路由的 RSC/HTML,
+ * 所以这里绝不允许携带 body / content / _meta 等重字段。
+ */
+export type DocNavItem = Pick<DocItem, "slug" | "title" | "chapter" | "part"> & {
+  isFallback?: boolean
+}
+
+export interface DocsNavTreeNode {
+  part: (typeof PARTS)[number]
+  docs: DocNavItem[]
+}
+
+/** 构建导航树:分组 / 排序 / draft 过滤规则与 buildDocsTree 一致(直接复用),只裁剪出导航字段 */
+export function buildDocsNavTree(docs: DocItem[]): DocsNavTreeNode[] {
+  return buildDocsTree(docs).map((node) => ({
+    part: node.part,
+    docs: node.docs.map((d) => ({
+      slug: d.slug,
+      title: d.title,
+      chapter: d.chapter,
+      part: d.part,
+      isFallback: d.isFallback,
+    })),
+  }))
+}
+
 /** flat list,按 (part 顺序, order) 排,用于 prev/next 导航 */
 export function flattenDocs(tree: DocsTreeNode[]): DocItem[] {
   return tree.flatMap((node) => node.docs)

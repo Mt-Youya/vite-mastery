@@ -7,11 +7,11 @@ import { useTranslations } from "next-intl"
 import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import type { Locale } from "@/i18n/config"
-import type { DocsTreeNode } from "@/lib/docs-tree"
+import type { DocsNavTreeNode } from "@/lib/docs-tree"
 import { Sidebar } from "./sidebar"
 
 interface MobileSidebarProps {
-  tree: DocsTreeNode[]
+  tree: DocsNavTreeNode[]
   locale: Locale
 }
 
