@@ -1,0 +1,2 @@
+# GitHub Linguist 配置:教程内容不计入仓库语言统计
+*.mdx linguist-detectable=false
