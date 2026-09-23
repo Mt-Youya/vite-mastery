@@ -3,9 +3,9 @@ import { GeistMono } from "geist/font/mono"
 import { GeistSans } from "geist/font/sans"
 import { THEME_STORAGE_KEY } from "@/layout/theme-constants"
 import { DEFAULT_LOCALE, LOCALE_HTML_TAG } from "@/i18n/config"
+import { Analytics } from "@vercel/analytics/next"
+import { SpeedInsights } from "@vercel/speed-insights/next"
 import "./[lang]/styles/globals.css"
-import { Analytics } from "@vercel/analytics/react"
-import { SpeedInsights } from "@vercel/speed-insights/react"
 
 /**
  * 真正的 root layout —— 只承担 <html>/<body>/字体/主题预绘脚本,

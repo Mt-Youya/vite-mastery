@@ -227,7 +227,7 @@ export function PlaygroundApp() {
         ) : null}
 
         <section className="grid min-h-[calc(100dvh-12rem)] gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-          <div className="grid min-h-[520px] overflow-hidden rounded-md border border-slate-800 bg-slate-900 shadow-sm lg:grid-cols-[16rem_minmax(0,1fr)]">
+          <div className="grid min-h-130 overflow-hidden rounded-md border border-slate-800 bg-slate-900 shadow-sm lg:grid-cols-[16rem_minmax(0,1fr)]">
             <aside className="border-b border-slate-800 bg-slate-950/60 p-3 lg:border-r lg:border-b-0">
               <p className="mb-3 font-mono text-xs text-slate-400 uppercase">文件</p>
               <nav aria-label="示例文件">
@@ -281,12 +281,12 @@ export function PlaygroundApp() {
                 value={activeFile.contents}
                 spellCheck={false}
                 onChange={(event) => void updateActiveFile(event.target.value)}
-                className="min-h-[460px] flex-1 resize-none bg-slate-950 p-4 font-mono text-sm leading-relaxed text-slate-100 outline-none selection:bg-amber-300/30"
+                className="min-h-115 flex-1 resize-none bg-slate-950 p-4 font-mono text-sm leading-relaxed text-slate-100 outline-none selection:bg-amber-300/30"
               />
             </section>
           </div>
 
-          <div className="grid min-h-[520px] gap-4 lg:grid-rows-[minmax(0,1fr)_16rem]">
+          <div className="grid min-h-130 gap-4 lg:grid-rows-[minmax(0,1fr)_16rem]">
             <section className="overflow-hidden rounded-md border border-slate-800 bg-slate-900 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
                 <div>
@@ -307,10 +307,10 @@ export function PlaygroundApp() {
                   title="Vite WebContainer 预览"
                   src={previewUrl}
                   allow="cross-origin-isolated"
-                  className="h-full min-h-[420px] w-full bg-white"
+                  className="h-full min-h-105 w-full bg-white"
                 />
               ) : (
-                <div className="grid min-h-[420px] place-items-center px-6 text-center">
+                <div className="grid min-h-105 place-items-center px-6 text-center">
                   <div className="max-w-md">
                     <p className="mb-2 text-lg font-semibold text-white">还没有预览</p>
                     <p className="text-pretty text-sm text-slate-400">
