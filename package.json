@@ -32,7 +32,7 @@
     "new:example": "node --experimental-strip-types scripts/new-example.ts",
     "new:v7note": "node --experimental-strip-types scripts/new-v7note.ts",
     "check:content": "node --experimental-strip-types scripts/check-content.ts",
-    "fix:tw": "dlx @tailwindcss/upgrade",
+    "fix:tw": "pnpm dlx @tailwindcss/upgrade",
     "pre-commit": "pnpm format && pnpm lint && pnpm build:web"
   },
   "dependencies": {
@@ -51,7 +51,8 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "12.5.1"
+      "version": "12.5.1",
+      "onFail": "warn"
     }
   },
   "engines": {
