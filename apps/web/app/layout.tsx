@@ -4,6 +4,8 @@ import { GeistSans } from "geist/font/sans"
 import { THEME_STORAGE_KEY } from "@/layout/theme-constants"
 import { DEFAULT_LOCALE, LOCALE_HTML_TAG } from "@/i18n/config"
 import "./[lang]/styles/globals.css"
+import { Analytics } from "@vercel/analytics/react"
+import { SpeedInsights } from "@vercel/speed-insights/react"
 
 /**
  * 真正的 root layout —— 只承担 <html>/<body>/字体/主题预绘脚本,
@@ -44,12 +46,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <head>
         {/* 必须 inline 同步执行,确保首屏 paint 前主题 class 就位 */}
-        <script
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: theme init must run sync before paint
-          dangerouslySetInnerHTML={{ __html: themeInitScript }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="flex min-h-dvh flex-col bg-bg text-fg antialiased">{children}</body>
+      <body className="flex min-h-dvh flex-col bg-bg text-fg antialiased">
+        {children}
+        <Analytics />
+        <SpeedInsights />
+      </body>
     </html>
   )
 }

@@ -14,13 +14,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@content-collections/core": "^0.15.2",
+    "@content-collections/core": "^0.15.3",
     "@content-collections/mdx": "^0.2.2",
     "unified": "^11.0.5",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@vite-mastery/tsconfig": "workspace:*",
-    "typescript": "^6.0.3"
+    "typescript": "^7.0.2"
   }
 }
